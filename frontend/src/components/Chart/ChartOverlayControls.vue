@@ -2,7 +2,8 @@
 import { ref } from 'vue'
 import { CandlestickChart, ChartNoAxesCombined } from 'lucide-vue-next'
 
-const showVolume = ref(false)
+const props = defineProps({ showVolume: { type: Boolean, default: true } })
+const emit = defineEmits(['update:showVolume'])
 const showOrders = ref(true)
 </script>
 
@@ -10,7 +11,7 @@ const showOrders = ref(true)
   <div class="chart-controls">
     <div class="chart-legend"><CandlestickChart :size="15" /><span>PRICE ACTION</span><i></i><span class="legend-entry">ENTRY</span><i></i><span class="legend-stop">SL / TP</span></div>
     <div class="chart-toggles">
-      <button :class="{ active: showVolume }" :aria-pressed="showVolume" @click="showVolume = !showVolume"><ChartNoAxesCombined :size="14" /> VOLUME</button>
+      <button :class="{ active: props.showVolume }" :aria-pressed="props.showVolume" @click="emit('update:showVolume', !props.showVolume)"><ChartNoAxesCombined :size="14" /> VOLUME</button>
       <button :class="{ active: showOrders }" :aria-pressed="showOrders" @click="showOrders = !showOrders">ORDERS</button>
     </div>
   </div>

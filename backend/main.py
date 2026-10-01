@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,14 +7,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.v1 import router as api_router
 from core.config import settings
 from core.database import close_database, ping_database
+from core.migrations import run_migrations
 from core.redis_client import close_redis, ping_redis
+from data_ingestion.chart_streamer import ChartStreamer
+from data_ingestion.news_worker import NewsCollector
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    yield
-    await close_redis()
-    await close_database()
+    await run_migrations()
+    news_task = asyncio.create_task(NewsCollector().run(), name="news-collector")
+    chart_task = asyncio.create_task(ChartStreamer().run(), name="chart-streamer")
+    try:
+        yield
+    finally:
+        for task in (news_task, chart_task):
+            task.cancel()
+        await asyncio.gather(news_task, chart_task, return_exceptions=True)
+        await close_redis()
+        await close_database()
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)

@@ -5,6 +5,8 @@ export const marketStore = reactive({
   symbol: 'XAUUSD',
   timeframe: 'M1',
   candles: [],
+  chartEvent: null,
+  lastPrice: null,
   health: null,
   loading: false,
   error: '',
@@ -24,5 +26,10 @@ export const marketStore = reactive({
     } finally {
       this.loading = false
     }
+  },
+  applyChartUpdate(event) {
+    if (event.symbol !== this.symbol || event.timeframe !== this.timeframe) return
+    this.chartEvent = event
+    this.lastPrice = event.price.value
   },
 })

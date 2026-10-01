@@ -11,3 +11,5 @@ export const fetchHistory = (symbol = 'XAUUSD', timeframe = 'M1') =>
   get(`/market/history?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=500`)
 export const fetchOrders = () => get('/orders')
 export const fetchNews = () => get('/news')
+export const fetchEconomicEvents = () => get('/news/events')
+export const fetchNewsStatus = () => get('/news/status')

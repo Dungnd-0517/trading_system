@@ -13,27 +13,34 @@ import { orderStore } from './stores/orderStore'
 import { connectMarketStream } from './services/websocket'
 
 const streamConnected = ref(false)
+const showVolume = ref(true)
 const now = ref(new Date())
 let clockTimer
+let sourceTimer
 let socket
 const dbConnected = computed(() => marketStore.health?.services?.postgres === true)
 const redisConnected = computed(() => marketStore.health?.services?.redis === true)
 
 function selectTimeframe(timeframe) {
   marketStore.timeframe = timeframe
+  marketStore.chartEvent = null
   marketStore.refresh()
 }
 
 onMounted(() => {
   marketStore.refresh()
   orderStore.refresh()
-  socket = connectMarketStream((tick) => {
-    if (tick.symbol === marketStore.symbol && tick.type === 'candle') marketStore.refresh()
+  socket = connectMarketStream((event) => {
+    if (event.type === 'chart.update') marketStore.applyChartUpdate(event)
+    if (event.type === 'news.upsert') orderStore.applyNewsUpdate(event)
+    if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
   }, (value) => { streamConnected.value = value })
   clockTimer = window.setInterval(() => { now.value = new Date() }, 1000)
+  sourceTimer = window.setInterval(() => { orderStore.refreshSources() }, 60_000)
 })
 onUnmounted(() => {
   window.clearInterval(clockTimer)
+  window.clearInterval(sourceTimer)
   socket?.close()
 })
 </script>
@@ -69,7 +76,7 @@ onUnmounted(() => {
 
     <section class="instrument-bar">
       <div class="instrument-title"><span class="asset-icon">Au</span><div><h1>XAUUSD</h1><span>Gold / U.S. Dollar</span></div></div>
-      <div class="instrument-price"><strong>--</strong><span>Awaiting market data</span></div>
+      <div class="instrument-price"><strong>{{ marketStore.lastPrice === null ? '--' : marketStore.lastPrice.toFixed(2) }}</strong><span>{{ streamConnected ? 'LIVE PRICE' : 'Awaiting market data' }}</span></div>
       <div class="timeframes" role="group" aria-label="Chart timeframe">
         <button v-for="frame in ['M1', 'M5', 'M15', 'H1']" :key="frame" :class="{ selected: marketStore.timeframe === frame }" @click="selectTimeframe(frame)">{{ frame }}</button>
       </div>
@@ -81,8 +88,8 @@ onUnmounted(() => {
     <section class="main-grid">
       <div class="chart-column">
         <div class="chart-panel">
-          <ChartOverlayControls />
-          <TradingViewChart :candles="marketStore.candles" />
+          <ChartOverlayControls v-model:show-volume="showVolume" />
+          <TradingViewChart :candles="marketStore.candles" :event="marketStore.chartEvent" :show-volume="showVolume" />
           <div class="chart-foot"><span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span><span>UTC · {{ marketStore.timeframe }}</span></div>
         </div>
         <MetricsCards :orders="orderStore.orders" />
@@ -91,7 +98,7 @@ onUnmounted(() => {
       <aside class="right-column">
         <InsightsPanel />
         <SentimentGauge :news="orderStore.news" />
-        <NewsStream :news="orderStore.news" />
+        <NewsStream :news="orderStore.news" :events="orderStore.events" :sources="orderStore.sources" />
       </aside>
     </section>
     <footer class="footer"><span>FIELDNOTE MARKETS <b>·</b> STAGE 01</span><span>Market data and simulated fills only. Not investment advice.</span></footer>
