@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: trading_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading_system}
+      POSTGRES_USER: ${POSTGRES_USER:-quant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quant_user} -d ${POSTGRES_DB:-trading_system}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [trading-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: trading_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [trading-net]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trading_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-quant_user}:${POSTGRES_PASSWORD:-change-this-password}@postgres:5432/${POSTGRES_DB:-trading_system}
+      REDIS_URL: redis://redis:6379/0
+      MT5_BRIDGE_URL: http://mt5-bridge:5001
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks: [trading-net]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: trading_frontend
+    restart: unless-stopped
+    depends_on: [backend]
+    ports:
+      - "3000:80"
+    networks: [trading-net]
+
+  mt5-bridge:
+    build:
+      context: ./mt5-bridge
+      dockerfile: Dockerfile
+    container_name: trading_mt5_bridge
+    restart: unless-stopped
+    environment:
+      MT5_LOGIN: ${MT5_DEMO_LOGIN:-}
+      MT5_PASSWORD: ${MT5_DEMO_PASSWORD:-}
+      MT5_SERVER: ${MT5_DEMO_SERVER:-}
+    ports:
+      - "5001:5001"
+    networks: [trading-net]
+
+networks:
+  trading-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
