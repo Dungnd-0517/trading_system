@@ -330,7 +330,7 @@ Các endpoint/feed dưới đây đã được kiểm tra trực tiếp ngày 20
 * Poll FairEconomy `thisweek.json` mỗi **5 phút**. Chỉ lưu/hiển thị sự kiện trong feed; không tự suy diễn dữ liệu cho tuần sau khi endpoint không tồn tại.
 * Poll Kitco và FXStreet mỗi **2 phút**. Dùng `ETag`/`Last-Modified` và conditional GET nếu server cung cấp; nếu không có validator, dùng hash nội dung feed. Gửi `Accept: application/rss+xml, application/xml`; không crawl trang bài viết, chỉ lưu headline, excerpt từ feed, thời gian, nguồn và URL.
 * Bắt đầu fallback riêng cho nguồn sau **2 chu kỳ liên tiếp** có lỗi mạng, timeout, HTTP 5xx hoặc payload không parse/validate được. Finnhub chỉ được gọi khi fallback active: Market News mỗi 2 phút, Economic Calendar mỗi 5 phút. Sau **2 lần poll primary liên tiếp thành công và hợp lệ**, quay lại primary.
-* Mỗi lần gọi có connect timeout **3 giây**, read timeout **10 giây**, tối đa **3 lần thử** mỗi chu kỳ với backoff `1s, 2s, 4s` và jitter ±20%. Chỉ retry lỗi mạng, timeout, 408 và 5xx. Với 429, tôn trọng `Retry-After`, không gọi dồn. 401/403/404 không retry; đánh dấu entitlement/cấu hình/endpoint lỗi.
+* Mỗi lần gọi có connect timeout **3 giây**, read timeout **10 giây**, tối đa **3 attempts tổng cộng** mỗi chu kỳ; khoảng chờ retry là `1s` và `2s` với jitter ±20%. Chỉ retry lỗi mạng, timeout, 408 và 5xx. Với 429, tôn trọng `Retry-After`, không gọi dồn. 401/403/404 không retry; vô hiệu hóa endpoint đó đến lần restart/cấu hình kế tiếp và đánh dấu entitlement/cấu hình/endpoint lỗi.
 * Mở circuit breaker sau **5 lỗi liên tiếp**, giữ mở **5 phút**, sau đó cho một probe. Nguồn quá **3 chu kỳ poll** không có fetch hợp lệ thì đánh dấu `STALE`; tiếp tục phục vụ last-good nhưng UI/API phải báo stale, không coi là live.
 * Finnhub xác nhận HTTP 429 khi vượt quota và hard ceiling 30 calls/second ngoài quota theo plan. Client phải cấu hình quota theo entitlement thật, giới hạn concurrency/budget; không coi 30 calls/second là quota được cấp. Gửi API key bằng header `X-Finnhub-Token` từ secret/environment; không đưa vào URL, log hay tài liệu. Economic Calendar cần Premium entitlement; nếu không có thì fallback là unavailable và phải báo rõ.
 
@@ -401,6 +401,7 @@ Các cột bổ sung cho `financial_news`:
 |---|---|---|
 | `external_id` | `VARCHAR(128)` nullable | ID từ provider để chống trùng; không có ID thì collector dùng khóa dedupe đã chuẩn hóa |
 | `dedupe_key` | `CHAR(64)` nullable | SHA-256 của source chuẩn hóa, title chuẩn hóa và timestamp gốc UTC; dùng khi provider không có ID |
+| `source_url` | `TEXT` nullable | Link bài gốc, chỉ lưu/hiển thị URL do provider trả về |
 | `content_hash` | `CHAR(64)` nullable | Phát hiện thay đổi nội dung của cùng source item |
 | `revision_no` | `INT NOT NULL DEFAULT 1` | Số revision hiện hành; chỉ tăng khi payload chuẩn hóa đổi |
 | `last_seen_at` | `TIMESTAMPTZ` nullable | Lần gần nhất source item được nhìn thấy |
@@ -466,7 +467,7 @@ CREATE TABLE economic_event_revisions (
 
 Tạo unique partial indexes tương đương cho `financial_news(source, external_id)` và `financial_news(dedupe_key)` sau khi thêm cột. Với calendar không có ID, dedupe key theo source/currency/title/ngày sự kiện gốc, không theo thời điểm collector nhận. `economic_event_revisions` lưu snapshot canonical cũ trước khi update; news chỉ giữ revision number/hash, không lưu thêm bản sao toàn văn. Mọi thay đổi phải đi qua migration triển khai được trên DB đã có dữ liệu; không dựa vào `CREATE TABLE IF NOT EXISTS` để cập nhật schema hiện hữu.
 
-API giữ tương thích: `GET /api/v1/news` tiếp tục trả breaking news và bổ sung các trường phân loại; `GET /api/v1/news/events` trả lịch kinh tế. WebSocket dùng event có type `news.upsert`, kèm `kind` (`breaking_news` hoặc `economic_event`) và `data`; message paper-order hiện có không đổi.
+API giữ tương thích: `GET /api/v1/news` tiếp tục trả breaking news và bổ sung các trường phân loại, revision và `source_url`; `GET /api/v1/news/events` trả lịch kinh tế; `GET /api/v1/news/status` trả trạng thái health/fallback/stale theo source. WebSocket dùng event có type `news.upsert`, kèm `kind` (`breaking_news` hoặc `economic_event`) và `data`; message paper-order hiện có không đổi.
 
 ---
 
