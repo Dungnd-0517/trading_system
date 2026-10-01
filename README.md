@@ -9,7 +9,8 @@ Nền tảng phân tích thị trường đa tài sản với FastAPI, Vue 3, Po
 - `frontend/`: Vue 3 cockpit với Lightweight Charts, trạng thái dịch vụ, tin tức và paper positions.
 - `mt5-bridge/`: HTTP adapter đọc tick MT5; bridge chỉ hoạt động khi có MetaTrader5 runtime tương thích.
 - `docker-compose.yml`: PostgreSQL 16, Redis 7, backend, frontend và bridge.
-- `Architecture.md`: kiến trúc và phạm vi giai đoạn 1.
+- `Architecture.md`: kiến trúc nền, quy ước tài liệu và cách cập nhật phase/sprint.
+- `Architecture_phase_02_sprint_01.md`: delta Phase 2, Sprint 1; D2–D6 đã chốt, sẵn sàng triển khai code sau khi kiểm tra production gates theo từng provider.
 
 ## Chạy local
 
