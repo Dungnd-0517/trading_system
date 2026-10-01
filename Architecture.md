@@ -375,3 +375,51 @@ trading-system/
 2. **Khớp lệnh giả lập chính xác:** Động cơ Paper Trading ghi nhận lệnh, tự động quét nến đóng lệnh qua SL/TP và trừ spread/slippage thực tế.
 3. **Phân tích bối cảnh AI hoạt động:** Đưa ra điểm sentiment tin tức và gợi ý điều chỉnh tham số (SL/TP, Lot) theo biến động thị trường.
 4. **Sẵn sàng chuyển giao Giai đoạn 2:** Cấu trúc module và cơ sở dữ liệu đã chuẩn hóa, sẵn sàng mở rộng sang Auto-Execution với MT5 Live và Backtesting Engine.
+
+---
+
+## 10. QUY ƯỚC CẬP NHẬT KIẾN TRÚC, PHASE VÀ SPRINT
+
+### 10.1. Nguồn tài liệu chuẩn
+
+* `Architecture.md` là kiến trúc nền của toàn hệ thống: nguyên tắc, thành phần dùng chung, hợp đồng hiện hành và những gì đã được nghiệm thu.
+* Tài liệu phase/sprint chỉ ghi phạm vi và phần **bổ sung hoặc thay đổi** so với tài liệu nền; không sao chép rút gọn các mục kiến trúc nền thành một phiên bản cạnh tranh.
+* Mỗi tài liệu phase/sprint phải dẫn rõ tài liệu nền và phase/sprint trước đó. Khi có mâu thuẫn, tài liệu nền vẫn có hiệu lực cho tới khi một thay đổi được chấp thuận và ghi vào decision log của phase/sprint liên quan.
+
+### 10.2. Tên file và cấu trúc phase/sprint
+
+* Tên file thống nhất: `Architecture_phase_<NN>_sprint_<NN>.md`, ví dụ `Architecture_phase_02_sprint_01.md`.
+* Mỗi tài liệu bắt đầu bằng metadata: trạng thái, tài liệu nền, phạm vi, phụ thuộc, ngày cập nhật và trạng thái các quyết định.
+* Nội dung theo thứ tự: mục tiêu/phạm vi; quyết định và decision log; thay đổi kiến trúc/data/API/UI; thứ tự triển khai; kiểm thử và tiêu chí nghiệm thu; phần chưa quyết định.
+* Dùng các trạng thái quyết định `PROPOSED`, `ACCEPTED`, `DEFERRED`, `REJECTED`. Chỉ quyết định `ACCEPTED` mới là hợp đồng để triển khai. Thay đổi một quyết định đã chấp thuận phải ghi lý do, tác động tương thích và ngày sửa.
+
+### 10.3. Quy trình cập nhật
+
+1. Tạo phase/sprint mới bằng cách tham chiếu tài liệu nền và phạm vi đã nghiệm thu gần nhất; chỉ ghi delta, không chép lại toàn bộ kiến trúc.
+2. Chốt quyết định ảnh hưởng tới dữ liệu, API, event hoặc giao diện trước khi sửa code. Mỗi hợp đồng cần có ví dụ payload/schema và quy tắc tương thích.
+3. Sau khi quyết định được chấp thuận, cập nhật code, schema/migration, kiểm thử và tiêu chí nghiệm thu cùng một phạm vi công việc.
+4. Nếu triển khai phát hiện cần đổi hợp đồng, dừng mở rộng phạm vi; cập nhật decision log và tài liệu trước, rồi mới tiếp tục code.
+5. Khi đóng sprint, ghi trạng thái nghiệm thu, phần còn lại được chuyển tiếp, và cập nhật `Architecture.md` chỉ khi có thay đổi trở thành kiến trúc nền dùng chung.
+
+### 10.4. Mẫu tối thiểu cho tài liệu phase/sprint
+
+```markdown
+# Phase <NN> - Sprint <NN>: <Tên>
+
+Status: SPEC | IN_PROGRESS | ACCEPTED
+Baseline: [Architecture.md](Architecture.md)
+Previous: [Tài liệu phase/sprint trước](...)
+Scope: <phần làm trong sprint>
+Out of scope: <phần chưa làm>
+Last updated: YYYY-MM-DD
+
+## 1. Mục tiêu và phạm vi
+## 2. Quyết định (decision log)
+| ID | Quyết định | Trạng thái | Tác động |
+|----|------------|------------|----------|
+## 3. Thay đổi kiến trúc và hợp đồng
+## 4. Schema và migration
+## 5. Thứ tự triển khai
+## 6. Kiểm thử và tiêu chí nghiệm thu
+## 7. Deferred / rủi ro / phụ thuộc
+```
