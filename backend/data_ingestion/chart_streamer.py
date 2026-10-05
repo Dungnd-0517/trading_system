@@ -1,12 +1,14 @@
 import asyncio
 import json
+from decimal import Decimal
 import logging
 import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+import httpx
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from core.database import session_factory
@@ -74,17 +76,30 @@ class CandleAggregator:
         return events
 
     def ingest_kline(self, item: dict[str, Any]) -> dict[str, object] | None:
-        symbol = str(item.get("symbol") or "").upper()
+        raw_symbol = str(item.get("symbol") or "").upper()
         timestamp_ms = int(item.get("timestamp") or 0)
-        if not symbol or timestamp_ms <= 0:
+        if not raw_symbol or timestamp_ms <= 0:
             return None
+
+        # Symbol mapping & synthetic spread for Gold (D7)
+        if raw_symbol in {"PAXGUSDT", "PAXG", "XAUUSD"}:
+            symbol = "XAUUSD"
+            close_price = float(item["close"])
+            bid = round(close_price - 0.10, 4)
+            ask = round(close_price + 0.10, 4)
+        else:
+            symbol = raw_symbol
+            close_price = float(item["close"])
+            bid = close_price
+            ask = None
+
         time_seconds = timestamp_ms // 1000
         candle = {
             "time": time_seconds,
             "open": float(item["open"]),
             "high": float(item["high"]),
             "low": float(item["low"]),
-            "close": float(item["close"]),
+            "close": close_price,
             "volume": float(item["volume"]),
         }
         self._candles[(symbol, "M1")] = candle
@@ -92,8 +107,8 @@ class CandleAggregator:
             symbol,
             "M1",
             candle,
-            float(item["close"]),
-            None,
+            bid,
+            ask,
             "base_asset_quantity",
         )
 
@@ -109,10 +124,12 @@ class CandleAggregator:
         timestamp = int(candle["time"])
         close = float(candle["close"])
         opened = float(candle["open"])
-        price: dict[str, float] = {"value": bid}
+        price: dict[str, float] = {"value": close}
         if ask is not None:
             price["bid"] = bid
             price["ask"] = ask
+        else:
+            price["value"] = bid
         return {
             "type": "chart.update",
             "symbol": symbol,
@@ -143,8 +160,56 @@ class ChartStreamer:
         self._mt5_cursors = {symbol: max(0, int(time.time() * 1000) - 2000) for symbol in self.symbols}
 
     async def run(self) -> None:
+        await self.seed_binance_history_if_needed()
         await self._seed_open_candles()
         await asyncio.gather(self._run_mt5(), self._run_binance())
+
+    async def seed_binance_history_if_needed(self, symbol: str = "PAXGUSDT", target_symbol: str = "XAUUSD") -> None:
+        async with session_factory() as session:
+            count = await session.scalar(
+                select(func.count()).select_from(MarketCandle).where(MarketCandle.symbol == target_symbol)
+            )
+            if count and count >= 50:
+                return
+
+        try:
+            url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval=1m&limit=500"
+            async with httpx.AsyncClient(timeout=10.0) as http_client:
+                resp = await http_client.get(url)
+                if resp.status_code != 200:
+                    logger.warning("Could not fetch Binance history for %s: %s", symbol, resp.status_code)
+                    return
+                klines = resp.json()
+
+            async with session_factory() as session:
+                for item in klines:
+                    open_time_ms = int(item[0])
+                    open_time = datetime.fromtimestamp(open_time_ms / 1000, timezone.utc)
+                    values = {
+                        "symbol": target_symbol,
+                        "timeframe": "M1",
+                        "open_time": open_time,
+                        "open": Decimal(str(item[1])),
+                        "high": Decimal(str(item[2])),
+                        "low": Decimal(str(item[3])),
+                        "close": Decimal(str(item[4])),
+                        "volume": Decimal(str(item[5])),
+                    }
+                    stmt = insert(MarketCandle).values(**values)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["symbol", "timeframe", "open_time"],
+                        set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                    )
+                    await session.execute(stmt)
+                await session.commit()
+                logger.info(
+                    "Successfully seeded %d historical candles for %s from Binance %s",
+                    len(klines),
+                    target_symbol,
+                    symbol,
+                )
+        except Exception as exc:
+            logger.warning("Failed to seed Binance history: %s", exc)
 
     async def _seed_open_candles(self) -> None:
         async with session_factory() as session:
@@ -195,18 +260,24 @@ class ChartStreamer:
                     logger.debug("MT5 tick unavailable for %s: %s", symbol, exc)
             await asyncio.sleep(0.25)
 
-    async def _run_binance(self) -> None:
+    async def _run_binance_symbol(self, symbol: str) -> None:
         while True:
             try:
-                async for candle in stream_klines("btcusdt", "1m"):
+                async for candle in stream_klines(symbol, "1m"):
                     event = self.aggregator.ingest_kline(candle)
                     if event is not None:
                         await self._emit([event])
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("Binance kline stream disconnected: %s", exc)
+                logger.warning("Binance kline stream for %s disconnected: %s", symbol, exc)
                 await asyncio.sleep(5)
+
+    async def _run_binance(self) -> None:
+        await asyncio.gather(
+            self._run_binance_symbol("btcusdt"),
+            self._run_binance_symbol("paxgusdt"),
+        )
 
     async def _emit(self, events: list[dict[str, object]]) -> None:
         if not events:

@@ -49,8 +49,12 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
 .instrument-title h1 { margin: 0; font-size: 19px; line-height: 1.25; }
 .instrument-title div span { color: var(--muted); font-size: 10px; }
 .instrument-price { display: flex; align-items: baseline; gap: 10px; }
-.instrument-price strong { color: #738078; font: 22px var(--mono); }
+.instrument-price strong { color: #738078; font: 22px var(--mono); transition: color 0.2s ease; }
+.instrument-price strong.tick-up { color: #2e7a52; }
+.instrument-price strong.tick-down { color: #bb594c; }
 .instrument-price span { color: #89948d; font-size: 10px; }
+.account-badge { font: 10px var(--mono); color: var(--green); font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.equity-badge { color: #5a7465; font-size: 9px; font-weight: normal; }
 .timeframes { display: flex; margin-left: auto; border: 1px solid var(--line); border-radius: 6px; padding: 3px; background: #e6ebe5; }
 .timeframes button { min-width: 42px; height: 26px; border: 0; border-radius: 4px; background: transparent; color: #68766d; font: 10px var(--mono); }
 .timeframes button.selected { background: var(--paper); color: var(--green); box-shadow: 0 1px 3px #1b2a2317; }

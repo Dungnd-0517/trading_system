@@ -70,3 +70,27 @@ def test_binance_kline_keeps_traded_volume_unit():
     assert event["symbol"] == "BTCUSDT"
     assert event["volume"]["value"] == 12.5
     assert event["volume"]["unit"] == "base_asset_quantity"
+
+
+def test_binance_paxgusdt_mapped_to_xauusd_with_synthetic_spread():
+    aggregator = CandleAggregator()
+
+    event = aggregator.ingest_kline(
+        {
+            "symbol": "PAXGUSDT",
+            "timestamp": 1_790_942_400_000,
+            "open": 2685.0,
+            "high": 2688.0,
+            "low": 2683.0,
+            "close": 2686.0,
+            "volume": 45.2,
+        }
+    )
+
+    assert event is not None
+    assert event["type"] == "chart.update"
+    assert event["symbol"] == "XAUUSD"
+    assert event["candle"]["close"] == 2686.0
+    assert event["price"] == {"value": 2686.0, "bid": 2685.9, "ask": 2686.1}
+    assert event["volume"]["value"] == 45.2
+    assert event["volume"]["unit"] == "base_asset_quantity"

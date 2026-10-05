@@ -15,6 +15,7 @@ import { connectMarketStream } from './services/websocket'
 const streamConnected = ref(false)
 const showVolume = ref(true)
 const now = ref(new Date())
+const priceDirection = ref('neutral')
 let clockTimer
 let sourceTimer
 let socket
@@ -30,14 +31,32 @@ function selectTimeframe(timeframe) {
 onMounted(() => {
   marketStore.refresh()
   orderStore.refresh()
-  socket = connectMarketStream((event) => {
-    if (event.type === 'chart.update') marketStore.applyChartUpdate(event)
-    if (event.type === 'news.upsert') orderStore.applyNewsUpdate(event)
-    if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
-  }, (value) => { streamConnected.value = value })
-  clockTimer = window.setInterval(() => { now.value = new Date() }, 1000)
-  sourceTimer = window.setInterval(() => { orderStore.refreshSources() }, 60_000)
+  socket = connectMarketStream(
+    (event) => {
+      if (event.type === 'chart.update') {
+        const prev = marketStore.lastPrice
+        marketStore.applyChartUpdate(event)
+        const curr = marketStore.lastPrice
+        if (prev !== null && curr !== null) {
+          priceDirection.value = curr > prev ? 'tick-up' : curr < prev ? 'tick-down' : priceDirection.value
+        }
+      }
+      if (event.type === 'order.update') orderStore.applyOrderUpdate(event)
+      if (event.type === 'news.upsert') orderStore.applyNewsUpdate(event)
+      if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
+    },
+    (value) => {
+      streamConnected.value = value
+    }
+  )
+  clockTimer = window.setInterval(() => {
+    now.value = new Date()
+  }, 1000)
+  sourceTimer = window.setInterval(() => {
+    orderStore.refreshSources()
+  }, 60_000)
 })
+
 onUnmounted(() => {
   window.clearInterval(clockTimer)
   window.clearInterval(sourceTimer)
@@ -55,7 +74,10 @@ onUnmounted(() => {
       <div class="topbar-center">
         <span class="eyebrow">PAPER EXECUTION</span>
         <span class="mode-dot"></span>
-        <span>SIMULATOR</span>
+        <span class="account-badge">
+          BALANCE: ${{ Number(orderStore.account?.current_balance || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}
+          <small class="equity-badge">EQUITY: ${{ Number(orderStore.account?.equity || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</small>
+        </span>
       </div>
       <div class="topbar-actions">
         <span class="clock">{{ now.toLocaleTimeString('vi-VN', { hour12: false, timeZone: 'Asia/Ho_Chi_Minh' }) }} <small>ICT</small></span>
@@ -76,7 +98,18 @@ onUnmounted(() => {
 
     <section class="instrument-bar">
       <div class="instrument-title"><span class="asset-icon">Au</span><div><h1>XAUUSD</h1><span>Gold / U.S. Dollar</span></div></div>
-      <div class="instrument-price"><strong>{{ marketStore.lastPrice === null ? '--' : marketStore.lastPrice.toFixed(2) }}</strong><span>{{ streamConnected ? 'LIVE PRICE' : 'Awaiting market data' }}</span></div>
+      <div class="instrument-price">
+        <strong :class="priceDirection">{{ marketStore.lastPrice === null ? '--' : marketStore.lastPrice.toFixed(2) }}</strong>
+        <span>
+          {{
+            streamConnected
+              ? marketStore.chartEvent?.price?.bid && marketStore.chartEvent?.price?.ask
+                ? `BID ${marketStore.chartEvent.price.bid.toFixed(2)} · ASK ${marketStore.chartEvent.price.ask.toFixed(2)} (SPD ${(marketStore.chartEvent.price.ask - marketStore.chartEvent.price.bid).toFixed(2)})`
+                : 'LIVE PRICE'
+              : 'Awaiting market data'
+          }}
+        </span>
+      </div>
       <div class="timeframes" role="group" aria-label="Chart timeframe">
         <button v-for="frame in ['M1', 'M5', 'M15', 'H1']" :key="frame" :class="{ selected: marketStore.timeframe === frame }" @click="selectTimeframe(frame)">{{ frame }}</button>
       </div>
@@ -89,7 +122,7 @@ onUnmounted(() => {
       <div class="chart-column">
         <div class="chart-panel">
           <ChartOverlayControls v-model:show-volume="showVolume" />
-          <TradingViewChart :candles="marketStore.candles" :event="marketStore.chartEvent" :show-volume="showVolume" />
+          <TradingViewChart :candles="marketStore.candles" :event="marketStore.chartEvent" :orders="orderStore.orders" :show-volume="showVolume" />
           <div class="chart-foot"><span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span><span>UTC · {{ marketStore.timeframe }}</span></div>
         </div>
         <MetricsCards :orders="orderStore.orders" />

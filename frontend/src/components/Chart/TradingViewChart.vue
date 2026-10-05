@@ -5,20 +5,24 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 const props = defineProps({
   candles: { type: Array, default: () => [] },
   event: { type: Object, default: null },
+  orders: { type: Array, default: () => [] },
   showVolume: { type: Boolean, default: true },
 })
+
 const host = ref(null)
 let chart
 let candleSeries
 let volumeSeries
 let livePriceLine
 let resizeObserver
+const orderPriceLines = new Map()
 
 function renderCandles(candles) {
   if (!candleSeries) return
   candleSeries.setData(candles.map(({ time, open, high, low, close }) => candleData({ time, open, high, low, close })))
   volumeSeries?.setData(candles.map((candle) => volumeData(candle, candle.volume ?? 0)))
   if (candles.length) chart.timeScale().fitContent()
+  renderOrderOverlays()
 }
 
 function candleData(candle) {
@@ -58,6 +62,93 @@ function applyLiveEvent(event) {
   })
 }
 
+function renderOrderOverlays() {
+  if (!candleSeries) return
+
+  // 1. Quản lý PriceLines cho các lệnh đang mở (Entry, SL, TP)
+  const activeOrders = props.orders.filter((o) => ['OPEN', 'FILLED'].includes(o.status))
+  const activeIds = new Set(activeOrders.map((o) => o.id))
+
+  // Xóa các đường price line của lệnh đã đóng hoặc hủy
+  for (const [id, lines] of orderPriceLines.entries()) {
+    if (!activeIds.has(id)) {
+      if (lines.entry) candleSeries.removePriceLine(lines.entry)
+      if (lines.sl) candleSeries.removePriceLine(lines.sl)
+      if (lines.tp) candleSeries.removePriceLine(lines.tp)
+      orderPriceLines.delete(id)
+    }
+  }
+
+  // Vẽ hoặc cập nhật price line cho các lệnh mở
+  for (const order of activeOrders) {
+    if (!orderPriceLines.has(order.id)) {
+      const entryLine = candleSeries.createPriceLine({
+        price: Number(order.entry_price),
+        color: '#2196F3',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `${order.order_type} #${order.id}`,
+      })
+      const slLine = candleSeries.createPriceLine({
+        price: Number(order.stop_loss),
+        color: '#F44336',
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `SL #${order.id}`,
+      })
+      const tpLine = candleSeries.createPriceLine({
+        price: Number(order.take_profit),
+        color: '#4CAF50',
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `TP #${order.id}`,
+      })
+      orderPriceLines.set(order.id, { entry: entryLine, sl: slLine, tp: tpLine })
+    }
+  }
+
+  // 2. Vẽ Markers (Vào lệnh & Đóng lệnh)
+  const markers = []
+  for (const order of props.orders) {
+    // Marker vào lệnh
+    if (order.open_time) {
+      const openSec = Math.floor(new Date(order.open_time).getTime() / 1000)
+      markers.push({
+        time: openSec,
+        position: order.order_type === 'BUY' ? 'belowBar' : 'aboveBar',
+        color: order.order_type === 'BUY' ? '#26a69a' : '#ef5350',
+        shape: order.order_type === 'BUY' ? 'arrowUp' : 'arrowDown',
+        text: `${order.order_type} ${order.lot_size}L`,
+      })
+    }
+    // Marker đóng lệnh
+    if (order.status === 'CLOSED' && order.close_time) {
+      const closeSec = Math.floor(new Date(order.close_time).getTime() / 1000)
+      const isWin = (order.realized_pnl || 0) >= 0
+      markers.push({
+        time: closeSec,
+        position: 'inBar',
+        color: isWin ? '#26a69a' : '#ef5350',
+        shape: 'circle',
+        text: `${isWin ? '+' : ''}$${Number(order.realized_pnl || 0).toFixed(2)} (${order.close_reason || 'CLOSE'})`,
+      })
+    }
+  }
+
+  // Sắp xếp markers theo thời gian tăng dần (bắt buộc bởi lightweight-charts)
+  markers.sort((a, b) => a.time - b.time)
+  if (markers.length) {
+    try {
+      candleSeries.setMarkers(markers)
+    } catch {
+      // Bỏ qua nếu thời gian marker nằm ngoài phạm vi nến lịch sử
+    }
+  }
+}
+
 onMounted(() => {
   chart = createChart(host.value, {
     width: host.value.clientWidth,
@@ -90,6 +181,7 @@ onMounted(() => {
 
 watch(() => props.candles, renderCandles)
 watch(() => props.event, applyLiveEvent)
+watch(() => props.orders, renderOrderOverlays, { deep: true })
 watch(() => props.showVolume, (visible) => {
   volumeSeries?.applyOptions({ visible })
   chart?.priceScale('').applyOptions({ visible })
@@ -97,6 +189,12 @@ watch(() => props.showVolume, (visible) => {
 })
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  for (const [, lines] of orderPriceLines.entries()) {
+    if (lines.entry) candleSeries?.removePriceLine(lines.entry)
+    if (lines.sl) candleSeries?.removePriceLine(lines.sl)
+    if (lines.tp) candleSeries?.removePriceLine(lines.tp)
+  }
+  orderPriceLines.clear()
   if (livePriceLine && candleSeries) candleSeries.removePriceLine(livePriceLine)
   chart?.remove()
 })
