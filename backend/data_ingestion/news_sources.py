@@ -61,8 +61,15 @@ def classify_impact(title: str, description: str = "", provider_impact: str | No
 
 
 def _content_hash(fields: dict[str, object]) -> str:
-    canonical = json.dumps(fields, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(
+        fields,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 
 def parse_fair_economy_calendar(payload: object) -> list[dict[str, object]]:

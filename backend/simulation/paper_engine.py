@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
+import uuid
 
 
 class OrderStatus(StrEnum):
@@ -19,7 +20,13 @@ class PaperOrder:
     entry: float
     stop_loss: float
     take_profit: float
+    ticket_uuid: uuid.UUID = field(default_factory=uuid.uuid4)
+    slippage: float = 0.0
+    commission: float = 0.0
+    swap: float = 0.0
+    close_reason: str | None = None
     status: OrderStatus = OrderStatus.FILLED
+    open_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     exit_price: float | None = None
     realized_pnl: float | None = None
     close_time: datetime | None = None
@@ -45,9 +52,30 @@ class PaperEngine:
             raise ValueError("BUY requires stop_loss < entry < take_profit")
         if side == "SELL" and not take_profit < entry < stop_loss:
             raise ValueError("SELL requires take_profit < entry < stop_loss")
-        order = PaperOrder(self._next_ticket, symbol, side, lots, entry, stop_loss, take_profit)
+        order = PaperOrder(
+            ticket=self._next_ticket,
+            symbol=symbol,
+            side=side,
+            lots=lots,
+            entry=entry,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            slippage=self.slippage,
+        )
         self.orders[order.ticket] = order
         self._next_ticket += 1
+        return order
+
+    def close_order(self, ticket: int, exit_price: float, reason: str = "MANUAL_CLOSE") -> PaperOrder | None:
+        order = self.orders.get(ticket)
+        if not order or order.status != OrderStatus.FILLED:
+            return None
+        direction = 1 if order.side == "BUY" else -1
+        order.exit_price = exit_price
+        order.realized_pnl = round((exit_price - order.entry) * direction * order.lots * self.contract_size, 2)
+        order.close_reason = reason
+        order.status = OrderStatus.CLOSED
+        order.close_time = datetime.now(timezone.utc)
         return order
 
     def on_tick(self, symbol: str, bid: float, ask: float) -> list[PaperOrder]:
@@ -61,7 +89,8 @@ class PaperEngine:
             if hit_stop or hit_target:
                 order.exit_price = exit_price
                 direction = 1 if order.side == "BUY" else -1
-                order.realized_pnl = (exit_price - order.entry) * direction * order.lots * self.contract_size
+                order.realized_pnl = round((exit_price - order.entry) * direction * order.lots * self.contract_size, 2)
+                order.close_reason = "SL_HIT" if hit_stop else "TP_HIT"
                 order.status = OrderStatus.CLOSED
                 order.close_time = datetime.now(timezone.utc)
                 closed.append(order)

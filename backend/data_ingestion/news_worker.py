@@ -520,6 +520,7 @@ class NewsCollector:
                     json.dumps(
                         {"type": "news.upsert", "kind": kind, "data": item},
                         separators=(",", ":"),
+                        default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
                     ),
                 )
             except Exception as exc:

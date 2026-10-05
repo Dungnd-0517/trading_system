@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+import uuid
 
 from sqlalchemy import (
     BigInteger,
@@ -16,7 +17,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -158,6 +159,9 @@ class SimulatedOrder(Base):
     __tablename__ = "simulated_orders"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ticket_uuid: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), server_default=func.gen_random_uuid(), nullable=False, unique=True
+    )
     symbol: Mapped[str] = mapped_column(String(16), nullable=False)
     order_type: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -166,12 +170,29 @@ class SimulatedOrder(Base):
     exit_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     stop_loss: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     take_profit: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    slippage: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=Decimal("0.0"), server_default=text("0.0"))
+    commission: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=Decimal("0.0"), server_default=text("0.0"))
+    swap: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=Decimal("0.0"), server_default=text("0.0"))
+    close_reason: Mapped[str | None] = mapped_column(String(32))
     open_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     close_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     realized_pnl: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     pnl_percentage: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     strategy_trigger: Mapped[str | None] = mapped_column(String(64))
     ai_market_context_id: Mapped[int | None] = mapped_column(ForeignKey("financial_news.id"))
+
+
+class SimulationAccount(Base):
+    __tablename__ = "simulation_account"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    initial_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("10000.00"), nullable=False)
+    current_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("10000.00"), nullable=False)
+    equity: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("10000.00"), nullable=False)
+    margin_used: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 class SimulationMetric(Base):

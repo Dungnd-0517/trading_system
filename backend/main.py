@@ -11,6 +11,7 @@ from core.migrations import run_migrations
 from core.redis_client import close_redis, ping_redis
 from data_ingestion.chart_streamer import ChartStreamer
 from data_ingestion.news_worker import NewsCollector
+from simulation.paper_worker import paper_worker
 
 
 @asynccontextmanager
@@ -18,12 +19,14 @@ async def lifespan(_: FastAPI):
     await run_migrations()
     news_task = asyncio.create_task(NewsCollector().run(), name="news-collector")
     chart_task = asyncio.create_task(ChartStreamer().run(), name="chart-streamer")
+    paper_task = asyncio.create_task(paper_worker.run(), name="paper-worker")
     try:
         yield
     finally:
-        for task in (news_task, chart_task):
+        for task in (news_task, chart_task, paper_task):
             task.cancel()
-        await asyncio.gather(news_task, chart_task, return_exceptions=True)
+        paper_worker.stop()
+        await asyncio.gather(news_task, chart_task, paper_task, return_exceptions=True)
         await close_redis()
         await close_database()
 
