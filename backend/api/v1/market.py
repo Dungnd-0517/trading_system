@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from core.models import MarketCandle
+from data_ingestion.chart_streamer import TIMEFRAME_TO_BINANCE_INTERVAL, seed_history_for_timeframe
 
 router = APIRouter()
 
@@ -22,6 +23,19 @@ async def history(
         .limit(limit)
     )
     rows = (await session.scalars(query)).all()
+
+    # Tự động nạp nến lịch sử nếu DB chưa có dữ liệu cho khung thời gian này
+    if not rows and timeframe in TIMEFRAME_TO_BINANCE_INTERVAL:
+        binance_symbol = "PAXGUSDT" if symbol.upper() in {"XAUUSD", "PAXG", "PAXGUSDT"} else symbol.upper()
+        await seed_history_for_timeframe(
+            target_symbol=symbol,
+            timeframe=timeframe,
+            source_symbol=binance_symbol,
+            interval=TIMEFRAME_TO_BINANCE_INTERVAL[timeframe],
+            limit=limit,
+        )
+        rows = (await session.scalars(query)).all()
+
     return [
         {
             "time": int(row.open_time.timestamp()),

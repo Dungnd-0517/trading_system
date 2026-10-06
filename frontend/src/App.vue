@@ -103,15 +103,15 @@ onUnmounted(() => {
         <span>
           {{
             streamConnected
-              ? marketStore.chartEvent?.price?.bid && marketStore.chartEvent?.price?.ask
-                ? `BID ${marketStore.chartEvent.price.bid.toFixed(2)} · ASK ${marketStore.chartEvent.price.ask.toFixed(2)} (SPD ${(marketStore.chartEvent.price.ask - marketStore.chartEvent.price.bid).toFixed(2)})`
+              ? (marketStore.quote?.bid && marketStore.quote?.ask) || (marketStore.chartEvent?.price?.bid && marketStore.chartEvent?.price?.ask)
+                ? `BID ${(marketStore.quote?.bid ?? marketStore.chartEvent?.price?.bid).toFixed(2)} · ASK ${(marketStore.quote?.ask ?? marketStore.chartEvent?.price?.ask).toFixed(2)} (SPD ${((marketStore.quote?.ask ?? marketStore.chartEvent?.price?.ask) - (marketStore.quote?.bid ?? marketStore.chartEvent?.price?.bid)).toFixed(2)})`
                 : 'LIVE PRICE'
               : 'Awaiting market data'
           }}
         </span>
       </div>
       <div class="timeframes" role="group" aria-label="Chart timeframe">
-        <button v-for="frame in ['M1', 'M5', 'M15', 'H1']" :key="frame" :class="{ selected: marketStore.timeframe === frame }" @click="selectTimeframe(frame)">{{ frame }}</button>
+        <button v-for="frame in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']" :key="frame" :class="{ selected: marketStore.timeframe === frame }" @click="selectTimeframe(frame)">{{ frame }}</button>
       </div>
       <div class="instrument-tools"><button class="text-button" @click="marketStore.refresh"><RefreshCw :size="14" /> Refresh</button><button class="icon-button" aria-label="Help"><CircleHelp :size="16" /></button></div>
     </section>
@@ -122,7 +122,7 @@ onUnmounted(() => {
       <div class="chart-column">
         <div class="chart-panel">
           <ChartOverlayControls v-model:show-volume="showVolume" />
-          <TradingViewChart :candles="marketStore.candles" :event="marketStore.chartEvent" :orders="orderStore.orders" :show-volume="showVolume" />
+          <TradingViewChart :candles="marketStore.candles" :event="marketStore.chartEvent" :orders="orderStore.orders" :show-volume="showVolume" :last-price="marketStore.lastPrice" />
           <div class="chart-foot"><span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span><span>UTC · {{ marketStore.timeframe }}</span></div>
         </div>
         <MetricsCards :orders="orderStore.orders" />

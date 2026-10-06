@@ -19,7 +19,42 @@ from data_ingestion.mt5_feed import MT5Feed
 
 logger = logging.getLogger(__name__)
 
-TIMEFRAMES = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
+TIMEFRAMES = {
+    "M1": 60,
+    "M5": 300,
+    "M15": 900,
+    "H1": 3600,
+    "H4": 14400,
+    "D1": 86400,
+}
+
+TIMEFRAME_TO_BINANCE_INTERVAL = {
+    "M1": "1m",
+    "M5": "5m",
+    "M15": "15m",
+    "H1": "1h",
+    "H4": "4h",
+    "D1": "1d",
+}
+
+
+class KlineEventList(list):
+    """List of chart update events that also provides dict access to the primary (M1) event for backward compatibility."""
+
+    def __getitem__(self, item: Any) -> Any:
+        if isinstance(item, str):
+            return self[0][item]
+        return super().__getitem__(item)
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, str) and len(self) > 0 and isinstance(self[0], dict):
+            return item in self[0]
+        return super().__contains__(item)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if len(self) > 0 and isinstance(self[0], dict):
+            return self[0].get(key, default)
+        return default
 
 
 class CandleAggregator:
@@ -29,6 +64,7 @@ class CandleAggregator:
         self._seen_ticks: dict[str, set[tuple[int, float, float]]] = {}
         self._tick_order: dict[str, deque[tuple[int, float, float]]] = {}
         self._last_timestamp_ms: dict[str, int] = {}
+        self._kline_vol_tracker: dict[tuple[str, int], float] = {}
 
     def seed(self, symbol: str, timeframe: str, candle: dict[str, float | int]) -> None:
         self._candles[(symbol, timeframe)] = dict(candle)
@@ -75,7 +111,7 @@ class CandleAggregator:
             events.append(self._event(symbol, timeframe, candle, bid, ask, "tick_count"))
         return events
 
-    def ingest_kline(self, item: dict[str, Any]) -> dict[str, object] | None:
+    def ingest_kline(self, item: dict[str, Any]) -> KlineEventList | None:
         raw_symbol = str(item.get("symbol") or "").upper()
         timestamp_ms = int(item.get("timestamp") or 0)
         if not raw_symbol or timestamp_ms <= 0:
@@ -94,23 +130,59 @@ class CandleAggregator:
             ask = None
 
         time_seconds = timestamp_ms // 1000
-        candle = {
-            "time": time_seconds,
-            "open": float(item["open"]),
-            "high": float(item["high"]),
-            "low": float(item["low"]),
-            "close": close_price,
-            "volume": float(item["volume"]),
-        }
-        self._candles[(symbol, "M1")] = candle
-        return self._event(
-            symbol,
-            "M1",
-            candle,
-            bid,
-            ask,
-            "base_asset_quantity",
-        )
+        open_val = float(item["open"])
+        high_val = float(item["high"])
+        low_val = float(item["low"])
+        close_val = close_price
+        vol_val = float(item["volume"])
+
+        # Track volume delta for this 1m bar
+        last_m1_vol = self._kline_vol_tracker.get((symbol, time_seconds), 0.0)
+        delta_vol = max(0.0, vol_val - last_m1_vol)
+        self._kline_vol_tracker[(symbol, time_seconds)] = vol_val
+        if len(self._kline_vol_tracker) > 200:
+            oldest_keys = sorted(self._kline_vol_tracker.keys(), key=lambda k: k[1])[:100]
+            for k in oldest_keys:
+                self._kline_vol_tracker.pop(k, None)
+
+        events: list[dict[str, object]] = []
+        for timeframe, seconds in self.timeframes.items():
+            bucket = time_seconds - time_seconds % seconds
+            key = (symbol, timeframe)
+            candle = self._candles.get(key)
+
+            if timeframe == "M1":
+                candle = {
+                    "time": bucket,
+                    "open": open_val,
+                    "high": high_val,
+                    "low": low_val,
+                    "close": close_val,
+                    "volume": vol_val,
+                }
+                self._candles[key] = candle
+            else:
+                if candle is None or bucket > int(candle["time"]):
+                    candle = {
+                        "time": bucket,
+                        "open": open_val,
+                        "high": high_val,
+                        "low": low_val,
+                        "close": close_val,
+                        "volume": vol_val,
+                    }
+                    self._candles[key] = candle
+                elif bucket < int(candle["time"]):
+                    continue
+                else:
+                    candle["high"] = max(float(candle["high"]), high_val)
+                    candle["low"] = min(float(candle["low"]), low_val)
+                    candle["close"] = close_val
+                    candle["volume"] = round(float(candle.get("volume", 0.0)) + delta_vol, 4)
+
+            events.append(self._event(symbol, timeframe, candle, bid, ask, "base_asset_quantity"))
+
+        return KlineEventList(events)
 
     @staticmethod
     def _event(
@@ -152,6 +224,120 @@ class CandleAggregator:
         }
 
 
+async def seed_history_for_timeframe(
+    target_symbol: str = "XAUUSD",
+    timeframe: str = "M1",
+    source_symbol: str = "PAXGUSDT",
+    interval: str = "1m",
+    limit: int = 500,
+) -> int:
+    """Fetch and persist historical candles from Binance for target_symbol and timeframe.
+    If Binance fails or is offline, synthesizes candles from M1 if timeframe != M1."""
+    try:
+        url = f"https://api.binance.com/api/v3/klines?symbol={source_symbol.upper()}&interval={interval}&limit={min(limit, 1000)}"
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            resp = await http_client.get(url)
+            if resp.status_code == 200:
+                klines = resp.json()
+                async with session_factory() as session:
+                    for item in klines:
+                        open_time_ms = int(item[0])
+                        open_time = datetime.fromtimestamp(open_time_ms / 1000, timezone.utc)
+                        values = {
+                            "symbol": target_symbol,
+                            "timeframe": timeframe,
+                            "open_time": open_time,
+                            "open": Decimal(str(item[1])),
+                            "high": Decimal(str(item[2])),
+                            "low": Decimal(str(item[3])),
+                            "close": Decimal(str(item[4])),
+                            "volume": Decimal(str(item[5])),
+                        }
+                        stmt = insert(MarketCandle).values(**values)
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=["symbol", "timeframe", "open_time"],
+                            set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                        )
+                        await session.execute(stmt)
+                    await session.commit()
+                logger.info(
+                    "Successfully seeded %d historical candles for %s %s from Binance %s (%s)",
+                    len(klines),
+                    target_symbol,
+                    timeframe,
+                    source_symbol,
+                    interval,
+                )
+                return len(klines)
+    except Exception as exc:
+        logger.warning("Could not fetch Binance klines for %s %s: %s", target_symbol, timeframe, exc)
+
+    # Fallback: tổng hợp từ M1 có sẵn trong DB
+    if timeframe != "M1" and timeframe in TIMEFRAMES:
+        seconds = TIMEFRAMES[timeframe]
+        try:
+            async with session_factory() as session:
+                m1_rows = (
+                    await session.scalars(
+                        select(MarketCandle)
+                        .where(MarketCandle.symbol == target_symbol, MarketCandle.timeframe == "M1")
+                        .order_by(MarketCandle.open_time.asc())
+                    )
+                ).all()
+                if not m1_rows:
+                    return 0
+
+                buckets: dict[int, dict[str, Any]] = {}
+                for row in m1_rows:
+                    sec = int(row.open_time.timestamp())
+                    b_sec = sec - sec % seconds
+                    if b_sec not in buckets:
+                        buckets[b_sec] = {
+                            "open_time": datetime.fromtimestamp(b_sec, timezone.utc),
+                            "open": row.open,
+                            "high": row.high,
+                            "low": row.low,
+                            "close": row.close,
+                            "volume": row.volume,
+                        }
+                    else:
+                        b = buckets[b_sec]
+                        b["high"] = max(b["high"], row.high)
+                        b["low"] = min(b["low"], row.low)
+                        b["close"] = row.close
+                        b["volume"] += row.volume
+
+                for b in buckets.values():
+                    values = {
+                        "symbol": target_symbol,
+                        "timeframe": timeframe,
+                        "open_time": b["open_time"],
+                        "open": b["open"],
+                        "high": b["high"],
+                        "low": b["low"],
+                        "close": b["close"],
+                        "volume": b["volume"],
+                    }
+                    stmt = insert(MarketCandle).values(**values)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["symbol", "timeframe", "open_time"],
+                        set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                    )
+                    await session.execute(stmt)
+                await session.commit()
+                logger.info(
+                    "Synthesized %d %s candles for %s from M1 candles in DB",
+                    len(buckets),
+                    timeframe,
+                    target_symbol,
+                )
+                return len(buckets)
+        except Exception as exc:
+            logger.warning("Failed to synthesize %s candles from M1: %s", timeframe, exc)
+
+    return 0
+
+
 class ChartStreamer:
     def __init__(self) -> None:
         self.aggregator = CandleAggregator()
@@ -165,51 +351,25 @@ class ChartStreamer:
         await asyncio.gather(self._run_mt5(), self._run_binance())
 
     async def seed_binance_history_if_needed(self, symbol: str = "PAXGUSDT", target_symbol: str = "XAUUSD") -> None:
-        async with session_factory() as session:
-            count = await session.scalar(
-                select(func.count()).select_from(MarketCandle).where(MarketCandle.symbol == target_symbol)
-            )
-            if count and count >= 50:
-                return
-
-        try:
-            url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval=1m&limit=500"
-            async with httpx.AsyncClient(timeout=10.0) as http_client:
-                resp = await http_client.get(url)
-                if resp.status_code != 200:
-                    logger.warning("Could not fetch Binance history for %s: %s", symbol, resp.status_code)
-                    return
-                klines = resp.json()
-
-            async with session_factory() as session:
-                for item in klines:
-                    open_time_ms = int(item[0])
-                    open_time = datetime.fromtimestamp(open_time_ms / 1000, timezone.utc)
-                    values = {
-                        "symbol": target_symbol,
-                        "timeframe": "M1",
-                        "open_time": open_time,
-                        "open": Decimal(str(item[1])),
-                        "high": Decimal(str(item[2])),
-                        "low": Decimal(str(item[3])),
-                        "close": Decimal(str(item[4])),
-                        "volume": Decimal(str(item[5])),
-                    }
-                    stmt = insert(MarketCandle).values(**values)
-                    stmt = stmt.on_conflict_do_update(
-                        index_elements=["symbol", "timeframe", "open_time"],
-                        set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+        for tf, interval in TIMEFRAME_TO_BINANCE_INTERVAL.items():
+            try:
+                async with session_factory() as session:
+                    count = await session.scalar(
+                        select(func.count())
+                        .select_from(MarketCandle)
+                        .where(MarketCandle.symbol == target_symbol, MarketCandle.timeframe == tf)
                     )
-                    await session.execute(stmt)
-                await session.commit()
-                logger.info(
-                    "Successfully seeded %d historical candles for %s from Binance %s",
-                    len(klines),
-                    target_symbol,
-                    symbol,
+                    if count and count >= 50:
+                        continue
+                await seed_history_for_timeframe(
+                    target_symbol=target_symbol,
+                    timeframe=tf,
+                    source_symbol=symbol,
+                    interval=interval,
+                    limit=500,
                 )
-        except Exception as exc:
-            logger.warning("Failed to seed Binance history: %s", exc)
+            except Exception as exc:
+                logger.warning("Failed to seed Binance history for %s %s: %s", target_symbol, tf, exc)
 
     async def _seed_open_candles(self) -> None:
         async with session_factory() as session:
@@ -264,9 +424,14 @@ class ChartStreamer:
         while True:
             try:
                 async for candle in stream_klines(symbol, "1m"):
-                    event = self.aggregator.ingest_kline(candle)
-                    if event is not None:
-                        await self._emit([event])
+                    events = self.aggregator.ingest_kline(candle)
+                    if events:
+                        await self._emit(list(events) if isinstance(events, list) else [events])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Binance kline stream for %s disconnected: %s", symbol, exc)
+                await asyncio.sleep(5)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

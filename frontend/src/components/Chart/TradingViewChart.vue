@@ -7,6 +7,7 @@ const props = defineProps({
   event: { type: Object, default: null },
   orders: { type: Array, default: () => [] },
   showVolume: { type: Boolean, default: true },
+  lastPrice: { type: Number, default: null },
 })
 
 const host = ref(null)
@@ -23,6 +24,9 @@ function renderCandles(candles) {
   volumeSeries?.setData(candles.map((candle) => volumeData(candle, candle.volume ?? 0)))
   if (candles.length) chart.timeScale().fitContent()
   renderOrderOverlays()
+  if (props.lastPrice != null) {
+    updateLivePriceLine(props.lastPrice)
+  }
 }
 
 function candleData(candle) {
@@ -46,20 +50,43 @@ function volumeData(candle, value) {
   }
 }
 
-function applyLiveEvent(event) {
-  if (!candleSeries || !event?.candle || !event?.volume || !event?.price) return
-  const candle = event.candle
-  candleSeries.update(candleData(candle))
-  volumeSeries.update(volumeData(candle, event.volume.value))
+function updateLivePriceLine(price) {
+  if (!candleSeries || price == null) return
   if (livePriceLine) candleSeries.removePriceLine(livePriceLine)
   livePriceLine = candleSeries.createPriceLine({
-    price: event.price.bid ?? event.price.value,
+    price: Number(price),
     color: '#4772a3',
     lineWidth: 1,
     lineStyle: 2,
     axisLabelVisible: true,
     title: 'LIVE',
   })
+}
+
+function applyLiveEvent(event) {
+  if (!candleSeries || !event?.candle || !event?.volume || !event?.price) return
+  const candle = event.candle
+  candleSeries.update(candleData(candle))
+  volumeSeries?.update(volumeData(candle, event.volume.value))
+  updateLivePriceLine(event.price.bid ?? event.price.value)
+}
+
+function findMatchingBarTime(targetSec, candles) {
+  if (!candles || !candles.length) return null
+  if (targetSec < candles[0].time) return null
+  let low = 0
+  let high = candles.length - 1
+  let matched = candles[0].time
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    if (candles[mid].time <= targetSec) {
+      matched = candles[mid].time
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return matched
 }
 
 function renderOrderOverlays() {
@@ -110,42 +137,46 @@ function renderOrderOverlays() {
     }
   }
 
-  // 2. Vẽ Markers (Vào lệnh & Đóng lệnh)
+  // 2. Vẽ Markers (Vào lệnh & Đóng lệnh) đã snap khớp chính xác với timestamp nến
   const markers = []
   for (const order of props.orders) {
     // Marker vào lệnh
     if (order.open_time) {
       const openSec = Math.floor(new Date(order.open_time).getTime() / 1000)
-      markers.push({
-        time: openSec,
-        position: order.order_type === 'BUY' ? 'belowBar' : 'aboveBar',
-        color: order.order_type === 'BUY' ? '#26a69a' : '#ef5350',
-        shape: order.order_type === 'BUY' ? 'arrowUp' : 'arrowDown',
-        text: `${order.order_type} ${order.lot_size}L`,
-      })
+      const barTime = findMatchingBarTime(openSec, props.candles)
+      if (barTime !== null) {
+        markers.push({
+          time: barTime,
+          position: order.order_type === 'BUY' ? 'belowBar' : 'aboveBar',
+          color: order.order_type === 'BUY' ? '#26a69a' : '#ef5350',
+          shape: order.order_type === 'BUY' ? 'arrowUp' : 'arrowDown',
+          text: `${order.order_type} ${order.lot_size}L`,
+        })
+      }
     }
     // Marker đóng lệnh
     if (order.status === 'CLOSED' && order.close_time) {
       const closeSec = Math.floor(new Date(order.close_time).getTime() / 1000)
-      const isWin = (order.realized_pnl || 0) >= 0
-      markers.push({
-        time: closeSec,
-        position: 'inBar',
-        color: isWin ? '#26a69a' : '#ef5350',
-        shape: 'circle',
-        text: `${isWin ? '+' : ''}$${Number(order.realized_pnl || 0).toFixed(2)} (${order.close_reason || 'CLOSE'})`,
-      })
+      const barTime = findMatchingBarTime(closeSec, props.candles)
+      if (barTime !== null) {
+        const isWin = (order.realized_pnl || 0) >= 0
+        markers.push({
+          time: barTime,
+          position: 'inBar',
+          color: isWin ? '#26a69a' : '#ef5350',
+          shape: 'circle',
+          text: `${isWin ? '+' : ''}$${Number(order.realized_pnl || 0).toFixed(2)} (${order.close_reason || 'CLOSE'})`,
+        })
+      }
     }
   }
 
   // Sắp xếp markers theo thời gian tăng dần (bắt buộc bởi lightweight-charts)
   markers.sort((a, b) => a.time - b.time)
-  if (markers.length) {
-    try {
-      candleSeries.setMarkers(markers)
-    } catch {
-      // Bỏ qua nếu thời gian marker nằm ngoài phạm vi nến lịch sử
-    }
+  try {
+    candleSeries.setMarkers(markers)
+  } catch {
+    // Bỏ qua nếu có lỗi
   }
 }
 
@@ -174,6 +205,9 @@ onMounted(() => {
   chart.priceScale('').applyOptions({ scaleMargins: { top: 0.76, bottom: 0 }, visible: props.showVolume })
   renderCandles(props.candles)
   applyLiveEvent(props.event)
+  if (props.lastPrice != null) {
+    updateLivePriceLine(props.lastPrice)
+  }
   volumeSeries.applyOptions({ visible: props.showVolume })
   resizeObserver = new ResizeObserver(([entry]) => chart?.applyOptions({ width: entry.contentRect.width }))
   resizeObserver.observe(host.value)
@@ -181,6 +215,7 @@ onMounted(() => {
 
 watch(() => props.candles, renderCandles)
 watch(() => props.event, applyLiveEvent)
+watch(() => props.lastPrice, (val) => { if (val != null) updateLivePriceLine(val) })
 watch(() => props.orders, renderOrderOverlays, { deep: true })
 watch(() => props.showVolume, (visible) => {
   volumeSeries?.applyOptions({ visible })

@@ -1,5 +1,31 @@
 # Backlog cập nhật
 
+## 2026-10-06 00:45 +07:00
+
+### [Update Phase 02 - Sprint 02]: Cập nhật hiển thị chính xác biểu đồ cho từng khung thời gian M1, M5, M15, H1; Bổ sung 2 khung thời gian H4, D1
+
+- **Mở rộng khung thời gian & Ingestion đa khung (T2.2 Update):**
+  - Mở rộng `TIMEFRAMES` và `TIMEFRAME_TO_BINANCE_INTERVAL` trong `chart_streamer.py` hỗ trợ đầy đủ 6 khung thời gian: `M1` (60s), `M5` (300s), `M15` (900s), `H1` (3600s), `H4` (14400s), `D1` (86400s).
+  - Cập nhật `CandleAggregator.ingest_kline` và `ingest_tick` tự động tổng hợp nến realtime OHLCV và tính toán tích lũy volume chính xác cho cả 6 khung thời gian từ feed Binance PAXGUSDT và MT5. Áp dụng wrapper `KlineEventList` tương thích ngược 100% với các test trước.
+  - Cài đặt `seed_history_for_timeframe` và nâng cấp `seed_binance_history_if_needed` tự động nạp 500 nến lịch sử từ Binance REST cho từng khung thời gian, kèm cơ chế fallback tổng hợp từ nến M1 nội bộ nếu offline.
+- **API Router Auto-Seed (T2.4 Update):**
+  - Cập nhật endpoint `GET /api/v1/market/history` tự động kích hoạt nạp nến lịch sử theo yêu cầu (on-demand seeding) nếu DB chưa có dữ liệu cho khung thời gian đó, đảm bảo không bao giờ bị nến rỗng khi chuyển khung.
+- **Tối ưu hóa Paper Worker (T2.3 Update):**
+  - Lọc sự kiện tick theo `timeframe == "M1"` trong `PaperEngineWorker.run()` để tránh quét lặp lại SL/TP 6 lần cho cùng một tick thị trường.
+- **Frontend Multi-Timeframe Charting (T2.5 & T2.6 Update):**
+  - Bổ sung 2 nút chọn khung thời gian `H4` và `D1` trong thanh điều khiển biểu đồ tại `App.vue` (`['M1', 'M5', 'M15', 'H1', 'H4', 'D1']`).
+  - Cập nhật `marketStore.applyChartUpdate`: tách biệt cập nhật giá live (`lastPrice`, `quote` BID/ASK/SPD) liên tục theo mọi tick với sự kiện vẽ nến của khung thời gian đang kích hoạt (`chartEvent`), giúp thanh header luôn nhấp nháy giá live ngay cả khi chuyển khung thời gian cao hơn.
+  - Nâng cấp `TradingViewChart.vue`:
+    - Cài đặt thuật toán binary search `findMatchingBarTime` để snap thời gian của Order Markers (vào lệnh, đóng lệnh) khớp chính xác với thanh nến của từng khung thời gian, loại bỏ hoàn toàn lỗi `Assertion failed` của lightweight-charts.
+    - Bổ sung watcher và đồng bộ `livePriceLine` khi chuyển đổi khung thời gian hoặc khi nhận tick mới.
+- **Kiểm tra & Nghiệm thu:**
+  - Toàn bộ backend test suite: **32 passed in 2.09s** trên container `trading_backend`.
+  - Frontend build: `npm run build` hoàn thành không có lỗi (`built in 1.96s`, 1585 modules).
+  - Docker services (`trading_backend`, `trading_frontend`, `trading_postgres`, `trading_redis`) đã rebuild và khởi động thành công.
+  - Đã xác thực API `GET /api/v1/market/history` trả về đầy đủ 500 nến cho cả 6 khung thời gian: M1, M5, M15, H1, H4, D1.
+
+---
+
 ## 2026-10-02 15:15 +07:00
 
 ### Phase 2 - Sprint 2 implementation (PAXGUSDT Feed, Paper Execution Engine & Cockpit)

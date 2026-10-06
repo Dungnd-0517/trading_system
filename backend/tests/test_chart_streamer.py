@@ -94,3 +94,42 @@ def test_binance_paxgusdt_mapped_to_xauusd_with_synthetic_spread():
     assert event["price"] == {"value": 2686.0, "bid": 2685.9, "ask": 2686.1}
     assert event["volume"]["value"] == 45.2
     assert event["volume"]["unit"] == "base_asset_quantity"
+
+
+def test_candle_aggregator_supports_all_six_timeframes():
+    from backend.data_ingestion.chart_streamer import TIMEFRAMES
+
+    assert set(TIMEFRAMES.keys()) == {"M1", "M5", "M15", "H1", "H4", "D1"}
+    assert TIMEFRAMES["H4"] == 14400
+    assert TIMEFRAMES["D1"] == 86400
+
+    aggregator = CandleAggregator()
+    timestamp_ms = 1_790_942_400_000
+
+    # Ingest tick should produce 6 events (one per timeframe)
+    events = aggregator.ingest_tick("XAUUSD", timestamp_ms, 2685.0, 2685.2)
+    assert len(events) == 6
+    tfs = [e["timeframe"] for e in events]
+    assert tfs == ["M1", "M5", "M15", "H1", "H4", "D1"]
+
+    # Ingest kline should also produce events for all 6 timeframes
+    kline_events = aggregator.ingest_kline(
+        {
+            "symbol": "PAXGUSDT",
+            "timestamp": timestamp_ms + 60_000,
+            "open": 2685.0,
+            "high": 2690.0,
+            "low": 2684.0,
+            "close": 2688.0,
+            "volume": 10.0,
+        }
+    )
+    assert kline_events is not None
+    assert len(kline_events) == 6
+    assert [e["timeframe"] for e in kline_events] == ["M1", "M5", "M15", "H1", "H4", "D1"]
+    # Check H4 and D1 candle timestamps are bucketed properly
+    h4_event = next(e for e in kline_events if e["timeframe"] == "H4")
+    d1_event = next(e for e in kline_events if e["timeframe"] == "D1")
+    t_sec = (timestamp_ms + 60_000) // 1000
+    assert h4_event["candle"]["time"] == t_sec - (t_sec % 14400)
+    assert d1_event["candle"]["time"] == t_sec - (t_sec % 86400)

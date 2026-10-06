@@ -7,6 +7,7 @@ export const marketStore = reactive({
   candles: [],
   chartEvent: null,
   lastPrice: null,
+  quote: null,
   health: null,
   loading: false,
   error: '',
@@ -28,8 +29,13 @@ export const marketStore = reactive({
     }
   },
   applyChartUpdate(event) {
-    if (event.symbol !== this.symbol || event.timeframe !== this.timeframe) return
-    this.chartEvent = event
-    this.lastPrice = event.price.value
+    if (event.symbol !== this.symbol) return
+    if (event.price) {
+      this.lastPrice = event.price.bid ?? event.price.value
+      this.quote = event.price
+    }
+    if (event.timeframe === this.timeframe) {
+      this.chartEvent = event
+    }
   },
 })

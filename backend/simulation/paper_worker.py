@@ -88,6 +88,10 @@ class PaperEngineWorker(BaseOrderExecutor):
                 try:
                     payload = json.loads(message["data"])
                     if payload.get("type") == "chart.update":
+                        # Chỉ cần quét tick 1 lần cho M1 để tránh lặp cho các khung thời gian cao hơn
+                        if payload.get("timeframe") and payload.get("timeframe") != "M1":
+                            continue
+
                         symbol = payload.get("symbol", "").upper()
                         price_info = payload.get("price") or {}
                         close_price = payload.get("candle", {}).get("close") or price_info.get("value") or 0.0
