@@ -55,6 +55,7 @@ async def list_orders(
             "open_time": row.open_time.isoformat(),
             "close_time": row.close_time.isoformat() if row.close_time else None,
             "realized_pnl": float(row.realized_pnl) if row.realized_pnl is not None else None,
+            "pnl_percentage": float(row.pnl_percentage) if row.pnl_percentage is not None else None,
             "strategy_trigger": row.strategy_trigger,
         }
         for row in rows

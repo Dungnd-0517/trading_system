@@ -1,5 +1,26 @@
 # Backlog cập nhật
 
+## 2026-10-06 15:38 +07:00
+
+### [Update Phase 02 - Sprint 02]: Thêm menu Settings, Orders History, News & Events (Tạm ngưng / Đã lưu trạng thái)
+
+- **Mục tiêu & Yêu cầu:**
+  - Bổ sung hệ thống điều hướng menu trên Header: **Trading Cockpit**, **Orders History**, **News & Events**, **Settings**.
+  - Hiển thị dữ liệu thực tế từ các bảng demo đã có sẵn trong cơ sở dữ liệu (`simulated_orders`: 15 lệnh, `financial_news`: 214 bài viết, `economic_events`: 87 sự kiện, `simulation_account`: tài khoản demo #1).
+  - Không tự ý sinh hoặc chèn dữ liệu giả lập (mock data); nếu bảng dữ liệu trống thì giữ trạng thái rỗng (empty state) rõ ràng.
+- **Hiện trạng & Công việc đã chuẩn bị:**
+  - Khảo sát và xác nhận dữ liệu demo trong DB: `simulated_orders` (15 bản ghi), `financial_news` (214 bản ghi), `economic_events` (87 bản ghi), `simulation_account` (1 bản ghi).
+  - Cập nhật backend `backend/api/v1/orders.py`: bổ sung trường `pnl_percentage` trong response của endpoint `GET /api/v1/orders` để hỗ trợ hiển thị tỷ lệ lời/lỗ chi tiết trong lịch sử lệnh.
+  - Kiểm tra backend test suite: **32 passed in 3.70s** trên container `trading_backend`.
+  - Thiết kế kiến trúc các component frontend chuẩn bị triển khai:
+    - `OrdersHistory.vue`: Thống kê tổng quan (Win Rate, Total PnL, Total Trades), bộ lọc đa tiêu chí (Status, Side, Close Reason) và bảng lịch sử lệnh chi tiết.
+    - `NewsEventsView.vue`: Lịch sự kiện kinh tế với bộ lọc sao/loại tiền tệ/thời gian countdown, luồng tin tức thị trường và giám sát trạng thái các nguồn tin (FairEconomy, Kitco, FXStreet, Finnhub).
+    - `SettingsView.vue`: Thông tin tài khoản mô phỏng từ DB, cấu hình tham số lệnh (lot size, SL, TP, slippage), trạng thái kết nối hạ tầng (Postgres, Redis, WebSocket, Binance feed) và tùy chọn hiển thị.
+    - `App.vue`: Tích hợp thanh điều hướng chuyển đổi tab mượt mà.
+- **Trạng thái:** Tạm ngưng theo yêu cầu người dùng, đã lưu toàn bộ hiện trạng và tài liệu hóa chi tiết trong backlog.
+
+---
+
 ## 2026-10-06 00:45 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Cập nhật hiển thị chính xác biểu đồ cho từng khung thời gian M1, M5, M15, H1; Bổ sung 2 khung thời gian H4, D1
