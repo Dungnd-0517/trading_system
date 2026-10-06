@@ -55,7 +55,20 @@ async def list_orders(
             "open_time": row.open_time.isoformat(),
             "close_time": row.close_time.isoformat() if row.close_time else None,
             "realized_pnl": float(row.realized_pnl) if row.realized_pnl is not None else None,
-            "pnl_percentage": float(row.pnl_percentage) if row.pnl_percentage is not None else None,
+            "pnl_percentage": (
+                float(row.pnl_percentage)
+                if row.pnl_percentage is not None
+                else (
+                    round(
+                        ((float(row.exit_price) - float(row.entry_price)) / float(row.entry_price))
+                        * 100
+                        * (1 if row.order_type == "BUY" else -1),
+                        2,
+                    )
+                    if row.exit_price is not None and row.entry_price
+                    else None
+                )
+            ),
             "strategy_trigger": row.strategy_trigger,
         }
         for row in rows

@@ -1,6 +1,16 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Activity, Bell, CircleHelp, Radio, RefreshCw, Settings2 } from 'lucide-vue-next'
+import {
+  Activity,
+  Bell,
+  CircleHelp,
+  History,
+  LayoutDashboard,
+  Newspaper,
+  Radio,
+  RefreshCw,
+  Settings2,
+} from 'lucide-vue-next'
 import TradingViewChart from './components/Chart/TradingViewChart.vue'
 import ChartOverlayControls from './components/Chart/ChartOverlayControls.vue'
 import NewsStream from './components/News/NewsStream.vue'
@@ -8,10 +18,14 @@ import SentimentGauge from './components/News/SentimentGauge.vue'
 import OrderBookTable from './components/Simulation/OrderBookTable.vue'
 import MetricsCards from './components/Simulation/MetricsCards.vue'
 import InsightsPanel from './components/AIAnalysis/InsightsPanel.vue'
+import OrdersHistory from './components/Orders/OrdersHistory.vue'
+import NewsEventsView from './components/News/NewsEventsView.vue'
+import SettingsView from './components/Settings/SettingsView.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
 import { connectMarketStream } from './services/websocket'
 
+const activeTab = ref('cockpit')
 const streamConnected = ref(false)
 const showVolume = ref(true)
 const now = ref(new Date())
@@ -19,6 +33,7 @@ const priceDirection = ref('neutral')
 let clockTimer
 let sourceTimer
 let socket
+
 const dbConnected = computed(() => marketStore.health?.services?.postgres === true)
 const redisConnected = computed(() => marketStore.health?.services?.redis === true)
 
@@ -66,11 +81,60 @@ onUnmounted(() => {
 
 <template>
   <main class="workspace">
+    <!-- Topbar with Brand, Main Navigation, Balance and Actions -->
     <header class="topbar">
-      <a class="brand" href="#top" aria-label="Trading System home">
+      <a class="brand" href="#top" aria-label="Trading System home" @click.prevent="activeTab = 'cockpit'">
         <span class="brand-mark"><Activity :size="18" /></span>
         <span>FIELDNOTE <small>MARKETS</small></span>
       </a>
+
+      <!-- Primary Navigation Bar -->
+      <nav class="main-nav" role="tablist" aria-label="Main menu navigation">
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'cockpit'"
+          :class="['nav-tab', { active: activeTab === 'cockpit' }]"
+          @click="activeTab = 'cockpit'"
+        >
+          <LayoutDashboard :size="14" />
+          <span>Trading Cockpit</span>
+        </button>
+
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'orders'"
+          :class="['nav-tab', { active: activeTab === 'orders' }]"
+          @click="activeTab = 'orders'"
+        >
+          <History :size="14" />
+          <span>Orders History</span>
+          <span v-if="orderStore.orders.length" class="nav-badge">{{ orderStore.orders.length }}</span>
+        </button>
+
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'news'"
+          :class="['nav-tab', { active: activeTab === 'news' }]"
+          @click="activeTab = 'news'"
+        >
+          <Newspaper :size="14" />
+          <span>News &amp; Events</span>
+          <span v-if="orderStore.news.length || orderStore.events.length" class="nav-badge">
+            {{ orderStore.news.length + orderStore.events.length }}
+          </span>
+        </button>
+
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'settings'"
+          :class="['nav-tab', { active: activeTab === 'settings' }]"
+          @click="activeTab = 'settings'"
+        >
+          <Settings2 :size="14" />
+          <span>Settings</span>
+        </button>
+      </nav>
+
       <div class="topbar-center">
         <span class="eyebrow">PAPER EXECUTION</span>
         <span class="mode-dot"></span>
@@ -79,14 +143,32 @@ onUnmounted(() => {
           <small class="equity-badge">EQUITY: ${{ Number(orderStore.account?.equity || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</small>
         </span>
       </div>
+
       <div class="topbar-actions">
         <span class="clock">{{ now.toLocaleTimeString('vi-VN', { hour12: false, timeZone: 'Asia/Ho_Chi_Minh' }) }} <small>ICT</small></span>
-        <button class="icon-button" aria-label="Notifications"><Bell :size="17" /></button>
-        <button class="icon-button" aria-label="Settings"><Settings2 :size="17" /></button>
+        <button
+          class="icon-button"
+          :class="{ active: activeTab === 'news' }"
+          aria-label="Notifications"
+          title="Tin tức &amp; Sự kiện"
+          @click="activeTab = 'news'"
+        >
+          <Bell :size="17" />
+        </button>
+        <button
+          class="icon-button"
+          :class="{ active: activeTab === 'settings' }"
+          aria-label="Settings"
+          title="Cài đặt hệ thống"
+          @click="activeTab = 'settings'"
+        >
+          <Settings2 :size="17" />
+        </button>
         <span class="avatar">Q</span>
       </div>
     </header>
 
+    <!-- System Status Strip -->
     <section class="status-strip" aria-label="Service status">
       <span class="status-label">SYSTEM STATUS</span>
       <span class="service-state"><i :class="dbConnected ? 'up' : 'down'"></i> POSTGRES <b>{{ dbConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
@@ -96,8 +178,16 @@ onUnmounted(() => {
       <span class="read-only"><Radio :size="13" /> PAPER MODE · NO LIVE ORDERS</span>
     </section>
 
+    <!-- Instrument Bar with Gold Price & View Context -->
     <section class="instrument-bar">
-      <div class="instrument-title"><span class="asset-icon">Au</span><div><h1>XAUUSD</h1><span>Gold / U.S. Dollar</span></div></div>
+      <div class="instrument-title">
+        <span class="asset-icon">Au</span>
+        <div>
+          <h1>XAUUSD</h1>
+          <span>Gold / U.S. Dollar</span>
+        </div>
+      </div>
+
       <div class="instrument-price">
         <strong :class="priceDirection">{{ marketStore.lastPrice === null ? '--' : marketStore.lastPrice.toFixed(2) }}</strong>
         <span>
@@ -110,20 +200,50 @@ onUnmounted(() => {
           }}
         </span>
       </div>
-      <div class="timeframes" role="group" aria-label="Chart timeframe">
-        <button v-for="frame in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']" :key="frame" :class="{ selected: marketStore.timeframe === frame }" @click="selectTimeframe(frame)">{{ frame }}</button>
+
+      <!-- Timeframe selector on Cockpit; active view tag on other tabs -->
+      <div v-if="activeTab === 'cockpit'" class="timeframes" role="group" aria-label="Chart timeframe">
+        <button
+          v-for="frame in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']"
+          :key="frame"
+          :class="{ selected: marketStore.timeframe === frame }"
+          @click="selectTimeframe(frame)"
+        >
+          {{ frame }}
+        </button>
       </div>
-      <div class="instrument-tools"><button class="text-button" @click="marketStore.refresh"><RefreshCw :size="14" /> Refresh</button><button class="icon-button" aria-label="Help"><CircleHelp :size="16" /></button></div>
+      <div v-else class="view-indicator">
+        <span class="active-view-tag">
+          {{ activeTab === 'orders' ? 'VIEW: ORDERS HISTORY' : activeTab === 'news' ? 'VIEW: NEWS & EVENTS' : 'VIEW: SYSTEM SETTINGS' }}
+        </span>
+      </div>
+
+      <div class="instrument-tools">
+        <button class="text-button" @click="marketStore.refresh">
+          <RefreshCw :size="14" /> Refresh
+        </button>
+        <button class="icon-button" aria-label="Help"><CircleHelp :size="16" /></button>
+      </div>
     </section>
 
     <div v-if="marketStore.error" class="connection-notice">{{ marketStore.error }} · Kiểm tra backend và Docker services.</div>
 
-    <section class="main-grid">
+    <!-- VIEW 1: TRADING COCKPIT -->
+    <section v-if="activeTab === 'cockpit'" class="main-grid">
       <div class="chart-column">
         <div class="chart-panel">
           <ChartOverlayControls v-model:show-volume="showVolume" />
-          <TradingViewChart :candles="marketStore.candles" :event="marketStore.chartEvent" :orders="orderStore.orders" :show-volume="showVolume" :last-price="marketStore.lastPrice" />
-          <div class="chart-foot"><span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span><span>UTC · {{ marketStore.timeframe }}</span></div>
+          <TradingViewChart
+            :candles="marketStore.candles"
+            :event="marketStore.chartEvent"
+            :orders="orderStore.orders"
+            :show-volume="showVolume"
+            :last-price="marketStore.lastPrice"
+          />
+          <div class="chart-foot">
+            <span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span>
+            <span>UTC · {{ marketStore.timeframe }}</span>
+          </div>
         </div>
         <MetricsCards :orders="orderStore.orders" />
         <OrderBookTable :orders="orderStore.orders" />
@@ -134,6 +254,30 @@ onUnmounted(() => {
         <NewsStream :news="orderStore.news" :events="orderStore.events" :sources="orderStore.sources" />
       </aside>
     </section>
-    <footer class="footer"><span>FIELDNOTE MARKETS <b>·</b> STAGE 01</span><span>Market data and simulated fills only. Not investment advice.</span></footer>
+
+    <!-- VIEW 2: ORDERS HISTORY -->
+    <OrdersHistory
+      v-else-if="activeTab === 'orders'"
+      :orders="orderStore.orders"
+    />
+
+    <!-- VIEW 3: NEWS & EVENTS -->
+    <NewsEventsView
+      v-else-if="activeTab === 'news'"
+      :news="orderStore.news"
+      :events="orderStore.events"
+      :sources="orderStore.sources"
+      @refresh="orderStore.refresh"
+    />
+
+    <!-- VIEW 4: SETTINGS -->
+    <SettingsView
+      v-else-if="activeTab === 'settings'"
+    />
+
+    <footer class="footer">
+      <span>FIELDNOTE MARKETS <b>·</b> STAGE 01</span>
+      <span>Market data and simulated fills only. Not investment advice.</span>
+    </footer>
   </main>
 </template>

@@ -1,23 +1,36 @@
 # Backlog cập nhật
 
-## 2026-10-06 15:38 +07:00
+## 2026-10-06 22:20 +07:00
 
-### [Update Phase 02 - Sprint 02]: Thêm menu Settings, Orders History, News & Events (Tạm ngưng / Đã lưu trạng thái)
+### [Update Phase 02 - Sprint 02]: Hoàn thành triển khai hệ thống điều hướng menu Header, Orders History, News & Events, Settings (Đã nghiệm thu)
 
-- **Mục tiêu & Yêu cầu:**
-  - Bổ sung hệ thống điều hướng menu trên Header: **Trading Cockpit**, **Orders History**, **News & Events**, **Settings**.
-  - Hiển thị dữ liệu thực tế từ các bảng demo đã có sẵn trong cơ sở dữ liệu (`simulated_orders`: 15 lệnh, `financial_news`: 214 bài viết, `economic_events`: 87 sự kiện, `simulation_account`: tài khoản demo #1).
-  - Không tự ý sinh hoặc chèn dữ liệu giả lập (mock data); nếu bảng dữ liệu trống thì giữ trạng thái rỗng (empty state) rõ ràng.
-- **Hiện trạng & Công việc đã chuẩn bị:**
-  - Khảo sát và xác nhận dữ liệu demo trong DB: `simulated_orders` (15 bản ghi), `financial_news` (214 bản ghi), `economic_events` (87 bản ghi), `simulation_account` (1 bản ghi).
-  - Cập nhật backend `backend/api/v1/orders.py`: bổ sung trường `pnl_percentage` trong response của endpoint `GET /api/v1/orders` để hỗ trợ hiển thị tỷ lệ lời/lỗ chi tiết trong lịch sử lệnh.
-  - Kiểm tra backend test suite: **32 passed in 3.70s** trên container `trading_backend`.
-  - Thiết kế kiến trúc các component frontend chuẩn bị triển khai:
-    - `OrdersHistory.vue`: Thống kê tổng quan (Win Rate, Total PnL, Total Trades), bộ lọc đa tiêu chí (Status, Side, Close Reason) và bảng lịch sử lệnh chi tiết.
-    - `NewsEventsView.vue`: Lịch sự kiện kinh tế với bộ lọc sao/loại tiền tệ/thời gian countdown, luồng tin tức thị trường và giám sát trạng thái các nguồn tin (FairEconomy, Kitco, FXStreet, Finnhub).
-    - `SettingsView.vue`: Thông tin tài khoản mô phỏng từ DB, cấu hình tham số lệnh (lot size, SL, TP, slippage), trạng thái kết nối hạ tầng (Postgres, Redis, WebSocket, Binance feed) và tùy chọn hiển thị.
-    - `App.vue`: Tích hợp thanh điều hướng chuyển đổi tab mượt mà.
-- **Trạng thái:** Tạm ngưng theo yêu cầu người dùng, đã lưu toàn bộ hiện trạng và tài liệu hóa chi tiết trong backlog.
+- **Tiến trình tiếp tục & Hoàn thành:**
+  - **Triển khai hệ thống điều hướng Menu Header (`App.vue` & `style.css`):**
+    - Bổ sung thanh điều hướng chính gồm 4 tabs: **Trading Cockpit**, **Orders History** (kèm badge số lệnh thực tế), **News & Events** (kèm badge tổng tin tức & sự kiện), **Settings**.
+    - Tích hợp chuyển tab trực tiếp khi click vào các nút shortcut trên header (nút Bell chuyển sang News & Events, nút Settings2 chuyển sang Settings, Brand logo chuyển về Trading Cockpit).
+    - Giữ nguyên trạng thái live ticker giá vàng XAUUSD, bid/ask spread, số dư Balance/Equity và system status strip trên toàn bộ các view.
+  - **Component Lịch sử lệnh (`OrdersHistory.vue`):**
+    - Thống kê hiệu suất: Win Rate, Total Realized PnL, Profit Factor, số lệnh thắng/thua, trung bình PnL/lệnh từ dữ liệu thực tế `simulated_orders` trong DB.
+    - Bộ lọc đa tiêu chí: Lọc trạng thái (Tất cả, Đã đóng, Mở), lọc Side (BUY/SELL), lọc lý do đóng (TP Hit, SL Hit, Manual Close), tìm kiếm theo Ticket/UUID/Symbol/Strategy trigger, sắp xếp theo thời gian/PnL/khối lượng.
+    - Bảng chi tiết lệnh: Ticket ID, UUID (hỗ trợ copy nhanh), thời gian mở/đóng (ICT), Asset, Side badge, Lot size, Entry, Exit, SL, TP, Realized PnL ($), Lời/Lỗ (%), Close reason badge, thời lượng giữ lệnh, trạng thái.
+  - **Component Tin tức & Lịch kinh tế (`NewsEventsView.vue`):**
+    - Giám sát trạng thái 4 nguồn tin (Data Feeds Status): FairEconomy, Kitco News, FXStreet News, Finnhub với trạng thái Health, Mode, và số lượt nạp thành công.
+    - Tab **Economic Calendar**: Lọc theo mức độ ảnh hưởng (★★★ Cao, ★★ Vừa, ★ Thấp), lọc loại tiền tệ (USD, EUR, GBP,...), tìm kiếm từ khóa, hiển thị thời gian phát hành (ICT & UTC), countdown thời gian (chỉ đếm ngược khi `timezone_status == VERIFIED`), bảng so sánh Actual vs Forecast vs Previous.
+    - Tab **Breaking News & Headlines**: Lọc theo nguồn tin, số sao tác động, sắc thái tâm lý (Bullish, Bearish, Neutral), tìm kiếm từ khóa, hiển thị điểm Sentiment Score, tóm tắt AI Analysis Summary và liên kết trực tiếp bài viết gốc.
+  - **Component Cấu hình hệ thống & Chẩn đoán (`SettingsView.vue`):**
+    - Thông tin chi tiết danh mục tài khoản mô phỏng từ database: Vốn ban đầu ($10,000), Số dư hiện tại, Equity, Tỷ lệ tăng trưởng PnL, Ký quỹ sử dụng (Margin Used), Ký quỹ tự do (Free Margin), số vị thế mở, nút đồng bộ dữ liệu.
+    - Cấu hình tham số giao dịch mô phỏng (lưu `localStorage`): Default Lot Size, Default SL Offset, Default TP Offset, Max Slippage Points, xác nhận trước khi gửi lệnh, âm thanh cảnh báo khi chạm TP/SL.
+    - Giám sát chẩn đoán hạ tầng: PostgreSQL 16, Redis 7 Pub/Sub, Binance PAXGUSDT WebSocket feed, Paper Execution Engine worker; kèm công cụ tương tác kiểm tra độ trễ kết nối API (Test Connection Ping latency).
+    - Tùy chọn hiển thị giao diện: Khung thời gian mặc định (M1-D1), múi giờ hiển thị (ICT/UTC), bật/tắt dải volume mặc định.
+  - **Backend API Update (`backend/api/v1/orders.py` & `api.js`):**
+    - Hoàn thiện cơ chế tự động tính `pnl_percentage` dựa trên `entry_price`, `exit_price` và `order_type` khi trường này chưa được gán sẵn trong DB cho các lệnh đã đóng.
+    - Bổ sung tham số limit linh hoạt cho `fetchOrders`, `fetchNews`, `fetchEconomicEvents` trong frontend API service.
+  - **Kiểm tra & Nghiệm thu:**
+    - Toàn bộ backend test suite: **32 passed in 1.81s** trên container `trading_backend`.
+    - Frontend bundle: `vite build` hoàn thành không có lỗi (`built in 19.54s`, 1591 modules).
+    - Nginx frontend container (`trading_frontend`) và FastAPI backend container (`trading_backend`) đã được rebuild và deploy thành công trên Docker (`http://localhost:3000`).
+    - Các endpoints API `/api/v1/orders`, `/api/v1/news`, `/api/v1/news/events`, `/api/v1/simulation/account`, `/health` đều hoạt động ổn định và trả về dữ liệu thực từ cơ sở dữ liệu.
+- **Trạng thái:** Hoàn thành toàn diện, các tính năng đã hoạt động trực tiếp.
 
 ---
 
