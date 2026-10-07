@@ -1,5 +1,49 @@
 # Backlog cập nhật
 
+## 2026-10-07 18:10 +07:00
+
+### [Update Phase 02 - Sprint 02]: Tối ưu kích thước mũi tên biểu đồ & Tính Exit Price như lệnh Sell (điểm thoát lệnh)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Tối ưu kích thước mũi tên (`TradingViewChart.vue`):**
+    - Điều chỉnh kích thước marker về chuẩn `size: 1` (gọn gàng, thanh thoát, cân xứng với tỷ lệ nến và bấc nến trên mọi khung thời gian M1–D1, loại bỏ cảm giác mũi tên bị thô/quá to khi zoom xa).
+  - **Hiển thị điểm thoát lệnh (Exit Price) dưới dạng lệnh SELL:**
+    - Ghi nhận `close_time` / `exit_price` của các lệnh đã đóng như một điểm hành động thoát lệnh:
+      - Đối với lệnh **BUY**: Điểm thoát lệnh (Exit price) được tính là lệnh **SELL** -> hiển thị mũi tên đỏ cam (`arrowDown`, `aboveBar`, `#ef5350`) đặt bên trên nến tại thời điểm đóng lệnh.
+      - Đối với lệnh **SELL**: Điểm thoát lệnh (Exit price) được tính là lệnh **BUY** -> hiển thị mũi tên xanh ngọc (`arrowUp`, `belowBar`, `#26a69a`) đặt bên dưới nến tại thời điểm đóng lệnh.
+  - **Khử trùng lặp đa lệnh trên cùng nến (Candle-level Deduplication):**
+    - Áp dụng cấu trúc `Set` gom nhóm theo `barTime` cho cả chiều BUY và chiều SELL.
+    - Nếu trên cùng 1 nến có nhiều lệnh BUY (hoặc nhiều lệnh SELL/Exit), hệ thống chỉ vẽ duy nhất **1 mũi tên** cho mỗi chiều, đảm bảo không có bất kỳ marker nào bị vẽ đè chồng lên nhau.
+  - **Kiểm tra & Nghiệm thu:**
+    - Toàn bộ frontend production build: `npm run build` hoàn thành không lỗi (`built in 2.11s`, 1591 modules).
+    - Đã đồng bộ dist bundle sang container `trading_frontend` trên Docker (`http://localhost:3000`).
+- **Trạng thái:** Hoàn thành, các tính năng đã hoạt động trực tiếp.
+
+---
+
+## 2026-10-07 17:40 +07:00
+
+### [Update Phase 02 - Sprint 02]: Tối giản hiển thị điểm lệnh Buy/Sell trên biểu đồ TradingView (Dạng mũi tên, lược bỏ chữ, gộp 1 mũi tên trên cùng 1 nến)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Tối giản hóa biểu thị điểm lệnh (`TradingViewChart.vue`):**
+    - **Lược bỏ toàn bộ chữ hiển thị trên marker:** Loại bỏ các chuỗi text dài đi kèm như `BUY 0.1L`, `SELL 0.2L` và loại bỏ các marker đóng lệnh hình tròn `circle` kèm text PnL/close reason, giúp thân nến và các vùng giá không bị che khuất.
+    - **Biểu thị dạng mũi tên trực quan:**
+      - Lệnh **BUY**: Mũi tên xanh ngọc (`arrowUp`, `#26a69a`) đặt bên dưới nến (`belowBar`), kích thước rõ ràng (`size: 2`).
+      - Lệnh **SELL**: Mũi tên đỏ cam (`arrowDown`, `#ef5350`) đặt bên trên nến (`aboveBar`), kích thước rõ ràng (`size: 2`).
+    - **Khử trùng lặp & Gộp 1 mũi tên duy nhất trên cùng 1 nến:**
+      - Gom nhóm toàn bộ lệnh theo timestamp nến đã snap (`barTime`).
+      - Trường hợp có nhiều hơn 1 lệnh buy hoặc sell trên cùng 1 nến (DCA, khớp lệnh cùng giây/phút hoặc khi xem trên khung thời gian lớn M5–D1), hệ thống gộp lại và chỉ vẽ đúng **1 mũi tên duy nhất** đại diện tại nến đó (theo chiều của lệnh mở gần nhất).
+      - Ngăn chặn hoàn toàn hiện tượng chồng đè marker và xung đột hiển thị trên cùng một thanh nến.
+    - Giữ nguyên các đường kẻ giá trực tiếp (PriceLines) cho Entry, Stop Loss, Take Profit của các lệnh đang mở để trader theo dõi vị thế trực tiếp trên biểu đồ.
+  - **Kiểm tra & Nghiệm thu:**
+    - Toàn bộ frontend production build: `npm run build` hoàn thành không lỗi (`built in 2.28s`, 1591 modules).
+    - Đã đồng bộ dist bundle sang container `trading_frontend` trên Docker (`http://localhost:3000`).
+    - Backend test suite: `docker exec trading_backend pytest` đạt **32 passed in 2.89s**.
+- **Trạng thái:** Hoàn thành, các tính năng đã hoạt động trực tiếp.
+
+---
+
 ## 2026-10-07 16:45 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Nâng cấp News & Events section trong Trading Cockpit với 3 tabs ngày (Yesterday, Today, Tomorrow) & Điều hướng toàn bộ Economic Calendar

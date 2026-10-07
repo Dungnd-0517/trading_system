@@ -137,38 +137,65 @@ function renderOrderOverlays() {
     }
   }
 
-  // 2. Vẽ Markers (Vào lệnh & Đóng lệnh) đã snap khớp chính xác với timestamp nến
-  const markers = []
+  // 2. Tối giản biểu thị lệnh buy/sell trên biểu đồ:
+  // - Điểm vào lệnh (Entry): lệnh BUY hiển thị mũi tên xanh dưới nến, lệnh SELL hiển thị mũi tên đỏ trên nến
+  // - Điểm thoát lệnh (Exit price): lệnh đóng cũng được tính là 1 lệnh SELL (mũi tên đỏ trên nến) đối với BUY, hoặc BUY đối với SELL
+  // - Tối ưu kích thước mũi tên cho phù hợp (size: 1, lược bỏ chữ hiển thị)
+  // - Khử trùng lặp: nếu có nhiều hơn 1 lệnh buy hoặc sell trên cùng 1 nến thì chỉ hiển thị 1 mũi tên tại nến đó
+  const buyBars = new Set()
+  const sellBars = new Set()
+
   for (const order of props.orders) {
-    // Marker vào lệnh
+    // 2.1 Điểm vào lệnh (Entry)
     if (order.open_time) {
       const openSec = Math.floor(new Date(order.open_time).getTime() / 1000)
       const barTime = findMatchingBarTime(openSec, props.candles)
       if (barTime !== null) {
-        markers.push({
-          time: barTime,
-          position: order.order_type === 'BUY' ? 'belowBar' : 'aboveBar',
-          color: order.order_type === 'BUY' ? '#26a69a' : '#ef5350',
-          shape: order.order_type === 'BUY' ? 'arrowUp' : 'arrowDown',
-          text: `${order.order_type} ${order.lot_size}L`,
-        })
+        if (order.order_type === 'BUY') {
+          buyBars.add(barTime)
+        } else {
+          sellBars.add(barTime)
+        }
       }
     }
-    // Marker đóng lệnh
+
+    // 2.2 Điểm thoát lệnh (Exit price)
     if (order.status === 'CLOSED' && order.close_time) {
       const closeSec = Math.floor(new Date(order.close_time).getTime() / 1000)
       const barTime = findMatchingBarTime(closeSec, props.candles)
       if (barTime !== null) {
-        const isWin = (order.realized_pnl || 0) >= 0
-        markers.push({
-          time: barTime,
-          position: 'inBar',
-          color: isWin ? '#26a69a' : '#ef5350',
-          shape: 'circle',
-          text: `${isWin ? '+' : ''}$${Number(order.realized_pnl || 0).toFixed(2)} (${order.close_reason || 'CLOSE'})`,
-        })
+        // Exit price được tính là lệnh SELL (điểm thoát lệnh) đối với lệnh BUY
+        if (order.order_type === 'BUY') {
+          sellBars.add(barTime)
+        } else {
+          buyBars.add(barTime)
+        }
       }
     }
+  }
+
+  const markers = []
+
+  // Marker BUY: arrowUp bên dưới nến, màu xanh ngọc, kích thước chuẩn size: 1
+  for (const barTime of buyBars) {
+    markers.push({
+      time: barTime,
+      position: 'belowBar',
+      color: '#26a69a',
+      shape: 'arrowUp',
+      size: 1,
+    })
+  }
+
+  // Marker SELL: arrowDown bên trên nến, màu đỏ cam, kích thước chuẩn size: 1
+  for (const barTime of sellBars) {
+    markers.push({
+      time: barTime,
+      position: 'aboveBar',
+      color: '#ef5350',
+      shape: 'arrowDown',
+      size: 1,
+    })
   }
 
   // Sắp xếp markers theo thời gian tăng dần (bắt buộc bởi lightweight-charts)
