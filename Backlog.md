@@ -1,5 +1,35 @@
 # Backlog cập nhật
 
+## 2026-10-07 16:45 +07:00
+
+### [Update Phase 02 - Sprint 02]: Nâng cấp News & Events section trong Trading Cockpit với 3 tabs ngày (Yesterday, Today, Tomorrow) & Điều hướng toàn bộ Economic Calendar
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Khối News & Events trong Trading Cockpit (`NewsStream.vue`):**
+    - **Phân chia 3 Tabs theo ngày:** Bổ sung thanh 3 tabs ngày trực tiếp trong phần Economic Calendar gồm **Yesterday**, **Today**, **Tomorrow** kèm theo badge số lượng sự kiện thực tế tương ứng từng ngày.
+    - **Mặc định mở ở tab "Today":** Khởi tạo mặc định chọn tab `Today` khi vào Trading Cockpit, giúp trader tập trung tức thì vào các sự kiện và chỉ số vĩ mô phát hành trong ngày giao dịch hiện tại.
+    - **Phân loại & Lọc dữ liệu chính xác theo ngày:** Tự động lọc các sự kiện lịch kinh tế (`EconomicEvent`) khớp theo ngày theo múi giờ hiển thị (ICT / UTC), sắp xếp theo trình tự thời gian (chronological) từ sớm đến muộn trong ngày.
+    - **Hiển thị đầy đủ thông tin cho từng tab:**
+      - Cột thời gian: Giờ phát hành (HH:mm) kèm tag trạng thái Countdown/Release (`RELEASED`, `IN ...H ...M`, `TIME UNVERIFIED`).
+      - Chi tiết sự kiện: Tiêu đề sự kiện, badge mã tiền tệ (USD, EUR,...), số sao ảnh hưởng (★★★ Cao, ★★ Vừa, ★ Thấp), tên nguồn cung cấp (FairEconomy,...).
+      - Thẻ dữ liệu kinh tế vĩ mô: Hiển thị nổi bật các chỉ số thực tế `Act` (Actual), `Frc` (Forecast), `Prev` (Previous) khi có sẵn dữ liệu.
+      - Trạng thái rỗng (Empty State) tinh gọn, thanh thoát khi một ngày không có sự kiện kinh tế nào.
+    - **Nút chuyển hướng sang màn hình hiển thị toàn bộ Economic Calendar (News & Events):**
+      - Bổ sung nút shortcut trên thanh tiêu đề `[ Toàn bộ lịch ↗ ]` và nút hành động CTA nổi bật ở chân danh sách `[ Xem toàn bộ Economic Calendar ↗ ]`.
+      - Khi click, kích hoạt sự kiện `@navigate-calendar`, tự động chuyển điều hướng ứng dụng sang màn hình **News & Events** và mở sẵn tab con **Economic Calendar**.
+  - **Đồng bộ hóa màn hình toàn bộ Economic Calendar (`NewsEventsView.vue` & `App.vue`):**
+    - `App.vue`: Bổ sung handler `openFullCalendar()` và prop `:initial-sub-tab="calendarInitialSubTab"`.
+    - `NewsEventsView.vue`: Tiếp nhận prop `initialSubTab` và watcher để chuyển đổi trực tiếp sang tab `Economic Calendar` khi được kích hoạt từ Trading Cockpit.
+    - Mở rộng thanh công cụ bộ lọc của Economic Calendar toàn màn hình với bộ lọc nhanh theo ngày: `Tất cả`, `Hôm qua`, `Hôm nay`, `Ngày mai` giúp trader lọc nhanh cả trên màn hình tổng thể.
+    - Duy trì luồng Breaking News bên dưới trong khối Cockpit để trader vừa theo dõi lịch kinh tế vừa nắm bắt tin tức nóng.
+  - **Kiểm tra & Nghiệm thu:**
+    - Toàn bộ backend test suite: **32 passed in 2.89s** trên container `trading_backend`.
+    - Frontend bundle: `npm run build` hoàn thành không có lỗi (`built in 21.82s`, 1591 modules).
+    - Đã đồng bộ dist bundle sang container `trading_frontend` trên Docker (`http://localhost:3000`).
+- **Trạng thái:** Hoàn thành, các tính năng đã hoạt động trực tiếp.
+
+---
+
 ## 2026-10-06 22:20 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Hoàn thành triển khai hệ thống điều hướng menu Header, Orders History, News & Events, Settings (Đã nghiệm thu)

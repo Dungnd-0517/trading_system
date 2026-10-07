@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   AlertTriangle,
   CalendarDays,
@@ -30,15 +30,28 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  initialSubTab: {
+    type: String,
+    default: 'calendar',
+  },
 })
 
 const emit = defineEmits(['refresh'])
 
-const activeSubTab = ref('calendar') // 'calendar' | 'news'
+const activeSubTab = ref(props.initialSubTab || 'calendar') // 'calendar' | 'news'
+
+watch(
+  () => props.initialSubTab,
+  (val) => {
+    if (val) activeSubTab.value = val
+  }
+)
+
 const now = ref(Date.now())
 let countdownTimer
 
 // Calendar filters
+const calendarDayFilter = ref('ALL') // 'ALL' | 'YESTERDAY' | 'TODAY' | 'TOMORROW'
 const calendarStarFilter = ref('ALL')
 const calendarCurrencyFilter = ref('ALL')
 const calendarSearch = ref('')
@@ -89,9 +102,38 @@ const availableNewsSources = computed(() => {
   return Array.from(set).sort()
 })
 
+function getLocalDateKey(dateOrIso, timeZone = 'Asia/Ho_Chi_Minh') {
+  if (!dateOrIso) return null
+  const d = typeof dateOrIso === 'string' || typeof dateOrIso === 'number' ? new Date(dateOrIso) : dateOrIso
+  if (!d || isNaN(d.getTime())) return null
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d)
+  } catch {
+    return d.toISOString().slice(0, 10)
+  }
+}
+
 // Filtered Events
 const filteredEvents = computed(() => {
   return props.events.filter((evt) => {
+    if (calendarDayFilter.value !== 'ALL') {
+      const dNow = new Date(now.value)
+      const tz = 'Asia/Ho_Chi_Minh'
+      const eKey = getLocalDateKey(evt.event_timestamp || evt.provider_time_raw, tz)
+      const todayKey = getLocalDateKey(dNow, tz)
+      const yesterdayKey = getLocalDateKey(new Date(dNow.getTime() - 86400000), tz)
+      const tomorrowKey = getLocalDateKey(new Date(dNow.getTime() + 86400000), tz)
+
+      if (calendarDayFilter.value === 'TODAY' && eKey !== todayKey) return false
+      if (calendarDayFilter.value === 'YESTERDAY' && eKey !== yesterdayKey) return false
+      if (calendarDayFilter.value === 'TOMORROW' && eKey !== tomorrowKey) return false
+    }
+
     if (calendarStarFilter.value !== 'ALL') {
       const targetStars = Number(calendarStarFilter.value)
       if (evt.impact_stars !== targetStars) return false
@@ -294,6 +336,16 @@ onUnmounted(() => {
         </div>
 
         <div class="filter-group">
+          <span class="filter-label"><CalendarDays :size="12" /> Ngày:</span>
+          <div class="segmented-control">
+            <button :class="{ active: calendarDayFilter === 'ALL' }" @click="calendarDayFilter = 'ALL'">Tất cả</button>
+            <button :class="{ active: calendarDayFilter === 'YESTERDAY' }" @click="calendarDayFilter = 'YESTERDAY'">Hôm qua</button>
+            <button :class="{ active: calendarDayFilter === 'TODAY' }" @click="calendarDayFilter = 'TODAY'">Hôm nay</button>
+            <button :class="{ active: calendarDayFilter === 'TOMORROW' }" @click="calendarDayFilter = 'TOMORROW'">Ngày mai</button>
+          </div>
+        </div>
+
+        <div class="filter-group">
           <span class="filter-label">Tiền tệ:</span>
           <select v-model="calendarCurrencyFilter" class="select-dropdown">
             <option value="ALL">Tất cả tiền tệ</option>
@@ -302,9 +354,9 @@ onUnmounted(() => {
         </div>
 
         <button
-          v-if="calendarSearch || calendarStarFilter !== 'ALL' || calendarCurrencyFilter !== 'ALL'"
+          v-if="calendarSearch || calendarStarFilter !== 'ALL' || calendarCurrencyFilter !== 'ALL' || calendarDayFilter !== 'ALL'"
           class="reset-btn"
-          @click="calendarSearch = ''; calendarStarFilter = 'ALL'; calendarCurrencyFilter = 'ALL'"
+          @click="calendarSearch = ''; calendarStarFilter = 'ALL'; calendarCurrencyFilter = 'ALL'; calendarDayFilter = 'ALL'"
         >
           Reset
         </button>

@@ -26,6 +26,7 @@ import { orderStore } from './stores/orderStore'
 import { connectMarketStream } from './services/websocket'
 
 const activeTab = ref('cockpit')
+const calendarInitialSubTab = ref('calendar')
 const streamConnected = ref(false)
 const showVolume = ref(true)
 const now = ref(new Date())
@@ -33,6 +34,16 @@ const priceDirection = ref('neutral')
 let clockTimer
 let sourceTimer
 let socket
+
+function openFullCalendar() {
+  activeTab.value = 'news'
+  calendarInitialSubTab.value = 'calendar'
+}
+
+function openFullNews() {
+  activeTab.value = 'news'
+  calendarInitialSubTab.value = 'news'
+}
 
 const dbConnected = computed(() => marketStore.health?.services?.postgres === true)
 const redisConnected = computed(() => marketStore.health?.services?.redis === true)
@@ -251,7 +262,13 @@ onUnmounted(() => {
       <aside class="right-column">
         <InsightsPanel />
         <SentimentGauge :news="orderStore.news" />
-        <NewsStream :news="orderStore.news" :events="orderStore.events" :sources="orderStore.sources" />
+        <NewsStream
+          :news="orderStore.news"
+          :events="orderStore.events"
+          :sources="orderStore.sources"
+          @navigate-calendar="openFullCalendar"
+          @navigate-news="openFullNews"
+        />
       </aside>
     </section>
 
@@ -267,6 +284,7 @@ onUnmounted(() => {
       :news="orderStore.news"
       :events="orderStore.events"
       :sources="orderStore.sources"
+      :initial-sub-tab="calendarInitialSubTab"
       @refresh="orderStore.refresh"
     />
 
