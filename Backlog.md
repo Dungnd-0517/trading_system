@@ -1,5 +1,35 @@
 # Backlog cập nhật
 
+## 2026-10-07 19:00 +07:00
+
+### [Update Phase 02 - Sprint 02]: Bổ sung Menu Chiến lược & Phân tích (Strategy & Analysis) và Hệ tri thức SMC Trading áp dụng cho hệ thống
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Triển khai Menu điều hướng mới (`App.vue` & `style.css`):**
+    - Bổ sung tab **Strategy & Analysis** (icon `BrainCircuit`) vào thanh điều hướng Header chính trên toàn hệ thống.
+    - Tích hợp nhãn nhận diện màn hình hoạt động `VIEW: STRATEGY & ANALYSIS`.
+    - Kết nối nút shortcut từ khối `InsightsPanel` trong Trading Cockpit giúp trader mở trực tiếp trang phân tích chiến lược.
+  - **Xây dựng Màn hình Chiến lược & Phân tích (`StrategyAnalysisView.vue`):**
+    - **Executive Hero Header:** Tổng quan mô hình giao dịch SMC / ICT đa khung thời gian cho XAUUSD (Gold), triết lý rule-based không look-ahead, thông số tỷ lệ R:R mục tiêu &ge; 1:2 (mục tiêu 1:3), mức rủi ro 0.5% &ndash; 1.0% vốn.
+    - **Tab 1 &ndash; Quy trình Đa khung thời gian (Multi-Timeframe Pipeline):** Chi tiết 3 tầng phân tích thực tế trong mã nguồn:
+      1. *Tầng 1 (HTF Bias - D1 &amp; H4):* Xác định xu hướng vĩ mô qua Fractal Swing (Left=3, Right=3) và điều kiện đồng thuận bắt buộc (D1/H4 alignment).
+      2. *Tầng 2 (POI Selection - H1):* Phân chia Dealing Range theo 50% Equilibrium (chỉ BUY ở Discount, chỉ SELL ở Premium), quét Order Block và Fair Value Gap (FVG &ge; 0.3 &times; ATR).
+      3. *Tầng 3 (Trigger &amp; Entry - M15):* Kiểm tra chạm vùng POI H1 (Tap POI), nến M15 đóng cửa tạo CHoCH trong khung giờ Kill Zone.
+    - **Tab 2 &ndash; Thư viện Khái niệm SMC Cốt lõi (SMC Mechanics Library):** Định nghĩa toán học chi tiết về BOS (Break of Structure), CHoCH (Change of Character), Order Block (OB), Fair Value Gap (FVG), Dealing Range &amp; Equilibrium, Liquidity Sweeps.
+    - **Tab 3 &ndash; Khung giờ vàng giao dịch (Kill Zones &amp; Sessions):** Bảng đối chiếu giờ New York và giờ Việt Nam (ICT) cho London Kill Zone (14:00&ndash;17:00 ICT), New York AM Kill Zone (19:00&ndash;22:00 ICT), New York PM Kill Zone, ICT Silver Bullet và cơ chế tự động bù trừ giờ mùa hè/mùa đông (DST-aware).
+    - **Tab 4 &ndash; Ma trận Quản trị Rủi ro &amp; Vốn (Risk Management Matrix):** Công cụ tính Lot Size tự động tương tác trực tiếp theo số dư vốn và khoảng cách SL; quy tắc ngắt giao dịch khẩn cấp khi sụt giảm trong ngày chạm ngưỡng Daily Loss &ge; 5.0% và Stop Loss buffer theo ATR.
+    - **Tab 5 &ndash; Bộ lọc Tin tức &amp; Bối cảnh vĩ mô (Macro News Guard):** Cơ chế Circuit Breaker tự động khóa mở lệnh khi có tin đỏ 3 sao (CPI, NFP, FOMC) và bộ điều tiết khối lượng/khoảng cách SL theo tỷ lệ biến động ATR Volatility Ratio.
+    - **Tab 6 &ndash; Checklist Vào lệnh Tương tác (Execution Checklist):** 7 tiêu chí vàng giúp trader tự đánh giá điều kiện vào lệnh thực tế, kèm thanh tiến độ phần trăm trực quan.
+  - **Nâng cấp Khối Bối cảnh thị trường trong Cockpit (`InsightsPanel.vue`):**
+    - Cập nhật hiển thị tóm tắt mô hình chiến lược SMC, chế độ thực thi và phiên Kill Zone hiện hành; bổ sung nút chuyển hướng nhanh sang màn hình Strategy &amp; Analysis.
+  - **Kiểm tra &amp; Nghiệm thu:**
+    - Toàn bộ frontend production build: `npm run build` hoàn thành không lỗi (`built in 2.30s`, 1593 modules).
+    - Đã đồng bộ dist bundle sang container `trading_frontend` trên Docker (`http://localhost:3000`).
+    - Backend test suite: `docker exec trading_backend pytest` đạt **32 passed in 1.80s**.
+- **Trạng thái:** Hoàn thành, các tính năng đã hoạt động trực tiếp.
+
+---
+
 ## 2026-10-07 18:10 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Tối ưu kích thước mũi tên biểu đồ & Tính Exit Price như lệnh Sell (điểm thoát lệnh)

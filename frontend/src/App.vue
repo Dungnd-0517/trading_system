@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   Activity,
   Bell,
+  BrainCircuit,
   CircleHelp,
   History,
   LayoutDashboard,
@@ -20,6 +21,7 @@ import MetricsCards from './components/Simulation/MetricsCards.vue'
 import InsightsPanel from './components/AIAnalysis/InsightsPanel.vue'
 import OrdersHistory from './components/Orders/OrdersHistory.vue'
 import NewsEventsView from './components/News/NewsEventsView.vue'
+import StrategyAnalysisView from './components/Strategy/StrategyAnalysisView.vue'
 import SettingsView from './components/Settings/SettingsView.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
@@ -137,6 +139,16 @@ onUnmounted(() => {
 
         <button
           role="tab"
+          :aria-selected="activeTab === 'strategy'"
+          :class="['nav-tab', { active: activeTab === 'strategy' }]"
+          @click="activeTab = 'strategy'"
+        >
+          <BrainCircuit :size="14" />
+          <span>Strategy &amp; Analysis</span>
+        </button>
+
+        <button
+          role="tab"
           :aria-selected="activeTab === 'settings'"
           :class="['nav-tab', { active: activeTab === 'settings' }]"
           @click="activeTab = 'settings'"
@@ -225,7 +237,15 @@ onUnmounted(() => {
       </div>
       <div v-else class="view-indicator">
         <span class="active-view-tag">
-          {{ activeTab === 'orders' ? 'VIEW: ORDERS HISTORY' : activeTab === 'news' ? 'VIEW: NEWS & EVENTS' : 'VIEW: SYSTEM SETTINGS' }}
+          {{
+            activeTab === 'orders'
+              ? 'VIEW: ORDERS HISTORY'
+              : activeTab === 'news'
+              ? 'VIEW: NEWS & EVENTS'
+              : activeTab === 'strategy'
+              ? 'VIEW: STRATEGY & ANALYSIS'
+              : 'VIEW: SYSTEM SETTINGS'
+          }}
         </span>
       </div>
 
@@ -260,7 +280,7 @@ onUnmounted(() => {
         <OrderBookTable :orders="orderStore.orders" />
       </div>
       <aside class="right-column">
-        <InsightsPanel />
+        <InsightsPanel @open-strategy="activeTab = 'strategy'" />
         <SentimentGauge :news="orderStore.news" />
         <NewsStream
           :news="orderStore.news"
@@ -288,7 +308,18 @@ onUnmounted(() => {
       @refresh="orderStore.refresh"
     />
 
-    <!-- VIEW 4: SETTINGS -->
+    <!-- VIEW 4: STRATEGY & ANALYSIS -->
+    <StrategyAnalysisView
+      v-else-if="activeTab === 'strategy'"
+      :candles="marketStore.candles"
+      :last-price="marketStore.lastPrice"
+      :timeframe="marketStore.timeframe"
+      :news="orderStore.news"
+      :events="orderStore.events"
+      @navigate-cockpit="activeTab = 'cockpit'"
+    />
+
+    <!-- VIEW 5: SETTINGS -->
     <SettingsView
       v-else-if="activeTab === 'settings'"
     />
