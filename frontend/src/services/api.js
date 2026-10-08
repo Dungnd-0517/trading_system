@@ -25,4 +25,6 @@ export const closeOrder = (orderId, reason = 'MANUAL_CLOSE') => post(`/orders/${
 export const fetchSimulationAccount = () => get('/simulation/account')
 export const fetchNews = (limit = 200) => get(`/news?limit=${limit}`)
 export const fetchEconomicEvents = (limit = 200) => get(`/news/events?limit=${limit}`)
+export const fetchNewsEvents = fetchEconomicEvents
 export const fetchNewsStatus = () => get('/news/status')
+export const fetchMarketAnalysis = (symbol = 'XAUUSD') => get(`/market/analysis?symbol=${encodeURIComponent(symbol)}`)

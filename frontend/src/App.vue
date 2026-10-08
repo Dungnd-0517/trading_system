@@ -18,6 +18,7 @@ import NewsStream from './components/News/NewsStream.vue'
 import SentimentGauge from './components/News/SentimentGauge.vue'
 import OrderBookTable from './components/Simulation/OrderBookTable.vue'
 import MetricsCards from './components/Simulation/MetricsCards.vue'
+import MarketAnalysisStatus from './components/Simulation/MarketAnalysisStatus.vue'
 import InsightsPanel from './components/AIAnalysis/InsightsPanel.vue'
 import OrdersHistory from './components/Orders/OrdersHistory.vue'
 import NewsEventsView from './components/News/NewsEventsView.vue'
@@ -278,6 +279,11 @@ onUnmounted(() => {
         </div>
         <MetricsCards :orders="orderStore.orders" />
         <OrderBookTable :orders="orderStore.orders" />
+        <MarketAnalysisStatus
+          :symbol="marketStore.symbol"
+          :last-price="marketStore.lastPrice"
+          :account="orderStore.account"
+        />
       </div>
       <aside class="right-column">
         <InsightsPanel @open-strategy="activeTab = 'strategy'" />

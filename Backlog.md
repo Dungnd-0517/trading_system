@@ -1,5 +1,35 @@
 # Backlog cập nhật
 
+## 2026-10-07 22:30 +07:00
+
+### [Update Phase 02 - Sprint 02]: Bổ sung Khối Trạng thái Phân tích & Kịch bản Giao dịch trong Trading Cockpit (Dưới Paper Positions)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Phát triển Backend API Phân tích Thị trường (`/api/v1/market/analysis` - `backend/api/v1/market.py`):**
+    - Trích xuất dữ liệu giá thực tế từ cơ sở dữ liệu và công cụ tính toán SMC / Sessions của hệ thống (`ai_engine.sessions`, `ai_engine.smc`).
+    - Tính toán động 5 thành phần phân tích trọng tâm:
+      1. *Xu hướng dài hạn (HTF Trend Confirmation):* Xác nhận đa khung D1 & H4, trạng thái đồng thuận xu hướng (Alignment), các mốc Swing High và Swing Low gần nhất.
+      2. *Xu hướng hiện tại trong ngày (Intraday Trend & Dealing Range):* Đánh giá khung H1 & M15, nhận diện vị thế vùng giá Discount (< 50% Equilibrium) hoặc Premium (> 50% Equilibrium), phát hiện phiên giao dịch và trạng thái cửa sổ thanh khoản Kill Zone (London, NY AM, NY PM, Asia).
+      3. *Các kịch bản đề xuất (Proposed Scenarios):* Phân bổ 2 kịch bản chi tiết: Kịch bản chính (Primary - 65% xác suất, Mua theo POI Discount H1 & xác nhận M15 CHoCH) và Kịch bản dự phòng (Alternative - 35% xác suất, theo dõi nhịp phá vỡ & quét thanh khoản Sell-Side).
+      4. *Dự đoán điểm vào lệnh (Predicted Setup):* Cung cấp vùng vào lệnh (Entry Zone), điểm kích hoạt chuẩn (Entry Price), điểm cắt lỗ (Stop Loss), điểm chốt lời (Take Profit), tỷ lệ Risk:Reward (R:R &ge; 1:2), trạng thái chờ xác nhận (`WAITING_TRIGGER`).
+      5. *Quy tắc bỏ qua chỉ báo & hủy kịch bản (Invalidation Criteria):* 4 tiêu chí bảo vệ vốn nghiêm ngặt (phá vỡ POI, tin tức 3 sao Circuit Breaker, hết phiên Kill Zone, R:R không tối ưu).
+  - **Xây dựng Component Giao diện Phân tích Thị trường (`MarketAnalysisStatus.vue`):**
+    - Đặt trực tiếp dưới bảng **Paper Positions** (`OrderBookTable.vue`) trong cột biểu đồ chính (`.chart-column`) của Trading Cockpit (`App.vue`).
+    - **Header & Ribbon trạng thái tức thời:** Hiển thị mã cặp tiền (`XAUUSD`), giá thị trường thời gian thực, nút làm mới (Refresh) kèm đồng bộ tự động mỗi 30 giây; thanh ribbon tóm tắt nhanh: HTF Bias, Dealing Zone, Kill Zone Status, Setup Engine.
+    - **Thẻ 1 &ndash; Xu hướng Dài hạn (HTF Confirmation):** Cấu trúc xác nhận D1/H4 (BULLISH/BEARISH), trạng thái đồng thuận đa khung (`Alignment: Validated`), hiển thị mốc Swing High và Swing Low.
+    - **Thẻ 2 &ndash; Xu hướng Trong ngày (Intraday Bias & Dealing Range):** Thanh trực quan hóa khoảng dao động Dealing Range H1 (Low &rarr; Equilibrium 50% &rarr; High) kèm con trỏ chỉ vị trí giá hiện tại; tự động đưa ra khuyến nghị vùng Discount (ưu tiên Mua) hoặc Premium (cảnh báo rủi ro mua đuổi đỉnh).
+    - **Thẻ 3 &ndash; Các Kịch bản Đề xuất theo dõi (Scenarios in Monitor):** 2 khối kịch bản Primary (65%) và Alternative (35%) với đầy đủ điều kiện kích hoạt, vùng mục tiêu giá (BSL/SSL) và nhãn trạng thái theo dõi.
+    - **Thẻ 4 &ndash; Dự đoán Điểm vào lệnh khi đủ điều kiện (Predicted Setup):** Hiển thị trực quan hướng lệnh (`BUY ON TRIGGER`), vùng Entry, SL, TP, tỷ lệ R:R; tích hợp **công cụ tính Lot size động (Dynamic Lot Size Calculator)** phản ứng theo số dư tài khoản thực tế và bộ chọn mức rủi ro (0.5%, 1.0%, 1.5%, 2.0%).
+    - **Thẻ 5 &ndash; Xác nhận Bỏ qua Chỉ báo & Hủy kịch bản (Invalidation Rules):** Thống kê 4 quy tắc kỷ luật SMC giúp trader hủy tín hiệu và đứng ngoài an toàn khi giá không đi đúng kịch bản, đi kèm badge trạng thái kiểm tra.
+  - **Tích hợp Kiến trúc & Hệ thống:**
+    - Cập nhật `frontend/src/services/api.js` bổ sung hàm `fetchMarketAnalysis`.
+    - Kết nối component `MarketAnalysisStatus.vue` vào `frontend/src/App.vue`.
+    - Đã build production frontend thành công (`npm run build`, 1595 modules, 0 lỗi) và đồng bộ sang container `trading_frontend`.
+    - Đã chạy kiểm thử backend (`pytest`), toàn bộ **32 test cases passed**.
+- **Trạng thái:** Hoàn thành, các chức năng đã hoạt động trực tiếp trên hệ thống.
+
+---
+
 ## 2026-10-07 19:00 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Bổ sung Menu Chiến lược & Phân tích (Strategy & Analysis) và Hệ tri thức SMC Trading áp dụng cho hệ thống
