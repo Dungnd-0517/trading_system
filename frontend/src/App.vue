@@ -63,6 +63,7 @@ function selectTimeframe(timeframe) {
 
 onMounted(() => {
   marketStore.refresh()
+  marketStore.startPolling(2500)
   orderStore.refresh()
   socket = connectMarketStream(
     (event) => {
@@ -93,6 +94,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  marketStore.stopPolling()
   window.clearInterval(clockTimer)
   window.clearInterval(sourceTimer)
   socket?.close()
@@ -316,6 +318,7 @@ onUnmounted(() => {
           <ChartOverlayControls v-model:show-volume="showVolume" />
           <TradingViewChart
             :symbol="marketStore.symbol"
+            :timeframe="marketStore.timeframe"
             :candles="marketStore.candles"
             :event="marketStore.chartEvent"
             :orders="orderStore.orders"
@@ -324,7 +327,7 @@ onUnmounted(() => {
           />
           <div class="chart-foot">
             <span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span>
-            <span>UTC · {{ marketStore.timeframe }}</span>
+            <span>ICT (UTC+7, Vietnam) · {{ marketStore.timeframe }}</span>
           </div>
         </div>
         <MetricsCards :orders="orderStore.orders" />

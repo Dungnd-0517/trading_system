@@ -1,5 +1,64 @@
 # Backlog cập nhật
 
+## 2026-10-09 21:55 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hoàn thiện Động cơ Phân tích Cảm xúc Tin tức (News Sentiment Engine & AI Context)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Động cơ Phân tích Cảm xúc Chuyên sâu cho Vàng XAUUSD (`backend/ai_engine/sentiment.py`):**
+    - Xây dựng thuật toán NLP phân tích cảm xúc thị trường tài chính chuyên biệt cho cặp tỷ giá XAUUSD và dữ liệu kinh tế vĩ mô toàn cầu.
+    - Nhận diện đa chiều: phân biệt tác động trực tiếp lên Vàng (đà bứt phá, lực mua gom, nhu cầu phòng hộ rủi ro, căng thẳng địa chính trị) và tác động nghịch chiều từ chỉ số USD (DXY), lợi suất trái phiếu (Treasury yields) cùng chính sách lãi suất Fed (hawkish/dovish).
+    - Xử lý ngữ cảnh đảo ngược (negation handling): tự động nhận biết các từ phủ định/thất bại (`fails to rally`, `struggles to`, `unlikely to`) trong cụm từ ngữ.
+    - Phân cấp mức độ biến động rủi ro (`LOW`, `MEDIUM`, `HIGH_RISK_HALT`) dựa trên biên độ cảm xúc và sự kiện đặc biệt (CPI, NFP, FOMC, địa chính trị).
+    - Tự động sinh tóm tắt phân tích AI (`ai_analysis_summary`) chi tiết, giải thích cụ thể lý do tích cực/tiêu cực/trung lập đối với giá Vàng.
+  - **Tích hợp Ingestion Thời gian thực & Tự động Backfill (`backend/data_ingestion/news_worker.py`):**
+    - Tích hợp hàm `analyze_sentiment` vào chu trình xử lý tin tức định kỳ của `NewsCollector`: mọi tin tức mới từ Kitco News, FXStreet News và Finnhub đều được tự động chấm điểm và sinh tóm tắt AI ngay khi lưu DB.
+    - Phát sự kiện `news.upsert` qua Redis kênh `news:events` kèm theo trường `sentiment_score` và `ai_analysis_summary` phục vụ hiển thị trực tiếp trên UI.
+    - Xây dựng cơ chế tự động quét nạp bổ sung (`backfill_news_sentiment`) khi backend khởi động: đã hoàn tất chấm điểm toàn bộ hơn 500 bản ghi tin tức lịch sử trong DB PostgreSQL.
+  - **Mở rộng API Backend (`backend/api/v1/news.py`):**
+    - Bổ sung endpoint `GET /api/v1/news/sentiment` trả về các chỉ số thống kê cảm xúc tổng hợp: điểm số trung bình, xu hướng (BULLISH/BEARISH/NEUTRAL), số lượng tin tức tích cực, tiêu cực và trung tính.
+    - Bổ sung endpoint `POST /api/v1/news/analyze` cho phép kích hoạt quy trình phân tích và cập nhật lại điểm số theo yêu cầu.
+  - **Nâng cấp Giao diện Đo Cảm xúc (`SentimentGauge.vue` & `NewsEventsView.vue`):**
+    - `SentimentGauge.vue`:
+      - Kim đo động (animated pointer) mượt mà với hiệu ứng cubic-bezier bám sát trục dải màu từ Bearish (-1.0) đến Bullish (+1.0).
+      - Hiển thị điểm số định dạng tài chính có dấu (`+0.35`, `-0.20`, `0.00`).
+      - Huy hiệu trạng thái xu hướng động: `BULLISH` (xanh), `BEARISH` (đỏ), `NEUTRAL` (xám) với icon trực quan.
+      - Dòng giải thích bối cảnh vĩ mô tương ứng cho Vàng (XAUUSD).
+      - Bộ đếm phân loại số lượng tin tức theo từng trạng thái (Bullish ↑ / Neutral – / Bearish ↓).
+    - `NewsEventsView.vue`:
+      - Hiển thị chuẩn xác huy hiệu Sentiment Pill trên từng thẻ tin tức kèm icon `TrendingUp`, `TrendingDown`, `Minus`.
+      - Hộp thông tin `AI INSIGHT` hiển thị sinh động phân tích giải thích lý do tác động.
+      - Bộ lọc tin tức theo cảm xúc (Tất cả, Bullish, Bearish, Neutral) hoạt động chính xác 100%.
+  - **Kiểm thử & Triển khai:**
+    - Toàn bộ backend test suite: **50 passed in 3.62s** trên container `trading_backend` (bao gồm 7 tests mới cho `test_sentiment.py`).
+    - Frontend build: `npm run build` hoàn thành không có lỗi (`built in 2.63s`, 1598 modules).
+    - Các dịch vụ Docker (`trading_backend`, `trading_frontend`, `trading_postgres`, `trading_redis`) hoạt động ổn định và đồng bộ dữ liệu.
+- **Trạng thái:** Hoàn thành toàn diện.
+
+---
+
+### [Update Phase 02 - Sprint 03]: Làm Mới Biểu Đồ Nến Liên Tục (Chống Khoảng Trống Nhảy Giá) & Quy Đổi Khung Thời Gian về Giờ Việt Nam (ICT, UTC+7)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Cơ chế Làm Mới Liên Tục & Đồng Bộ Nến Thời Gian Thực (`marketStore.js`):**
+    - Thiết lập cơ chế chạy ngầm `syncHistory()` định kỳ 2.5 giây (`startPolling(2500)`): tự động so khớp và đồng bộ chuỗi nến lịch sử từ cơ sở dữ liệu backend, lấp kín hoàn toàn các khoảng trống (gaps) nếu có độ trễ mạng hoặc gói tin WebSocket bị gián đoạn.
+    - Duy trì nến đang hình thành (forming candle) và nạp tức thì các nến mới mở (`new bar opened`) trực tiếp vào mảng nến trong bộ nhớ `marketStore.candles` khi nhận sự kiện tick `chart.update`, ngăn chặn triệt để tình trạng nhảy lùi thời gian hoặc mất nến gần nhất khi vẽ lại.
+    - Nâng cấp `connectMarketStream` (`websocket.js`) với cơ chế tự động kết nối lại (Auto-reconnect sau 2 giây) khi kết nối mạng chập chờn hoặc đứt quãng, bảo đảm luồng dữ liệu biểu đồ không bị ngắt quãng.
+  - **Tối ưu Cơ chế Render Tránh Nhảy Zoom / Khung Hình (`TradingViewChart.vue`):**
+    - Quản lý cờ trạng thái `hasInitialFit`: chỉ kích hoạt `chart.timeScale().fitContent()` một lần duy nhất khi lần đầu tải biểu đồ hoặc khi người dùng chuyển đổi cặp tiền / khung thời gian (`timeframe`).
+    - Trong các chu kỳ làm mới liên tục ngầm tiếp theo, hệ thống cập nhật dữ liệu mượt mà qua `setData` mà không làm reset góc nhìn, giữ nguyên 100% tọa độ phóng to/thu nhỏ (zoom/pan) của trader.
+  - **Quy Đổi Khung Timeframe và Trục Thời Gian về Giờ Việt Nam (ICT, UTC+7):**
+    - **Trục hoành thời gian (Horizontal TimeScale):** Thiết lập `timeScale.tickMarkFormatter` quy đổi chuẩn xác toàn bộ nhãn thời gian trên trục biểu đồ về múi giờ Việt Nam (UTC+7, không phụ thuộc vào cài đặt múi giờ máy khách), định dạng linh hoạt theo cấp độ thời gian (Năm, Tháng, Ngày, Giờ:Phút).
+    - **Nhãn Crosshair trục thời gian:** Tích hợp `localization.timeFormatter` hiển thị chi tiết `DD/MM/YYYY HH:mm (ICT)` ngay dưới con trỏ định vị.
+    - **Thanh Legend Bar & Tooltip nổi:** Hàm `formatBarTime` quy đổi và hiển thị thời gian nến chuẩn xác `YYYY-MM-DD HH:mm (ICT)` cả khi hover và ở trạng thái nến mới nhất.
+    - **Chân biểu đồ (Chart Footer):** Cập nhật nhãn tham chiếu `ICT (UTC+7, Vietnam) · {timeframe}` tại `App.vue`.
+  - **Kiểm thử & Triển khai Hệ thống:**
+    - Biên dịch production build frontend (`npm run build`) thành công 100% không lỗi cú pháp.
+    - Hệ thống Nginx container `trading_frontend` tự động nhận bản build mới và đồng bộ tức thời trên cả Localhost, LAN và Cloudflare Tunnel.
+- **Trạng thái:** Hoàn thành.
+
+---
+
 ## 2026-10-09 17:15 +07:00
 
 ### [Update Phase 02 - Sprint 03]: Hiển thị Đường EMA, Giá trị Chỉ báo trên Biểu đồ & Tùy biến Tham số trong Cài đặt

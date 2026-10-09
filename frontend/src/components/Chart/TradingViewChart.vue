@@ -5,6 +5,7 @@ import { settingsStore } from '../../stores/settingsStore'
 
 const props = defineProps({
   symbol: { type: String, default: 'XAUUSD' },
+  timeframe: { type: String, default: 'M1' },
   candles: { type: Array, default: () => [] },
   event: { type: Object, default: null },
   orders: { type: Array, default: () => [] },
@@ -31,6 +32,11 @@ let livePriceLine
 let resizeObserver
 let crosshairHandler
 const orderPriceLines = new Map()
+let hasInitialFit = false
+
+watch([() => props.symbol, () => props.timeframe], () => {
+  hasInitialFit = false
+})
 
 function computeEMA(candles, period = 20) {
   if (!candles || !candles.length || period <= 0) return []
@@ -104,7 +110,10 @@ function renderCandles(candles) {
   candleSeries.setData(candles.map(({ time, open, high, low, close }) => candleData({ time, open, high, low, close })))
   volumeSeries?.setData(candles.map((candle) => volumeData(candle, candle.volume ?? 0)))
   updateEmaSeries()
-  if (candles.length) chart.timeScale().fitContent()
+  if (candles.length && !hasInitialFit) {
+    chart.timeScale().fitContent()
+    hasInitialFit = true
+  }
   renderOrderOverlays()
   if (props.lastPrice != null) {
     updateLivePriceLine(props.lastPrice)
@@ -166,14 +175,15 @@ function applyLiveEvent(event) {
 
 function formatBarTime(timeSec) {
   if (!timeSec) return ''
-  const d = new Date(timeSec * 1000)
+  // Quy đổi về múi giờ Việt Nam (UTC+7, ICT)
+  const vnDate = new Date((Number(timeSec) + 7 * 3600) * 1000)
   const pad = (n) => String(n).padStart(2, '0')
-  const YYYY = d.getFullYear()
-  const MM = pad(d.getMonth() + 1)
-  const DD = pad(d.getDate())
-  const HH = pad(d.getHours())
-  const mm = pad(d.getMinutes())
-  return `${YYYY}-${MM}-${DD} ${HH}:${mm}`
+  const YYYY = vnDate.getUTCFullYear()
+  const MM = pad(vnDate.getUTCMonth() + 1)
+  const DD = pad(vnDate.getUTCDate())
+  const HH = pad(vnDate.getUTCHours())
+  const mm = pad(vnDate.getUTCMinutes())
+  return `${YYYY}-${MM}-${DD} ${HH}:${mm} (ICT)`
 }
 
 function formatVolume(vol) {
@@ -385,7 +395,53 @@ onMounted(() => {
     grid: { vertLines: { color: '#edf0eb' }, horzLines: { color: '#edf0eb' } },
     crosshair: { mode: CrosshairMode.Normal },
     rightPriceScale: { borderColor: '#e1e7e0' },
-    timeScale: { borderColor: '#e1e7e0', timeVisible: true, secondsVisible: false },
+    timeScale: {
+      borderColor: '#e1e7e0',
+      timeVisible: true,
+      secondsVisible: false,
+      tickMarkFormatter: (timeSec, tickMarkType) => {
+        if (typeof timeSec !== 'number') return null
+        const vnDate = new Date((timeSec + 7 * 3600) * 1000)
+        const pad = (n) => String(n).padStart(2, '0')
+        const DD = pad(vnDate.getUTCDate())
+        const MM = pad(vnDate.getUTCMonth() + 1)
+        const YYYY = vnDate.getUTCFullYear()
+        const HH = pad(vnDate.getUTCHours())
+        const mm = pad(vnDate.getUTCMinutes())
+
+        switch (tickMarkType) {
+          case 0: // Year
+            return `${YYYY}`
+          case 1: // Month
+            return `${MM}/${YYYY}`
+          case 2: // DayOfMonth
+            return `${DD}/${MM}`
+          case 3: // Time
+            return `${HH}:${mm}`
+          case 4: // TimeWithSeconds
+            return `${HH}:${mm}:${pad(vnDate.getUTCSeconds())}`
+          default:
+            return `${HH}:${mm}`
+        }
+      },
+    },
+    localization: {
+      locale: 'vi-VN',
+      dateFormat: 'dd/MM/yyyy',
+      timeFormatter: (timeSec) => {
+        if (typeof timeSec === 'number') {
+          const vnDate = new Date((timeSec + 7 * 3600) * 1000)
+          const pad = (n) => String(n).padStart(2, '0')
+          const DD = pad(vnDate.getUTCDate())
+          const MM = pad(vnDate.getUTCMonth() + 1)
+          const YYYY = vnDate.getUTCFullYear()
+          const HH = pad(vnDate.getUTCHours())
+          const mm = pad(vnDate.getUTCMinutes())
+          return `${DD}/${MM}/${YYYY} ${HH}:${mm} (ICT)`
+        }
+        return String(timeSec)
+      },
+    },
   })
   candleSeries = chart.addCandlestickSeries({
     upColor: '#2c7858', downColor: '#cf6858', borderVisible: false,

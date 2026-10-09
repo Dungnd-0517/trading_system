@@ -170,6 +170,29 @@ Module `NewsCircuitBreaker` (`backend/ai_engine/news_guard.py`) bảo vệ hệ 
   * Mọi tín hiệu mới phát sinh trong khoảng thời gian này tự động gán trạng thái `INVALIDATED` với lý do: `"CIRCUIT_BREAKER: HIGH_IMPACT_NEWS_IMMIMENT"`.
   * Phát event `circuit_breaker.update` ra Redis để hiển thị cảnh báo đỏ trên UI Cockpit.
 
+### 5.2. Động cơ Phân tích Cảm xúc Tin tức & Bối cảnh AI (News Sentiment & AI Context Engine)
+* **Module:** `backend/ai_engine/sentiment.py`
+* **Mục tiêu:** Tự động tính toán điểm tác động tin tức tài chính và kinh tế vĩ mô đối với cặp tỷ giá **XAUUSD (Vàng)**:
+  $$\text{Sentiment Score} \in [-1.0, +1.0] \quad (\text{Bearish} \rightarrow \text{Neutral} \rightarrow \text{Bullish})$$
+* **Cơ chế Phân loại & Chấm điểm:**
+  * **Trường phái Tác động Trực tiếp tới Vàng:**
+    * Tăng giá (Bullish $\ge +0.15$): Bứt phá giá, lực mua hồi phục (short covering), nhu cầu trú ẩn an toàn (safe haven demand), rủi ro địa chính trị, kỳ vọng cắt giảm lãi suất Fed, USD và lợi suất trái phiếu suy yếu.
+    * Giảm giá (Bearish $\le -0.15$): Áp lực bán chốt lời, phá vỡ ngưỡng hỗ trợ, đà tăng mạnh của chỉ số USD và lợi suất trái phiếu, lãi suất duy trì mức cao (higher-for-longer).
+    * Trung lập (Neutral $-0.15 < \text{Score} < +0.15$): Dữ liệu thị trường cân bằng hoặc thông tin thông lệ không tạo xu hướng một chiều.
+  * **Phân cấp Rủi ro Biến động (Volatility Impact):**
+    * `HIGH_RISK_HALT`: Tin tức 3 sao, biên độ cảm xúc mạnh ($|\text{Score}| \ge 0.70$), hoặc xuất hiện từ khóa đặc biệt (CPI, NFP, FOMC, chiến sự).
+    * `MEDIUM`: Tin tức 2 sao hoặc điểm cảm xúc từ $0.25$ đến $0.70$.
+    * `LOW`: Tin tức 1 sao hoặc thông tin thường lệ.
+* **Tích hợp Ingestion & Đồng bộ Cơ sở Dữ liệu:**
+  * `NewsCollector` (`backend/data_ingestion/news_worker.py`) tự động chấm điểm `sentiment_score` và sinh `ai_analysis_summary` ngay khi tiếp nhận tin mới từ RSS (Kitco, FXStreet) và Finnhub.
+  * Tự động quét và nạp bổ sung (backfill) toàn bộ dữ liệu lịch sử chưa có điểm số trong DB khi khởi động hệ thống.
+  * Cung cấp API `GET /api/v1/news/sentiment` trả về tổng hợp điểm số, tỷ lệ Bullish/Bearish/Neutral và endpoint `POST /api/v1/news/analyze` kích hoạt phân tích theo yêu cầu.
+* **Giao diện Cockpit (`SentimentGauge.vue` & `NewsEventsView.vue`):**
+  * Kim đồng hồ đo động (Animated Pointer) hiển thị trực quan tỷ lệ cảm xúc từ -1.0 đến +1.0 kèm vạch chuẩn Neutral 0.00.
+  * Huy hiệu trạng thái động: `BULLISH` (xanh), `BEARISH` (đỏ), `NEUTRAL` (xám).
+  * Bộ đếm phân loại số lượng tin tức tích cực, trung tính và tiêu cực.
+  * Thẻ tin tức hiển thị chỉ báo xu hướng (`TrendingUp`, `TrendingDown`, `Minus`) cùng hộp thông tin chi tiết `AI INSIGHT`.
+
 ---
 
 ## 6. QUẢN TRỊ VỊ THẾ ĐỘNG NÂNG CAO (DYNAMIC POSITION MANAGEMENT)

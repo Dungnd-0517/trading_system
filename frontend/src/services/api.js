@@ -39,6 +39,8 @@ export const fetchNews = (limit = 200) => get(`/news?limit=${limit}`)
 export const fetchEconomicEvents = (limit = 200) => get(`/news/events?limit=${limit}`)
 export const fetchNewsEvents = fetchEconomicEvents
 export const fetchNewsStatus = () => get('/news/status')
+export const fetchNewsSentiment = (limit = 100) => get(`/news/sentiment?limit=${limit}`)
+export const triggerNewsAnalysis = (limit = 200) => post(`/news/analyze?limit=${limit}`)
 export const fetchMarketAnalysis = (symbol = 'XAUUSD') => get(`/market/analysis?symbol=${encodeURIComponent(symbol)}`)
 export const fetchSignals = (limit = 50, status = '') =>
   get(`/strategy/signals?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ''}`)
