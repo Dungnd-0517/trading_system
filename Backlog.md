@@ -1,5 +1,37 @@
 # Backlog cập nhật
 
+## 2026-10-09 17:15 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hiển thị Đường EMA, Giá trị Chỉ báo trên Biểu đồ & Tùy biến Tham số trong Cài đặt
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Tích hợp Thuật toán & Vẽ Đường EMA (`TradingViewChart.vue`):**
+    - Hiện thực hàm tính toán chỉ số Trung bình Động Lũy thừa `computeEMA(candles, period)` theo công thức chuẩn kỹ thuật:
+      $$\text{Multiplier} = \frac{2}{\text{Period} + 1}, \quad \text{EMA}_t = (\text{Close}_t - \text{EMA}_{t-1}) \times \text{Multiplier} + \text{EMA}_{t-1}$$
+    - Tạo `addLineSeries` trong TradingView `lightweight-charts` với các tùy chọn nét vẽ mượt mà, độ dày nét, màu sắc cấu hình linh hoạt.
+    - Xử lý cập nhật động thời gian thực (`applyLiveEvent`): tính toán và đẩy giá trị EMA tick mới nhất vào chuỗi line series khi có nến mới hoặc tick giá biến động.
+    - Tự động phản ứng (reactive watchers) khi người dùng thay đổi bật/tắt EMA, thay đổi chu kỳ (period) hoặc đổi màu sắc đường.
+  - **Hiển thị Giá trị Đường EMA Động trên Legend Bar & Floating Tooltip:**
+    - **Candle Legend Bar:** Hiển thị thẻ chỉ số `EMA({period}): {value}` với màu sắc đồng bộ của đường EMA. Giá trị tự động cập nhật theo nến đang hover hoặc nến mới nhất khi không hover.
+    - **Floating Hover Tooltip:** Thêm dòng hiển thị giá trị đường EMA tại đúng tọa độ thời gian của nến mà con trỏ chuột đang chỉ tới.
+    - Lưu trữ bộ chỉ mục `emaMap` tối ưu truy xuất $O(1)$ theo timestamp giúp thao tác rê chuột mượt mà 60fps.
+  - **Thiết lập Tham số Chỉ số EMA trong Cài đặt (`SettingsView.vue`):**
+    - Thêm Section 5: **Chỉ báo kỹ thuật & Đường EMA (Technical Indicators)** trong trang Settings.
+    - Tùy chọn Bật/Tắt hiển thị EMA với công tắc chuyển đổi trực quan.
+    - Ô nhập chu kỳ EMA (`Period`) dạng số tùy ý, đi kèm các nút chọn nhanh (Quick Presets) cho các chu kỳ kinh điển: `EMA 9`, `EMA 20`, `EMA 50`, `EMA 100`, `EMA 200`.
+    - Bảng chọn màu sắc trực quan (Vàng kim, Cam, Xanh dương, Xanh ngọc, Tím, Đỏ hồng) và bảng mã màu HTML tùy ý (`color input`).
+    - Thẻ xem trước trực quan (Badge Preview) phản chiếu tức thì chu kỳ và màu sắc cấu hình.
+    - Lưu trữ bền vững vào `localStorage` (`fieldnote_user_settings`) và đồng bộ tức thì trên toàn bộ ứng dụng qua `settingsStore`.
+  - **Nút Bật/Tắt Nhanh trên Khung Biểu đồ (`ChartOverlayControls.vue`):**
+    - Bổ sung nút chuyển đổi nhanh `EMA ({period})` ngay tại thanh công cụ góc trên biểu đồ nến giúp trader bật/tắt nhanh mà không cần rời màn hình giao dịch.
+    - Hiển thị chấm màu sắc tương ứng chỉ báo và nhãn trạng thái kích hoạt.
+  - **Kiểm thử & Triển khai Hệ thống:**
+    - Biên dịch production build frontend (`npm run build`) thành công 100% không cảnh báo/lỗi cú pháp.
+    - Volume mount Docker tự động cập nhật mã nguồn phân phối qua Nginx `trading_frontend` trên cả cổng localhost, mạng nội bộ (LAN) và Cloudflare Tunnel.
+- **Trạng thái:** Hoàn thành.
+
+---
+
 ## 2026-10-09 15:35 +07:00
 
 ### [Update Phase 02 - Sprint 03]: Hiển thị Chi tiết Thông tin Nến (OHLCV & Price Change) khi Hover trên Biểu đồ TradingView

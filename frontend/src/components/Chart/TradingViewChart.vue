@@ -1,6 +1,7 @@
 <script setup>
 import { createChart, CrosshairMode } from 'lightweight-charts'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { settingsStore } from '../../stores/settingsStore'
 
 const props = defineProps({
   symbol: { type: String, default: 'XAUUSD' },
@@ -9,7 +10,14 @@ const props = defineProps({
   orders: { type: Array, default: () => [] },
   showVolume: { type: Boolean, default: true },
   lastPrice: { type: Number, default: null },
+  showEma: { type: Boolean, default: null },
+  emaPeriod: { type: Number, default: null },
+  emaColor: { type: String, default: null },
 })
+
+const activeShowEma = computed(() => (props.showEma !== null ? props.showEma : settingsStore.showEma))
+const activeEmaPeriod = computed(() => (props.emaPeriod !== null ? props.emaPeriod : settingsStore.emaPeriod))
+const activeEmaColor = computed(() => (props.emaColor !== null ? props.emaColor : settingsStore.emaColor))
 
 const host = ref(null)
 const hoveredCandle = ref(null)
@@ -17,10 +25,75 @@ const candleMap = new Map()
 let chart
 let candleSeries
 let volumeSeries
+let emaSeries = null
+let emaMap = new Map()
 let livePriceLine
 let resizeObserver
 let crosshairHandler
 const orderPriceLines = new Map()
+
+function computeEMA(candles, period = 20) {
+  if (!candles || !candles.length || period <= 0) return []
+  const k = 2 / (period + 1)
+  const result = []
+
+  if (candles.length >= period) {
+    let sum = 0
+    for (let i = 0; i < period; i++) {
+      sum += Number(candles[i].close)
+    }
+    let prev = sum / period
+    result.push({ time: candles[period - 1].time, value: Number(prev.toFixed(2)) })
+
+    for (let i = period; i < candles.length; i++) {
+      const close = Number(candles[i].close)
+      prev = close * k + prev * (1 - k)
+      result.push({ time: candles[i].time, value: Number(prev.toFixed(2)) })
+    }
+  } else {
+    let prev = Number(candles[0].close)
+    result.push({ time: candles[0].time, value: Number(prev.toFixed(2)) })
+    for (let i = 1; i < candles.length; i++) {
+      const close = Number(candles[i].close)
+      prev = close * k + prev * (1 - k)
+      result.push({ time: candles[i].time, value: Number(prev.toFixed(2)) })
+    }
+  }
+  return result
+}
+
+function updateEmaSeries() {
+  if (!chart) return
+  if (!activeShowEma.value) {
+    if (emaSeries) {
+      chart.removeSeries(emaSeries)
+      emaSeries = null
+    }
+    emaMap.clear()
+    return
+  }
+
+  if (!emaSeries) {
+    emaSeries = chart.addLineSeries({
+      color: activeEmaColor.value || '#eab308',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: true,
+      title: `EMA ${activeEmaPeriod.value}`,
+    })
+  } else {
+    emaSeries.applyOptions({
+      color: activeEmaColor.value || '#eab308',
+      title: `EMA ${activeEmaPeriod.value}`,
+      visible: true,
+    })
+  }
+
+  const emaData = computeEMA(props.candles, activeEmaPeriod.value)
+  emaMap = new Map(emaData.map((d) => [d.time, d.value]))
+  emaSeries.setData(emaData)
+}
 
 function renderCandles(candles) {
   if (!candleSeries) return
@@ -30,6 +103,7 @@ function renderCandles(candles) {
   }
   candleSeries.setData(candles.map(({ time, open, high, low, close }) => candleData({ time, open, high, low, close })))
   volumeSeries?.setData(candles.map((candle) => volumeData(candle, candle.volume ?? 0)))
+  updateEmaSeries()
   if (candles.length) chart.timeScale().fitContent()
   renderOrderOverlays()
   if (props.lastPrice != null) {
@@ -78,6 +152,16 @@ function applyLiveEvent(event) {
   candleSeries.update(candleData(candle))
   volumeSeries?.update(volumeData(candle, event.volume.value))
   updateLivePriceLine(event.price.bid ?? event.price.value)
+
+  if (activeShowEma.value && emaSeries && props.candles.length) {
+    const period = activeEmaPeriod.value
+    const k = 2 / (period + 1)
+    const close = Number(candle.close)
+    const prevEma = emaMap.get(candle.time) ?? (emaMap.size ? Array.from(emaMap.values())[emaMap.size - 1] : close)
+    const newEma = Number((close * k + prevEma * (1 - k)).toFixed(2))
+    emaMap.set(candle.time, newEma)
+    emaSeries.update({ time: candle.time, value: newEma })
+  }
 }
 
 function formatBarTime(timeSec) {
@@ -110,6 +194,7 @@ const latestCandle = computed(() => {
   const close = Number(c.close)
   const change = close - open
   const changePercent = open !== 0 ? (change / open) * 100 : 0
+  const emaVal = activeShowEma.value && emaMap.has(c.time) ? emaMap.get(c.time) : null
   return {
     time: c.time,
     timeFormatted: formatBarTime(c.time),
@@ -121,6 +206,7 @@ const latestCandle = computed(() => {
     changePercent,
     isUp: close >= open,
     volume: c.volume ?? null,
+    ema: emaVal,
     isHovered: false,
   }
 })
@@ -362,6 +448,8 @@ onMounted(() => {
       vol = candleMap.get(param.time).volume ?? null
     }
 
+    const emaVal = activeShowEma.value && emaMap.has(param.time) ? emaMap.get(param.time) : null
+
     hoveredCandle.value = {
       time: param.time,
       timeFormatted: formatBarTime(param.time),
@@ -373,6 +461,7 @@ onMounted(() => {
       changePercent,
       isUp,
       volume: vol,
+      ema: emaVal,
       isHovered: true,
       x: param.point.x,
       y: param.point.y,
@@ -386,6 +475,9 @@ watch(() => props.candles, renderCandles)
 watch(() => props.event, applyLiveEvent)
 watch(() => props.lastPrice, (val) => { if (val != null) updateLivePriceLine(val) })
 watch(() => props.orders, renderOrderOverlays, { deep: true })
+watch([activeShowEma, activeEmaPeriod, activeEmaColor], () => {
+  updateEmaSeries()
+})
 watch(() => props.showVolume, (visible) => {
   volumeSeries?.applyOptions({ visible })
   chart?.priceScale('').applyOptions({ visible })
@@ -395,6 +487,10 @@ onUnmounted(() => {
   resizeObserver?.disconnect()
   if (crosshairHandler && chart) {
     chart.unsubscribeCrosshairMove(crosshairHandler)
+  }
+  if (emaSeries && chart) {
+    chart.removeSeries(emaSeries)
+    emaSeries = null
   }
   for (const [, lines] of orderPriceLines.entries()) {
     if (lines.entry) candleSeries?.removePriceLine(lines.entry)
@@ -432,6 +528,10 @@ onUnmounted(() => {
           <span class="lbl">VOL</span>
           <b class="val-vol">{{ formatVolume(activeCandle.volume) }}</b>
         </span>
+        <span v-if="activeShowEma && activeCandle.ema != null" class="ohlc-cell ema-cell">
+          <span class="lbl" :style="{ color: activeEmaColor }">EMA ({{ activeEmaPeriod }})</span>
+          <b class="val-ema" :style="{ color: activeEmaColor }">${{ activeCandle.ema.toFixed(2) }}</b>
+        </span>
       </div>
     </div>
 
@@ -463,6 +563,10 @@ onUnmounted(() => {
         <div v-if="hoveredCandle.volume != null" class="tt-row">
           <span class="tt-k">Khối lượng</span>
           <span class="tt-v val-vol">{{ Number(hoveredCandle.volume).toLocaleString('en-US') }}</span>
+        </div>
+        <div v-if="activeShowEma && hoveredCandle.ema != null" class="tt-row">
+          <span class="tt-k" :style="{ color: activeEmaColor }">EMA ({{ activeEmaPeriod }})</span>
+          <span class="tt-v" :style="{ color: activeEmaColor }">${{ hoveredCandle.ema.toFixed(2) }}</span>
         </div>
       </div>
     </div>
@@ -569,6 +673,17 @@ onUnmounted(() => {
 .val-vol {
   color: #4772a3;
   font-weight: 600;
+}
+
+.val-ema {
+  font-weight: 700;
+}
+
+.ema-cell {
+  background: rgba(234, 179, 8, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(234, 179, 8, 0.25);
 }
 
 /* FLOATING TOOLTIP */
