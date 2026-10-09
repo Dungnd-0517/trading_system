@@ -1,5 +1,62 @@
 # Backlog cập nhật
 
+## 2026-10-09 11:30 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hoàn thành Động cơ Tự động Kích hoạt SMC, Quản trị Vị thế Động (BE Move / Partial TP) & Màn hình Backtest Lab
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **D12. Database Schema & Migration Sprint 3 (`0004_phase2_sprint3.sql` - `backend/migrations/`):**
+    - Tạo bảng `system_trading_config`: lưu trữ cấu hình chế độ thực thi (`MANUAL`, `SEMI_AUTO`, `FULL_AUTO`), tỷ lệ rủi ro (`risk_percent_per_trade: 1.0%`), giới hạn vị thế mở (`max_open_positions: 2`), giới hạn lỗ tối đa trong ngày (`max_daily_drawdown_percent: 5.0%`), cờ tin tức (`circuit_breaker_enabled: true`), cấu hình dời SL (`be_trigger_r_multiple: 1.5R`), tỷ lệ chốt lời từng phần (`partial_tp_ratio: 0.5`).
+    - Tạo bảng `strategy_signals`: lưu trữ tín hiệu phân tích SMC theo thời gian thực (`symbol`, `timeframe`, `signal_type`, `entry_price`, `stop_loss`, `take_profit`, `confidence_score`, `reasons`, `status`, `execution_ticket_id`).
+    - Mở rộng bảng `simulated_orders`: bổ sung các trường vị thế động: `parent_ticket_id`, `is_breakeven_moved`, `is_partial_closed`, `trailing_stop_price`.
+    - Cập nhật SQLAlchemy ORM models (`backend/core/models.py`) và nạp seed config mặc định vào cơ sở dữ liệu PostgreSQL.
+
+  - **D13. News Circuit Breaker Guard (`backend/ai_engine/news_guard.py`):**
+    - Module `NewsCircuitBreaker` tự động quét các sự kiện kinh tế USD có độ ảnh hưởng cao (High Impact - 3 sao đỏ như CPI, NFP, FOMC Interest Rate).
+    - Cửa sổ bảo vệ: Tự động kích hoạt trạng thái cấm mở lệnh trước 30 phút và sau 30 phút (`cooldown_minutes=30`) so với thời điểm công bố tin.
+    - Phát broadcast sự kiện `circuit_breaker.update` qua WebSocket đến toàn bộ client kết nối khi trạng thái ngắt mạch thay đổi.
+    - Bộ test unit `test_news_guard.py` kiểm thử đầy đủ các tình huống: tin tức đang trong vùng cấm, tin ngoài vùng cấm, và cấu hình bypass khi tắt circuit breaker.
+
+  - **D14. Signal Generation Engine (`backend/ai_engine/signal_worker.py`):**
+    - Worker chạy ngầm theo chu kỳ nến M15 (tự động khởi động và quản lý vòng đời trong FastAPI lifespan).
+    - Tích hợp toàn diện pipeline phân tích SMC 3 tầng: HTF Alignment D1/H4 -> POI Discount/Premium H1 -> M15 Trigger CHoCH / Kill Zone.
+    - Kiểm tra bộ lọc News Circuit Breaker trước khi phê duyệt tín hiệu.
+    - Lưu tín hiệu đủ điều kiện vào bảng `strategy_signals` và phát thông báo tức thời `market:signals` (`signal.new`).
+    - Bổ sung test unit `test_signal_worker.py` giả lập nến và luồng xử lý tín hiệu.
+
+  - **D15. Dynamic Position Management & Auto Executor (`backend/simulation/`):**
+    - **Tự động Dời SL về Hòa Vốn (Break-Even Move):** Khi giá đi đúng hướng và tỷ lệ lợi nhuận chạm $\ge 1.5R$, `paper_worker.py` / `paper_engine.py` tự động nâng/hạ Stop Loss về đúng giá Entry ban đầu (`entry_price`), bảo toàn 100% vốn cho lệnh.
+    - **Chốt Lời Từng Phần (Partial Take-Profit 50% TP1):** Khi giá chạm vùng TP1 hoặc trader click nút `[ 50% TP ]`, hệ thống chốt 50% volume vị thế hiện tại vào Realized PnL, đồng thời tự động dời SL của 50% volume còn lại về điểm hòa vốn (`is_breakeven_moved=True`).
+    - **Động cơ Auto Executor (`auto_executor.py`):** Xử lý thực thi tự động theo 3 chế độ:
+      - `MANUAL`: Chỉ phát tín hiệu và âm thanh cảnh báo, người dùng tự duyệt vào lệnh.
+      - `SEMI_AUTO`: Tự động điền thông số và hiển thị popup cho trader xác nhận bằng 1 click.
+      - `FULL_AUTO`: Tự động tính Lot size theo 1% rủi ro tài khoản và mở lệnh ngay lập tức khi tín hiệu xuất hiện.
+    - Tích hợp kiểm tra giới hạn an toàn: `max_open_positions`, `max_daily_drawdown_percent`, và `circuit_breaker`.
+
+  - **D16. API Router `/api/v1/strategy` & WebSocket Multiplexing:**
+    - `GET /api/v1/strategy/signals`: Danh sách tín hiệu kèm phân trang và lọc trạng thái.
+    - `POST /api/v1/strategy/evaluate`: Quét và đánh giá tín hiệu SMC tức thời cho cặp tiền.
+    - `POST /api/v1/strategy/execute`: Kích hoạt khớp lệnh từ tín hiệu chiến lược.
+    - `GET/PUT /api/v1/strategy/config`: Đọc và cập nhật cấu hình chế độ giao dịch thời gian thực.
+    - `POST /api/v1/strategy/backtest`: Mô phỏng chiến lược trên chuỗi nến lịch sử, tính toán tỷ lệ Winrate, Profit Factor, Max Drawdown, Sharpe Ratio, và đường cong vốn Equity Curve.
+    - `POST /api/v1/orders/{id}/partial-close`: API chốt lời từng phần vị thế mô phỏng.
+    - Mở rộng kênh WebSocket `market:signals` và `market:circuit_breaker` trên cùng endpoint `/api/v1/ws/market`.
+
+  - **D17. Giao diện Frontend - Điều khiển Chế độ & Quản trị Lệnh (`frontend/`):**
+    - **Thanh Topbar Controller (`App.vue` & `style.css`):** Bổ sung cụm điều khiển Mode Pill 3 trạng thái (`MANUAL`, `SEMI-AUTO`, `FULL-AUTO`), hiển thị badge cảnh báo Circuit Breaker đỏ nhấp nháy khi có tin tức USD lớn.
+    - **Audio Alert (`orderStore.js`):** Sử dụng Web Audio API tổng hợp âm báo tần số kép khi có tín hiệu SMC mới xuất hiện mà không cần phụ thuộc vào file âm thanh ngoài.
+    - **Bảng Paper Positions (`OrderBookTable.vue`):** Bổ sung nút thao tác nhanh `[ 50% TP ]` cho từng lệnh đang mở, hiển thị badge `[BE]` khi đã dời hòa vốn và `[50% Banked]` khi đã chốt một phần.
+    - **Khối Setup Action (`MarketAnalysisStatus.vue`):** Bổ sung nút `[ Kích hoạt theo Setup ⚡ ]` tự động tính lot size theo rủi ro mở lệnh trực tiếp, nút `[ Quét Tín hiệu M15 🔄 ]`, và cảnh báo Circuit Breaker trực tiếp.
+    - **Màn hình Backtest Lab (`BacktestLabView.vue`):** Màn hình kiểm thử chiến lược toàn diện với KPI tóm tắt (Net Profit, Win Rate, Total Trades, Profit Factor, Max DD), biểu đồ SVG Interactive Equity Curve, và bảng danh sách chi tiết các lệnh backtest kèm lọc theo kết quả WIN / LOSS.
+
+  - **Kiểm thử & Nghiệm thu:**
+    - Toàn bộ backend test suite: **43/43 tests passed in 2.56s** trên Docker `trading_backend`.
+    - Frontend production build: `npm run build` hoàn thành 100% không lỗi (`✓ built in 4.01s`, 1597 modules).
+    - Đã deploy dist bundle sang container `trading_frontend` (`http://localhost:3000`) và reload nginx.
+- **Trạng thái:** Hoàn thành toàn diện Sprint 03.
+
+---
+
 ## 2026-10-07 22:30 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Bổ sung Khối Trạng thái Phân tích & Kịch bản Giao dịch trong Trading Cockpit (Dưới Paper Positions)

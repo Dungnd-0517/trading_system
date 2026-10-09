@@ -3,7 +3,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from core.redis_client import client
 
 router = APIRouter()
-_CHANNELS = ("market:ticks", "paper:orders", "news:events")
+_CHANNELS = ("market:ticks", "paper:orders", "news:events", "market:signals", "market:circuit_breaker")
 
 
 @router.websocket("/ws/market")

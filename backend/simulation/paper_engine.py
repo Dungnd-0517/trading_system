@@ -20,6 +20,7 @@ class PaperOrder:
     entry: float
     stop_loss: float
     take_profit: float
+    initial_stop_loss: float = 0.0
     ticket_uuid: uuid.UUID = field(default_factory=uuid.uuid4)
     slippage: float = 0.0
     commission: float = 0.0
@@ -30,6 +31,10 @@ class PaperOrder:
     exit_price: float | None = None
     realized_pnl: float | None = None
     close_time: datetime | None = None
+    is_breakeven_moved: bool = False
+    is_partial_closed: bool = False
+    parent_ticket_id: int | None = None
+    trailing_stop_price: float | None = None
 
 
 class PaperEngine:
@@ -60,6 +65,7 @@ class PaperEngine:
             entry=entry,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            initial_stop_loss=stop_loss,
             slippage=self.slippage,
         )
         self.orders[order.ticket] = order
@@ -77,6 +83,72 @@ class PaperEngine:
         order.status = OrderStatus.CLOSED
         order.close_time = datetime.now(timezone.utc)
         return order
+
+    def check_and_apply_breakeven(self, order: PaperOrder, bid: float, ask: float, r_multiple: float = 1.5) -> bool:
+        """Tự động dời Stop Loss về giá hòa vốn khi giá chạy đạt r_multiple R"""
+        if order.is_breakeven_moved or order.status != OrderStatus.FILLED:
+            return False
+
+        init_sl = order.initial_stop_loss or order.stop_loss
+        risk_dist = abs(order.entry - init_sl)
+        if risk_dist <= 0:
+            return False
+
+        if order.side == "BUY" and bid >= order.entry + r_multiple * risk_dist:
+            order.stop_loss = round(order.entry + 0.10, 2)
+            order.is_breakeven_moved = True
+            return True
+        elif order.side == "SELL" and ask <= order.entry - r_multiple * risk_dist:
+            order.stop_loss = round(order.entry - 0.10, 2)
+            order.is_breakeven_moved = True
+            return True
+
+        return False
+
+    def partial_close_order(
+        self, ticket: int, exit_price: float, ratio: float = 0.5, reason: str = "PARTIAL_TP1"
+    ) -> PaperOrder | None:
+        """Chốt lời từng phần (mặc định 50%) và dời SL của phần còn lại về hòa vốn"""
+        order = self.orders.get(ticket)
+        if not order or order.status != OrderStatus.FILLED or order.lots <= 0.01:
+            return None
+
+        closed_lots = round(order.lots * ratio, 2)
+        remaining_lots = round(order.lots - closed_lots, 2)
+        if closed_lots <= 0 or remaining_lots <= 0:
+            return None
+
+        direction = 1 if order.side == "BUY" else -1
+        pnl = round((exit_price - order.entry) * direction * closed_lots * self.contract_size, 2)
+
+        # Tạo bản ghi phụ đại diện cho phần lot đã chốt
+        partial_record = PaperOrder(
+            ticket=self._next_ticket,
+            symbol=order.symbol,
+            side=order.side,
+            lots=closed_lots,
+            entry=order.entry,
+            stop_loss=order.stop_loss,
+            take_profit=exit_price,
+            initial_stop_loss=order.initial_stop_loss,
+            parent_ticket_id=order.ticket,
+            status=OrderStatus.CLOSED,
+            exit_price=exit_price,
+            realized_pnl=pnl,
+            close_reason=reason,
+            close_time=datetime.now(timezone.utc),
+        )
+        self.orders[partial_record.ticket] = partial_record
+        self._next_ticket += 1
+
+        # Cập nhật lại vị thế gốc
+        order.lots = remaining_lots
+        order.is_partial_closed = True
+        # Dời SL về Breakeven
+        order.stop_loss = round(order.entry + (0.10 if order.side == "BUY" else -0.10), 2)
+        order.is_breakeven_moved = True
+
+        return partial_record
 
     def on_tick(self, symbol: str, bid: float, ask: float) -> list[PaperOrder]:
         closed = []

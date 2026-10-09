@@ -121,6 +121,24 @@ async def close_order(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+class PartialCloseRequest(BaseModel):
+    ratio: float = Field(default=0.5, ge=0.1, le=0.9)
+    reason: str = Field(default="MANUAL_PARTIAL_TP", max_length=32)
+
+
+@router.post("/{order_id}/partial-close")
+async def partial_close_order_endpoint(
+    order_id: int, request: PartialCloseRequest | None = None
+) -> dict[str, object]:
+    ratio = request.ratio if request else 0.5
+    reason = request.reason if request else "MANUAL_PARTIAL_TP"
+    try:
+        updated = await paper_worker.partial_close_order(order_id, ratio=ratio, reason=reason)
+        return updated
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.get("/account")
 async def get_order_account(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
     account = await session.scalar(select(SimulationAccount).where(SimulationAccount.id == 1))

@@ -4,6 +4,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai_engine.signal_worker import signal_worker
 from api.v1 import router as api_router
 from core.config import settings
 from core.database import close_database, ping_database
@@ -20,13 +21,15 @@ async def lifespan(_: FastAPI):
     news_task = asyncio.create_task(NewsCollector().run(), name="news-collector")
     chart_task = asyncio.create_task(ChartStreamer().run(), name="chart-streamer")
     paper_task = asyncio.create_task(paper_worker.run(), name="paper-worker")
+    signal_task = asyncio.create_task(signal_worker.run(), name="signal-worker")
     try:
         yield
     finally:
-        for task in (news_task, chart_task, paper_task):
+        for task in (news_task, chart_task, paper_task, signal_task):
             task.cancel()
         paper_worker.stop()
-        await asyncio.gather(news_task, chart_task, paper_task, return_exceptions=True)
+        signal_worker.stop()
+        await asyncio.gather(news_task, chart_task, paper_task, signal_task, return_exceptions=True)
         await close_redis()
         await close_database()
 
