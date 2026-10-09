@@ -90,9 +90,16 @@ async function handleScanSignals() {
   try {
     const res = await evaluateSignals(props.symbol)
     await orderStore.fetchSignals()
-    actionMessageType.value = 'success'
-    actionMessage.value = `Đã quét tín hiệu SMC: ${res.signals_evaluated || 0} nến được phân tích.`
-    setTimeout(() => { actionMessage.value = '' }, 5000)
+    if (res?.signal) {
+      actionMessageType.value = 'success'
+      const sig = res.signal
+      actionMessage.value = `Đã phát hiện tín hiệu SMC: ${sig.side} tại $${Number(sig.entry_price).toFixed(2)} (SL: $${Number(sig.stop_loss).toFixed(2)}, TP: $${Number(sig.take_profit_1).toFixed(2)}, R:R 1:${sig.risk_reward})`
+    } else {
+      actionMessageType.value = 'info'
+      actionMessage.value = res?.message || 'Đã quét nến M15: Không phát hiện setup SMC hợp lệ tại nến hiện tại hoặc ngoài phiên Kill Zone.'
+    }
+    await loadAnalysis()
+    setTimeout(() => { actionMessage.value = '' }, 6000)
   } catch (err) {
     actionMessageType.value = 'error'
     actionMessage.value = err.message || 'Lỗi quét tín hiệu SMC'

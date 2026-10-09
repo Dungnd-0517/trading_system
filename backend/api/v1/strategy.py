@@ -74,29 +74,36 @@ async def trigger_signal_evaluation(
     symbol: str = Query(default="XAUUSD"),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, object]:
-    signal_res = await signal_worker.evaluate_signal(symbol, session)
-    if not signal_res:
-        return {
-            "status": "NO_SETUP",
-            "message": "Không phát hiện setup SMC hợp lệ tại nến hiện tại hoặc ngoài phiên Kill Zone.",
-        }
+    try:
+        signal_res = await signal_worker.evaluate_signal(symbol, session)
+        if not signal_res:
+            return {
+                "status": "NO_SETUP",
+                "message": "Không phát hiện setup SMC hợp lệ tại nến hiện tại hoặc ngoài phiên Kill Zone.",
+            }
 
-    return {
-        "status": signal_res.status,
-        "signal": {
-            "id": signal_res.id,
-            "symbol": signal_res.symbol,
-            "side": signal_res.side,
-            "entry_price": float(signal_res.entry_price),
-            "stop_loss": float(signal_res.stop_loss),
-            "take_profit_1": float(signal_res.take_profit_1),
-            "take_profit_2": float(signal_res.take_profit_2) if signal_res.take_profit_2 else None,
-            "risk_reward": float(signal_res.risk_reward),
-            "session_name": signal_res.session_name,
-            "reason": signal_res.reason,
-            "invalidated_reason": signal_res.invalidated_reason,
-        },
-    }
+        return {
+            "status": signal_res.status,
+            "signal": {
+                "id": signal_res.id,
+                "symbol": signal_res.symbol,
+                "side": signal_res.side,
+                "entry_price": float(signal_res.entry_price),
+                "stop_loss": float(signal_res.stop_loss),
+                "take_profit_1": float(signal_res.take_profit_1),
+                "take_profit_2": float(signal_res.take_profit_2) if signal_res.take_profit_2 else None,
+                "risk_reward": float(signal_res.risk_reward),
+                "session_name": signal_res.session_name,
+                "reason": signal_res.reason,
+                "invalidated_reason": signal_res.invalidated_reason,
+            },
+        }
+    except Exception as exc:
+        logger.exception("Error evaluating signals for %s: %s", symbol, exc)
+        return {
+            "status": "ERROR",
+            "message": f"Lỗi khi đánh giá tín hiệu SMC: {str(exc)}",
+        }
 
 
 @router.post("/signals/{signal_id}/execute")

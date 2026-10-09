@@ -315,6 +315,7 @@ onUnmounted(() => {
         <div class="chart-panel">
           <ChartOverlayControls v-model:show-volume="showVolume" />
           <TradingViewChart
+            :symbol="marketStore.symbol"
             :candles="marketStore.candles"
             :event="marketStore.chartEvent"
             :orders="orderStore.orders"

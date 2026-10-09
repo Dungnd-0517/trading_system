@@ -1,5 +1,30 @@
 # Backlog cập nhật
 
+## 2026-10-09 15:35 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hiển thị Chi tiết Thông tin Nến (OHLCV & Price Change) khi Hover trên Biểu đồ TradingView
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Tích hợp Bắt sự kiện Crosshair Hover (`TradingViewChart.vue`):**
+    - Sử dụng `chart.subscribeCrosshairMove` từ thư viện `lightweight-charts` để theo dõi tọa độ di chuột và dữ liệu nến chính xác theo thời gian thực.
+    - Phân giải và tính toán dữ liệu: Open, High, Low, Close, Volume, Biên độ thay đổi giá (Change = Close - Open) và tỷ lệ % biến động.
+    - Xây dựng cơ chế tra cứu nến nhanh (Candle Map lookup) và hủy đăng ký sự kiện (`unsubscribeCrosshairMove`) khi component unmounted để tối ưu hóa bộ nhớ và hiệu năng render.
+  - **Thanh Thông tin Trạng thái Nến (Candle Legend Bar):**
+    - Đặt cố định góc trên bên trái khung biểu đồ (`top: 8px, left: 10px`), thiết kế kính mờ (Glassmorphism) hiện đại, đồng bộ hệ màu DM Mono của hệ thống.
+    - Hiển thị đầy đủ thông số: Mã cặp tiền (`XAUUSD`), Thời gian nến, O, H, L, C, Chênh lệch giá & % (phân biệt màu xanh Bullish / đỏ Bearish), và Volume.
+    - Chế độ hiển thị kép thông minh: Tự động cập nhật thông số của nến đang hover kèm tag `[HOVER]`; khi chuột rời biểu đồ, tự động chuyển về hiển thị thông số của nến mới nhất (`latest candle`) tránh để trống giao diện.
+  - **Thẻ Tooltip Nổi Thông minh (Floating Hover Tooltip Card):**
+    - Hiển thị thẻ tooltip bám sát con trỏ chuột khi hover qua từng nến trên biểu đồ.
+    - Cung cấp đầy đủ: Thời gian nến, Badge xu hướng nến (`BULLISH ▲` / `BEARISH ▼`), bảng chi tiết Open / High / Low / Close, Biên độ giá ($ & %), và Khối lượng giao dịch.
+    - Tự động giới hạn vị trí (Bounding Box Clamping) chống tràn viền phải và viền dưới biểu đồ, thiết lập `pointer-events: none` giúp thao tác chuột trên canvas mượt mà 100%.
+  - **Cập nhật & Kiểm thử Hệ thống:**
+    - Truyền prop `:symbol="marketStore.symbol"` từ `App.vue` sang `TradingViewChart.vue`.
+    - Kiểm thử build production frontend (`npm run build`) hoàn thành 100% không lỗi (`1597 modules transformed`).
+    - Nginx Docker container `trading_frontend` tự động nhận và phân phối ngay lập tức bản build mới nhất thông qua volume mount `./frontend/dist`.
+- **Trạng thái:** Hoàn thành.
+
+---
+
 ## 2026-10-09 11:30 +07:00
 
 ### [Update Phase 02 - Sprint 03]: Hoàn thành Động cơ Tự động Kích hoạt SMC, Quản trị Vị thế Động (BE Move / Partial TP) & Màn hình Backtest Lab

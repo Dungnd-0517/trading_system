@@ -1,8 +1,9 @@
 <script setup>
 import { createChart, CrosshairMode } from 'lightweight-charts'
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({
+  symbol: { type: String, default: 'XAUUSD' },
   candles: { type: Array, default: () => [] },
   event: { type: Object, default: null },
   orders: { type: Array, default: () => [] },
@@ -11,15 +12,22 @@ const props = defineProps({
 })
 
 const host = ref(null)
+const hoveredCandle = ref(null)
+const candleMap = new Map()
 let chart
 let candleSeries
 let volumeSeries
 let livePriceLine
 let resizeObserver
+let crosshairHandler
 const orderPriceLines = new Map()
 
 function renderCandles(candles) {
   if (!candleSeries) return
+  candleMap.clear()
+  for (const c of candles) {
+    candleMap.set(c.time, c)
+  }
   candleSeries.setData(candles.map(({ time, open, high, low, close }) => candleData({ time, open, high, low, close })))
   volumeSeries?.setData(candles.map((candle) => volumeData(candle, candle.volume ?? 0)))
   if (candles.length) chart.timeScale().fitContent()
@@ -66,10 +74,86 @@ function updateLivePriceLine(price) {
 function applyLiveEvent(event) {
   if (!candleSeries || !event?.candle || !event?.volume || !event?.price) return
   const candle = event.candle
+  candleMap.set(candle.time, candle)
   candleSeries.update(candleData(candle))
   volumeSeries?.update(volumeData(candle, event.volume.value))
   updateLivePriceLine(event.price.bid ?? event.price.value)
 }
+
+function formatBarTime(timeSec) {
+  if (!timeSec) return ''
+  const d = new Date(timeSec * 1000)
+  const pad = (n) => String(n).padStart(2, '0')
+  const YYYY = d.getFullYear()
+  const MM = pad(d.getMonth() + 1)
+  const DD = pad(d.getDate())
+  const HH = pad(d.getHours())
+  const mm = pad(d.getMinutes())
+  return `${YYYY}-${MM}-${DD} ${HH}:${mm}`
+}
+
+function formatVolume(vol) {
+  if (vol == null) return null
+  const v = Number(vol)
+  if (isNaN(v)) return null
+  if (v >= 1000000) return (v / 1000000).toFixed(2) + 'M'
+  if (v >= 1000) return (v / 1000).toFixed(2) + 'K'
+  return v.toLocaleString('en-US')
+}
+
+const latestCandle = computed(() => {
+  if (!props.candles || !props.candles.length) return null
+  const c = props.candles[props.candles.length - 1]
+  const open = Number(c.open)
+  const high = Number(c.high)
+  const low = Number(c.low)
+  const close = Number(c.close)
+  const change = close - open
+  const changePercent = open !== 0 ? (change / open) * 100 : 0
+  return {
+    time: c.time,
+    timeFormatted: formatBarTime(c.time),
+    open,
+    high,
+    low,
+    close,
+    change,
+    changePercent,
+    isUp: close >= open,
+    volume: c.volume ?? null,
+    isHovered: false,
+  }
+})
+
+const activeCandle = computed(() => hoveredCandle.value || latestCandle.value)
+
+const tooltipStyle = computed(() => {
+  if (!hoveredCandle.value || !host.value) return { display: 'none' }
+  const x = hoveredCandle.value.x
+  const y = hoveredCandle.value.y
+  const containerW = host.value.clientWidth || 600
+  const containerH = host.value.clientHeight || 390
+
+  const tooltipW = 200
+  const tooltipH = 175
+
+  let left = x + 16
+  if (left + tooltipW > containerW - 12) {
+    left = Math.max(8, x - tooltipW - 16)
+  }
+
+  let top = y - tooltipH / 2
+  if (top < 8) {
+    top = 8
+  } else if (top + tooltipH > containerH - 8) {
+    top = Math.max(8, containerH - tooltipH - 8)
+  }
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+  }
+})
 
 function findMatchingBarTime(targetSec, candles) {
   if (!candles || !candles.length) return null
@@ -222,7 +306,7 @@ onMounted(() => {
     wickUpColor: '#2c7858', wickDownColor: '#cf6858',
     lastValueVisible: true,
   })
-  candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: props.showVolume ? 0.28 : 0.08 } })
+  candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.10, bottom: props.showVolume ? 0.28 : 0.08 } })
   volumeSeries = chart.addHistogramSeries({
     priceScaleId: '',
     priceFormat: { type: 'volume' },
@@ -238,6 +322,64 @@ onMounted(() => {
   volumeSeries.applyOptions({ visible: props.showVolume })
   resizeObserver = new ResizeObserver(([entry]) => chart?.applyOptions({ width: entry.contentRect.width }))
   resizeObserver.observe(host.value)
+
+  crosshairHandler = (param) => {
+    if (
+      !param ||
+      !param.time ||
+      !param.point ||
+      param.point.x < 0 ||
+      param.point.x > (host.value?.clientWidth || 0) ||
+      param.point.y < 0 ||
+      param.point.y > (host.value?.clientHeight || 0)
+    ) {
+      hoveredCandle.value = null
+      return
+    }
+
+    const barData = param.seriesData.get(candleSeries)
+    if (!barData) {
+      hoveredCandle.value = null
+      return
+    }
+
+    const open = Number(barData.open)
+    const high = Number(barData.high)
+    const low = Number(barData.low)
+    const close = Number(barData.close)
+    const change = close - open
+    const changePercent = open !== 0 ? (change / open) * 100 : 0
+    const isUp = close >= open
+
+    let vol = null
+    if (volumeSeries) {
+      const volData = param.seriesData.get(volumeSeries)
+      if (volData?.value != null) {
+        vol = volData.value
+      }
+    }
+    if (vol == null && candleMap.has(param.time)) {
+      vol = candleMap.get(param.time).volume ?? null
+    }
+
+    hoveredCandle.value = {
+      time: param.time,
+      timeFormatted: formatBarTime(param.time),
+      open,
+      high,
+      low,
+      close,
+      change,
+      changePercent,
+      isUp,
+      volume: vol,
+      isHovered: true,
+      x: param.point.x,
+      y: param.point.y,
+    }
+  }
+
+  chart.subscribeCrosshairMove(crosshairHandler)
 })
 
 watch(() => props.candles, renderCandles)
@@ -247,10 +389,13 @@ watch(() => props.orders, renderOrderOverlays, { deep: true })
 watch(() => props.showVolume, (visible) => {
   volumeSeries?.applyOptions({ visible })
   chart?.priceScale('').applyOptions({ visible })
-  candleSeries?.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: visible ? 0.28 : 0.08 } })
+  candleSeries?.priceScale().applyOptions({ scaleMargins: { top: 0.10, bottom: visible ? 0.28 : 0.08 } })
 })
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  if (crosshairHandler && chart) {
+    chart.unsubscribeCrosshairMove(crosshairHandler)
+  }
   for (const [, lines] of orderPriceLines.entries()) {
     if (lines.entry) candleSeries?.removePriceLine(lines.entry)
     if (lines.sl) candleSeries?.removePriceLine(lines.sl)
@@ -264,6 +409,64 @@ onUnmounted(() => {
 
 <template>
   <div class="chart-wrap">
+    <!-- 1. Thanh Legend Bar cố định góc trên biểu đồ (Top Legend Bar) -->
+    <div v-if="activeCandle" class="candle-legend-bar" :class="{ 'is-hovered': activeCandle.isHovered }">
+      <div class="legend-meta">
+        <span class="symbol-tag">{{ symbol }}</span>
+        <span class="time-tag">{{ activeCandle.timeFormatted }}</span>
+        <span v-if="activeCandle.isHovered" class="hover-tag">HOVER</span>
+      </div>
+      <div class="ohlc-strip">
+        <span class="ohlc-cell"><span class="lbl">O</span><b :class="activeCandle.isUp ? 'val-up' : 'val-down'">{{ activeCandle.open.toFixed(2) }}</b></span>
+        <span class="ohlc-cell"><span class="lbl">H</span><b :class="activeCandle.isUp ? 'val-up' : 'val-down'">{{ activeCandle.high.toFixed(2) }}</b></span>
+        <span class="ohlc-cell"><span class="lbl">L</span><b :class="activeCandle.isUp ? 'val-up' : 'val-down'">{{ activeCandle.low.toFixed(2) }}</b></span>
+        <span class="ohlc-cell"><span class="lbl">C</span><b :class="activeCandle.isUp ? 'val-up' : 'val-down'">{{ activeCandle.close.toFixed(2) }}</b></span>
+        <span class="ohlc-cell change-cell">
+          <span class="lbl">CHG</span>
+          <b :class="activeCandle.isUp ? 'val-up' : 'val-down'">
+            {{ activeCandle.change >= 0 ? '+' : '' }}{{ activeCandle.change.toFixed(2) }}
+            ({{ activeCandle.changePercent >= 0 ? '+' : '' }}{{ activeCandle.changePercent.toFixed(2) }}%)
+          </b>
+        </span>
+        <span v-if="activeCandle.volume != null" class="ohlc-cell vol-cell">
+          <span class="lbl">VOL</span>
+          <b class="val-vol">{{ formatVolume(activeCandle.volume) }}</b>
+        </span>
+      </div>
+    </div>
+
+    <!-- 2. Tooltip nổi thông minh bám theo Crosshair khi hover (Floating Tooltip) -->
+    <div
+      v-if="hoveredCandle"
+      class="candle-floating-tooltip"
+      :style="tooltipStyle"
+    >
+      <div class="tt-header" :class="hoveredCandle.isUp ? 'tt-up' : 'tt-down'">
+        <div class="tt-time-row">
+          <span class="tt-symbol">{{ symbol }}</span>
+          <span class="tt-time">{{ hoveredCandle.timeFormatted }}</span>
+        </div>
+        <span class="tt-trend-badge">{{ hoveredCandle.isUp ? 'BULLISH ▲' : 'BEARISH ▼' }}</span>
+      </div>
+      <div class="tt-body">
+        <div class="tt-row"><span class="tt-k">Open (O)</span><span class="tt-v">{{ hoveredCandle.open.toFixed(2) }}</span></div>
+        <div class="tt-row"><span class="tt-k">High (H)</span><span class="tt-v">{{ hoveredCandle.high.toFixed(2) }}</span></div>
+        <div class="tt-row"><span class="tt-k">Low (L)</span><span class="tt-v">{{ hoveredCandle.low.toFixed(2) }}</span></div>
+        <div class="tt-row"><span class="tt-k">Close (C)</span><span class="tt-v">{{ hoveredCandle.close.toFixed(2) }}</span></div>
+        <div class="tt-divider"></div>
+        <div class="tt-row">
+          <span class="tt-k">Biên độ</span>
+          <span class="tt-v" :class="hoveredCandle.isUp ? 'val-up' : 'val-down'">
+            {{ hoveredCandle.change >= 0 ? '+' : '' }}{{ hoveredCandle.change.toFixed(2) }} ({{ hoveredCandle.changePercent >= 0 ? '+' : '' }}{{ hoveredCandle.changePercent.toFixed(2) }}%)
+          </span>
+        </div>
+        <div v-if="hoveredCandle.volume != null" class="tt-row">
+          <span class="tt-k">Khối lượng</span>
+          <span class="tt-v val-vol">{{ Number(hoveredCandle.volume).toLocaleString('en-US') }}</span>
+        </div>
+      </div>
+    </div>
+
     <div ref="host" class="chart-host"></div>
     <div v-if="!candles.length" class="empty-chart"><span>Waiting for candle feed</span><small>Historical data appears after ingestion is configured.</small></div>
   </div>
@@ -274,4 +477,201 @@ onUnmounted(() => {
 .chart-host { width: 100%; height: 390px; }
 .empty-chart { position: absolute; inset: 0 0 22px; display: flex; flex-direction: column; gap: 5px; align-items: center; justify-content: center; pointer-events: none; color: #78857c; font-size: 12px; }
 .empty-chart small { color: #a0aaa1; font-size: 10px; }
+
+/* CANDLE LEGEND BAR */
+.candle-legend-bar {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(225, 231, 224, 0.9);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: #5c6961;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.candle-legend-bar.is-hovered {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #38644e;
+  box-shadow: 0 2px 10px rgba(56, 100, 78, 0.08);
+}
+
+.legend-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.symbol-tag {
+  font-weight: 700;
+  color: #1a2920;
+  background: #eef3ec;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+
+.time-tag {
+  color: #728178;
+}
+
+.hover-tag {
+  font-size: 8px;
+  background: #e6f4ea;
+  color: #236841;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid #b7e1c1;
+}
+
+.ohlc-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ohlc-cell {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.lbl {
+  color: #8c9990;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.val-up {
+  color: #2c7858;
+  font-weight: 600;
+}
+
+.val-down {
+  color: #cf6858;
+  font-weight: 600;
+}
+
+.val-vol {
+  color: #4772a3;
+  font-weight: 600;
+}
+
+/* FLOATING TOOLTIP */
+.candle-floating-tooltip {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  width: 195px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 6px;
+  border: 1px solid #dce2db;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05);
+  font-family: 'DM Mono', monospace;
+  overflow: hidden;
+  animation: fadeInTooltip 0.1s ease-out;
+}
+
+@keyframes fadeInTooltip {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.tt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 9px;
+  border-bottom: 1px solid #edf0ec;
+  font-size: 9px;
+}
+
+.tt-header.tt-up {
+  background: #f0f7f3;
+  border-bottom-color: #d1e7d8;
+}
+
+.tt-header.tt-down {
+  background: #fcf2f0;
+  border-bottom-color: #f7d5d0;
+}
+
+.tt-time-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tt-symbol {
+  font-weight: 700;
+  color: #1a2920;
+  font-size: 10px;
+}
+
+.tt-time {
+  font-size: 8.5px;
+  color: #748178;
+}
+
+.tt-trend-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.tt-up .tt-trend-badge {
+  background: #2c7858;
+  color: #fff;
+}
+
+.tt-down .tt-trend-badge {
+  background: #cf6858;
+  color: #fff;
+}
+
+.tt-body {
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 3.5px;
+}
+
+.tt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9.5px;
+}
+
+.tt-k {
+  color: #7b887f;
+}
+
+.tt-v {
+  font-weight: 600;
+  color: #243329;
+}
+
+.tt-divider {
+  height: 1px;
+  background: #edf1ec;
+  margin: 2px 0;
+}
 </style>

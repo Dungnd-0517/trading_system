@@ -131,6 +131,17 @@ export const orderStore = reactive({
     }
   },
 
+  async fetchSignals(limit = 50, status = '') {
+    try {
+      const data = await fetchSignalsApi(limit, status)
+      this.signals = data
+      return data
+    } catch (err) {
+      console.error('Failed to fetch signals:', err)
+      throw err
+    }
+  },
+
   async executeSignal(signalId) {
     try {
       const res = await executeSignalApi(signalId)

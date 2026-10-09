@@ -45,7 +45,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-quant_user}:${POSTGRES_PASSWORD:-change-this-password}@postgres:5432/${POSTGRES_DB:-trading_system}
       REDIS_URL: redis://redis:6379/0
       MT5_BRIDGE_URL: http://mt5-bridge:5001
-      CORS_ORIGINS: '["http://localhost:3000"]'
+      CORS_ORIGINS: '["*"]'
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       FINNHUB_ECONOMIC_CALENDAR_ENABLED: ${FINNHUB_ECONOMIC_CALENDAR_ENABLED:-false}
     depends_on:
@@ -66,9 +66,19 @@ services:
     container_name: trading_frontend
     restart: unless-stopped
     depends_on: [backend]
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
     ports:
       - "3000:80"
     networks: [trading-net]
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: trading_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://frontend:80
+    networks: [trading-net]
+    depends_on: [frontend]
 
   mt5-bridge:
     build:
