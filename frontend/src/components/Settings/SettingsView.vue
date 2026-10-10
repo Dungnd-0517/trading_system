@@ -8,6 +8,7 @@ import {
   Database,
   DollarSign,
   HelpCircle,
+  Layers,
   Radio,
   RefreshCw,
   Save,
@@ -16,13 +17,15 @@ import {
   Shield,
   Sliders,
   SlidersHorizontal,
+  TrendingUp,
   Volume2,
   Wifi,
   Zap,
 } from 'lucide-vue-next'
-import { fetchHealth } from '../../services/api'
+import { fetchHealth, fetchMarketIntegrity, healMarketGaps } from '../../services/api'
 import { marketStore } from '../../stores/marketStore'
 import { orderStore } from '../../stores/orderStore'
+import { settingsStore } from '../../stores/settingsStore'
 
 const emit = defineEmits(['update-preferences'])
 
@@ -39,6 +42,20 @@ const soundAlerts = ref(true)
 const defaultTimeframe = ref('M1')
 const displayTimezone = ref('ICT')
 const showVolumeDefault = ref(true)
+
+// EMA Indicator State
+const showEma = ref(settingsStore.showEma)
+const emaPeriod = ref(settingsStore.emaPeriod)
+const emaColor = ref(settingsStore.emaColor)
+const emaPresets = [9, 20, 50, 100, 200]
+const emaColorOptions = [
+  { label: 'Vàng kim', value: '#eab308' },
+  { label: 'Cam', value: '#f97316' },
+  { label: 'Xanh dương', value: '#0284c7' },
+  { label: 'Xanh ngọc', value: '#10b981' },
+  { label: 'Tím', value: '#8b5cf6' },
+  { label: 'Đỏ hồng', value: '#f43f5e' },
+]
 
 // Save notice
 const saveNotice = ref(false)
@@ -71,6 +88,9 @@ function loadSettings() {
       if (parsed.defaultTimeframe !== undefined) defaultTimeframe.value = parsed.defaultTimeframe
       if (parsed.displayTimezone !== undefined) displayTimezone.value = parsed.displayTimezone
       if (parsed.showVolumeDefault !== undefined) showVolumeDefault.value = parsed.showVolumeDefault
+      if (parsed.showEma !== undefined) showEma.value = parsed.showEma
+      if (parsed.emaPeriod !== undefined) emaPeriod.value = Number(parsed.emaPeriod)
+      if (parsed.emaColor !== undefined) emaColor.value = parsed.emaColor
     }
   } catch (e) {
     console.warn('Failed to load settings from localStorage', e)
@@ -88,8 +108,12 @@ function saveSettings() {
     defaultTimeframe: defaultTimeframe.value,
     displayTimezone: displayTimezone.value,
     showVolumeDefault: showVolumeDefault.value,
+    showEma: showEma.value,
+    emaPeriod: Number(emaPeriod.value) || 20,
+    emaColor: emaColor.value,
   }
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload))
+  settingsStore.save(payload)
   saveNotice.value = true
   setTimeout(() => {
     saveNotice.value = false
@@ -122,13 +146,40 @@ async function testConnectionPing() {
   }
 }
 
-async function refreshAccount() {
-  await orderStore.refreshAccount()
+const integrityReport = ref(null)
+const healingLoading = ref(false)
+const healNotice = ref('')
+
+async function loadIntegrity() {
+  try {
+    integrityReport.value = await fetchMarketIntegrity('XAUUSD')
+  } catch (err) {
+    console.warn('Failed to load integrity report', err)
+  }
+}
+
+async function runHealGaps() {
+  healingLoading.value = true
+  healNotice.value = ''
+  try {
+    const res = await healMarketGaps('XAUUSD', 168)
+    const total = res.total_healed ?? 0
+    healNotice.value = `Hoàn tất! Đã kiểm tra và vá ${total} nến bị thiếu.`
+    await loadIntegrity()
+  } catch (err) {
+    healNotice.value = 'Lỗi khi kiểm tra/vá nến: ' + (err.message || err)
+  } finally {
+    healingLoading.value = false
+    setTimeout(() => {
+      healNotice.value = ''
+    }, 6000)
+  }
 }
 
 onMounted(() => {
   loadSettings()
   testConnectionPing()
+  loadIntegrity()
 })
 </script>
 
@@ -368,6 +419,46 @@ onMounted(() => {
               </span>
             </div>
           </div>
+
+          <!-- Candle Gap Healer & Integrity Monitor -->
+          <div class="infra-item">
+            <div class="infra-icon-wrap"><Layers :size="16" /></div>
+            <div class="infra-details">
+              <div class="infra-title-row">
+                <strong>Candle Continuity &amp; Gap Healer</strong>
+                <button class="mini-heal-btn" :disabled="healingLoading" @click="runHealGaps">
+                  <RefreshCw :size="11" :class="{ spinning: healingLoading }" />
+                  {{ healingLoading ? 'Đang vá nến...' : 'Kiểm tra &amp; Vá nến' }}
+                </button>
+              </div>
+              <span>
+                Chạy ngầm định kỳ 60s &amp; Tự động bù đắp khoảng trống nến khi downtime ·
+                Đã bù đắp: <b>{{ integrityReport?.total_healed_bars ?? 0 }} nến</b>
+              </span>
+              <div v-if="integrityReport?.timeframes" class="tf-chips-grid">
+                <span
+                  v-for="(info, tf) in integrityReport.timeframes"
+                  :key="tf"
+                  :class="['tf-chip', info.is_synced ? 'chip-synced' : 'chip-lagging']"
+                  :title="`Khung ${tf}: ${info.count} nến, trễ ${info.minutes_behind ?? 0}m`"
+                >
+                  <b>{{ tf }}</b> {{ info.count }} ({{ info.is_synced ? 'SYNC' : `${info.minutes_behind}m` }})
+                </span>
+              </div>
+              <div v-if="healNotice" class="heal-notice">{{ healNotice }}</div>
+            </div>
+            <div class="infra-status">
+              <span v-if="integrityReport?.overall_status === 'HEALTHY'" class="badge-online">
+                <span class="status-dot green"></span> GAP-FREE
+              </span>
+              <span v-else-if="integrityReport?.is_healing || healingLoading" class="badge-warning">
+                <span class="status-dot orange"></span> HEALING
+              </span>
+              <span v-else class="badge-offline">
+                <span class="status-dot red"></span> GAPS DETECTED
+              </span>
+            </div>
+          </div>
         </div>
 
         <!-- Latency / Ping info -->
@@ -425,6 +516,102 @@ onMounted(() => {
               <small>Tự động bật dải khối lượng giao dịch bên dưới biểu đồ kỹ thuật</small>
             </div>
           </label>
+        </div>
+      </section>
+
+      <!-- Section 5: Technical Indicators (Đường EMA) -->
+      <section class="card-panel">
+        <div class="card-head">
+          <div class="head-title">
+            <TrendingUp :size="16" />
+            <h3>Chỉ báo kỹ thuật &amp; Đường EMA (Technical Indicators)</h3>
+          </div>
+          <div class="head-badge">
+            <span class="preview-ema-tag" :style="{ borderColor: emaColor, color: emaColor }">
+              EMA({{ emaPeriod }})
+            </span>
+          </div>
+        </div>
+
+        <div class="toggle-list" style="margin-bottom: 16px;">
+          <label class="toggle-item">
+            <input v-model="showEma" type="checkbox" />
+            <div class="toggle-info">
+              <strong>Hiển thị đường Trung bình Động Lũy thừa (EMA) trên biểu đồ</strong>
+              <small>Tính toán và vẽ đường EMA thời gian thực kèm nhãn giá trị động trên thanh Legend và Tooltip khi rê chuột</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="form-grid" :class="{ 'opacity-disabled': !showEma }">
+          <!-- Chu kỳ EMA -->
+          <div class="form-group">
+            <label>
+              Chu kỳ đường EMA (Period)
+              <small>Số phiên nến dùng để tính toán hàm mũ (mặc định: 20)</small>
+            </label>
+            <div class="input-unit">
+              <input
+                v-model.number="emaPeriod"
+                type="number"
+                min="2"
+                max="500"
+                step="1"
+                :disabled="!showEma"
+              />
+              <span>CANDLES</span>
+            </div>
+            <!-- Preset buttons -->
+            <div class="preset-pills">
+              <span class="preset-label">Gợi ý nhanh:</span>
+              <button
+                v-for="p in emaPresets"
+                :key="p"
+                type="button"
+                class="pill-btn"
+                :class="{ active: emaPeriod === p }"
+                :disabled="!showEma"
+                @click="emaPeriod = p"
+              >
+                EMA {{ p }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Màu sắc đường EMA -->
+          <div class="form-group">
+            <label>
+              Màu sắc hiển thị đường EMA
+              <small>Tùy chọn bảng màu cho đường EMA và nhãn hiển thị</small>
+            </label>
+            <div class="color-picker-row">
+              <div class="color-palette">
+                <button
+                  v-for="col in emaColorOptions"
+                  :key="col.value"
+                  type="button"
+                  class="color-btn"
+                  :class="{ active: emaColor === col.value }"
+                  :style="{ backgroundColor: col.value }"
+                  :title="col.label"
+                  :disabled="!showEma"
+                  @click="emaColor = col.value"
+                >
+                  <span v-if="emaColor === col.value" class="color-check">✓</span>
+                </button>
+              </div>
+              <input
+                v-model="emaColor"
+                type="color"
+                class="color-input-native"
+                :disabled="!showEma"
+                title="Tùy chọn mã màu tùy ý"
+              />
+            </div>
+            <div class="ema-color-current">
+              Màu hiện tại: <span class="color-sample-dot" :style="{ backgroundColor: emaColor }"></span> <code>{{ emaColor }}</code>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -820,6 +1007,7 @@ onMounted(() => {
 
 .status-dot.green { background: #2e7a52; box-shadow: 0 0 0 2px #2e7a5220; }
 .status-dot.red { background: #c25243; }
+.status-dot.orange { background: #d97706; box-shadow: 0 0 0 2px #d9770620; }
 
 .badge-online {
   display: inline-flex;
@@ -830,6 +1018,19 @@ onMounted(() => {
   color: #1e7043;
   background: #e3f4e6;
   border: 1px solid #c2e5c8;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.badge-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 9px 'DM Mono', monospace;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
   padding: 2px 7px;
   border-radius: 4px;
 }
@@ -847,6 +1048,80 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.infra-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-heal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  background: #225c43;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font: 600 9px 'DM Mono', monospace;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.mini-heal-btn:hover:not(:disabled) {
+  background: #1b4b36;
+}
+
+.mini-heal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tf-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.tf-chip {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font: 8px 'DM Mono', monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chip-synced {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.chip-lagging {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
+}
+
+.heal-notice {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #1e7043;
+  font-weight: 600;
+}
+
 .ping-bar {
   display: flex;
   justify-content: space-between;
@@ -862,6 +1137,134 @@ onMounted(() => {
 
 .ping-bar b {
   color: #1b2a23;
+}
+
+.preview-ema-tag {
+  font: 11px/1 'DM Mono', monospace;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.preset-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-label {
+  font-size: 11px;
+  color: #63766a;
+}
+
+.pill-btn {
+  border: 1px solid #d2dcd0;
+  background: #f4f7f2;
+  color: #2b3e32;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font: 11px/1.3 'DM Mono', monospace;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pill-btn:hover:not(:disabled) {
+  background: #e3ece0;
+  border-color: #8da495;
+}
+
+.pill-btn.active {
+  background: #1b2a23;
+  color: #f7faf7;
+  border-color: #1b2a23;
+  font-weight: 700;
+}
+
+.pill-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.color-palette {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.color-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.color-btn:hover:not(:disabled) {
+  transform: scale(1.08);
+}
+
+.color-btn.active {
+  border-color: #1b2a23;
+  box-shadow: 0 0 0 2px rgba(27, 42, 35, 0.4);
+}
+
+.color-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.color-check {
+  color: #fff;
+  font-weight: 900;
+  font-size: 13px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.color-input-native {
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #c2cdc0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.ema-color-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #63766a;
+  margin-top: 6px;
+}
+
+.color-sample-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.opacity-disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 @media (max-width: 900px) {

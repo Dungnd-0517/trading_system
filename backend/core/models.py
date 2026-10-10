@@ -4,6 +4,7 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -157,6 +158,9 @@ class EconomicEventRevision(Base):
 
 class SimulatedOrder(Base):
     __tablename__ = "simulated_orders"
+    __table_args__ = (
+        Index("idx_simulated_orders_is_test", "is_test"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     ticket_uuid: Mapped[uuid.UUID] = mapped_column(
@@ -174,6 +178,11 @@ class SimulatedOrder(Base):
     commission: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=Decimal("0.0"), server_default=text("0.0"))
     swap: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=Decimal("0.0"), server_default=text("0.0"))
     close_reason: Mapped[str | None] = mapped_column(String(32))
+    parent_ticket_id: Mapped[int | None] = mapped_column(BigInteger)
+    is_breakeven_moved: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    is_partial_closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    trailing_stop_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     open_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     close_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     realized_pnl: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
@@ -206,3 +215,47 @@ class SimulationMetric(Base):
     profit_factor: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0)
     total_pnl: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     max_drawdown: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
+
+
+class SystemTradingConfig(Base):
+    __tablename__ = "system_trading_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    execution_mode: Mapped[str] = mapped_column(String(16), default="MANUAL", nullable=False)
+    risk_per_trade_percent: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("1.00"), nullable=False)
+    breakeven_r_multiple: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("1.50"), nullable=False)
+    enable_partial_tp: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    partial_tp_ratio: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("0.50"), nullable=False)
+    partial_tp_r_multiple: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("2.00"), nullable=False)
+    news_circuit_breaker_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    news_circuit_breaker_buffer_mins: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    max_open_positions: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class StrategySignal(Base):
+    __tablename__ = "strategy_signals"
+    __table_args__ = (
+        Index("idx_strategy_signals_status", "status"),
+        Index("idx_strategy_signals_generated_at", "generated_at"),
+        Index("idx_strategy_signals_is_test", "is_test"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    session_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    stop_loss: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    take_profit_1: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    take_profit_2: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    risk_reward: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False)
+    invalidated_reason: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    executed_order_id: Mapped[int | None] = mapped_column(ForeignKey("simulated_orders.id", ondelete="SET NULL"))
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

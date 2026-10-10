@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   Activity,
+  BarChart2,
   Bell,
   BrainCircuit,
   CircleHelp,
@@ -11,6 +12,8 @@ import {
   Radio,
   RefreshCw,
   Settings2,
+  ShieldAlert,
+  Zap,
 } from 'lucide-vue-next'
 import TradingViewChart from './components/Chart/TradingViewChart.vue'
 import ChartOverlayControls from './components/Chart/ChartOverlayControls.vue'
@@ -23,6 +26,7 @@ import InsightsPanel from './components/AIAnalysis/InsightsPanel.vue'
 import OrdersHistory from './components/Orders/OrdersHistory.vue'
 import NewsEventsView from './components/News/NewsEventsView.vue'
 import StrategyAnalysisView from './components/Strategy/StrategyAnalysisView.vue'
+import BacktestLabView from './components/Strategy/BacktestLabView.vue'
 import SettingsView from './components/Settings/SettingsView.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
@@ -59,6 +63,7 @@ function selectTimeframe(timeframe) {
 
 onMounted(() => {
   marketStore.refresh()
+  marketStore.startPolling(2500)
   orderStore.refresh()
   socket = connectMarketStream(
     (event) => {
@@ -72,6 +77,8 @@ onMounted(() => {
       }
       if (event.type === 'order.update') orderStore.applyOrderUpdate(event)
       if (event.type === 'news.upsert') orderStore.applyNewsUpdate(event)
+      if (event.type === 'signal.new') orderStore.applySignalUpdate(event)
+      if (event.type === 'circuit_breaker.update') orderStore.applyCircuitBreakerUpdate(event)
       if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
     },
     (value) => {
@@ -87,6 +94,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  marketStore.stopPolling()
   window.clearInterval(clockTimer)
   window.clearInterval(sourceTimer)
   socket?.close()
@@ -150,6 +158,16 @@ onUnmounted(() => {
 
         <button
           role="tab"
+          :aria-selected="activeTab === 'backtest'"
+          :class="['nav-tab', { active: activeTab === 'backtest' }]"
+          @click="activeTab = 'backtest'"
+        >
+          <BarChart2 :size="14" />
+          <span>Backtest Lab</span>
+        </button>
+
+        <button
+          role="tab"
           :aria-selected="activeTab === 'settings'"
           :class="['nav-tab', { active: activeTab === 'settings' }]"
           @click="activeTab = 'settings'"
@@ -160,8 +178,6 @@ onUnmounted(() => {
       </nav>
 
       <div class="topbar-center">
-        <span class="eyebrow">PAPER EXECUTION</span>
-        <span class="mode-dot"></span>
         <span class="account-badge">
           BALANCE: ${{ Number(orderStore.account?.current_balance || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}
           <small class="equity-badge">EQUITY: ${{ Number(orderStore.account?.equity || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</small>
@@ -192,13 +208,48 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <!-- System Status Strip -->
+    <!-- System Status Strip (Subheader) -->
     <section class="status-strip" aria-label="Service status">
       <span class="status-label">SYSTEM STATUS</span>
       <span class="service-state"><i :class="dbConnected ? 'up' : 'down'"></i> POSTGRES <b>{{ dbConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
       <span class="service-state"><i :class="redisConnected ? 'up' : 'down'"></i> REDIS <b>{{ redisConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
       <span class="service-state"><i :class="streamConnected ? 'up' : 'down'"></i> MARKET STREAM <b>{{ streamConnected ? 'LIVE' : 'WAITING' }}</b></span>
+      
       <span class="status-spacer"></span>
+
+      <!-- Mode control moved to subheader for a more spacious topbar -->
+      <div class="trading-mode-pill">
+        <span class="mode-label">MODE:</span>
+        <button
+          class="mode-btn"
+          :class="{ active: orderStore.config.execution_mode === 'MANUAL' }"
+          @click="orderStore.setExecutionMode('MANUAL')"
+          title="Chế độ Manual: Chỉ báo tín hiệu, trader duyệt tay"
+        >
+          MANUAL
+        </button>
+        <button
+          class="mode-btn"
+          :class="{ active: orderStore.config.execution_mode === 'SEMI_AUTO' }"
+          @click="orderStore.setExecutionMode('SEMI_AUTO')"
+          title="Chế độ Semi-Auto: Xác nhận nhanh"
+        >
+          SEMI
+        </button>
+        <button
+          class="mode-btn auto-btn"
+          :class="{ active: orderStore.config.execution_mode === 'FULL_AUTO' }"
+          @click="orderStore.setExecutionMode('FULL_AUTO')"
+          title="Chế độ Full-Auto: Tự động tính lot và mở lệnh"
+        >
+          <Zap :size="9" /> FULL AUTO
+        </button>
+      </div>
+
+      <span v-if="orderStore.circuitBreaker?.active" class="circuit-breaker-badge" :title="orderStore.circuitBreaker.reason">
+        <ShieldAlert :size="11" /> CIRCUIT BREAKER
+      </span>
+
       <span class="read-only"><Radio :size="13" /> PAPER MODE · NO LIVE ORDERS</span>
     </section>
 
@@ -245,6 +296,8 @@ onUnmounted(() => {
               ? 'VIEW: NEWS & EVENTS'
               : activeTab === 'strategy'
               ? 'VIEW: STRATEGY & ANALYSIS'
+              : activeTab === 'backtest'
+              ? 'VIEW: BACKTEST LAB'
               : 'VIEW: SYSTEM SETTINGS'
           }}
         </span>
@@ -266,6 +319,8 @@ onUnmounted(() => {
         <div class="chart-panel">
           <ChartOverlayControls v-model:show-volume="showVolume" />
           <TradingViewChart
+            :symbol="marketStore.symbol"
+            :timeframe="marketStore.timeframe"
             :candles="marketStore.candles"
             :event="marketStore.chartEvent"
             :orders="orderStore.orders"
@@ -274,7 +329,7 @@ onUnmounted(() => {
           />
           <div class="chart-foot">
             <span>{{ marketStore.candles.length ? `${marketStore.candles.length} bars loaded` : 'NO HISTORICAL DATA' }}</span>
-            <span>UTC · {{ marketStore.timeframe }}</span>
+            <span>ICT (UTC+7, Vietnam) · {{ marketStore.timeframe }}</span>
           </div>
         </div>
         <MetricsCards :orders="orderStore.orders" />
@@ -325,7 +380,12 @@ onUnmounted(() => {
       @navigate-cockpit="activeTab = 'cockpit'"
     />
 
-    <!-- VIEW 5: SETTINGS -->
+    <!-- VIEW 5: BACKTEST LAB -->
+    <BacktestLabView
+      v-else-if="activeTab === 'backtest'"
+    />
+
+    <!-- VIEW 6: SETTINGS -->
     <SettingsView
       v-else-if="activeTab === 'settings'"
     />

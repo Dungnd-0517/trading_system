@@ -12,7 +12,9 @@ router = APIRouter()
 async def get_simulation_account(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
     account = await session.scalar(select(SimulationAccount).where(SimulationAccount.id == 1))
     open_count = await session.scalar(
-        select(func.count()).select_from(SimulatedOrder).where(SimulatedOrder.status.in_(["OPEN", "FILLED"]))
+        select(func.count())
+        .select_from(SimulatedOrder)
+        .where(SimulatedOrder.status.in_(["OPEN", "FILLED"]), SimulatedOrder.is_test.is_(False))
     ) or 0
 
     if not account:

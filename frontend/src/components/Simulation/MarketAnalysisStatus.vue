@@ -14,8 +14,10 @@ import {
   Sliders,
   TrendingUp,
   XCircle,
+  Zap,
 } from 'lucide-vue-next'
-import { fetchMarketAnalysis } from '../../services/api'
+import { fetchMarketAnalysis, evaluateSignals } from '../../services/api'
+import { orderStore } from '../../stores/orderStore'
 
 const props = defineProps({
   symbol: { type: String, default: 'XAUUSD' },
@@ -31,6 +33,10 @@ const error = ref('')
 const analysis = ref(null)
 const lastUpdated = ref('')
 const riskPercent = ref(1.0)
+const scanning = ref(false)
+const executing = ref(false)
+const actionMessage = ref('')
+const actionMessageType = ref('info')
 let timer = null
 
 const activePrice = computed(() => {
@@ -75,6 +81,65 @@ async function loadAnalysis() {
     error.value = err.message || 'Không thể tải phân tích thị trường'
   } finally {
     loading.value = false
+  }
+}
+
+async function handleScanSignals() {
+  scanning.value = true
+  actionMessage.value = ''
+  try {
+    const res = await evaluateSignals(props.symbol)
+    await orderStore.fetchSignals()
+    if (res?.signal) {
+      actionMessageType.value = 'success'
+      const sig = res.signal
+      actionMessage.value = `Đã phát hiện tín hiệu SMC: ${sig.side} tại $${Number(sig.entry_price).toFixed(2)} (SL: $${Number(sig.stop_loss).toFixed(2)}, TP: $${Number(sig.take_profit_1).toFixed(2)}, R:R 1:${sig.risk_reward})`
+    } else {
+      actionMessageType.value = 'info'
+      actionMessage.value = res?.message || 'Đã quét nến M15: Không phát hiện setup SMC hợp lệ tại nến hiện tại hoặc ngoài phiên Kill Zone.'
+    }
+    await loadAnalysis()
+    setTimeout(() => { actionMessage.value = '' }, 6000)
+  } catch (err) {
+    actionMessageType.value = 'error'
+    actionMessage.value = err.message || 'Lỗi quét tín hiệu SMC'
+  } finally {
+    scanning.value = false
+  }
+}
+
+async function handleExecuteSetup() {
+  const setup = analysis.value?.predicted_setup
+  if (!setup || !setup.entry_price) return
+
+  if (orderStore.circuitBreaker.active) {
+    actionMessageType.value = 'error'
+    actionMessage.value = 'Circuit Breaker đang chặn vào lệnh do tin tức USD đỏ!'
+    return
+  }
+
+  executing.value = true
+  actionMessage.value = ''
+  try {
+    const side = setup.direction === 'BUY' ? 'BUY' : 'SELL'
+    await orderStore.submitOrder({
+      symbol: props.symbol,
+      side,
+      order_type: 'MARKET',
+      volume: calculatedLots.value,
+      stop_loss: Number(setup.stop_loss),
+      take_profit: Number(setup.take_profit),
+      comment: `SMC_SETUP_${props.symbol}`,
+    })
+    actionMessageType.value = 'success'
+    actionMessage.value = `Đã kích hoạt lệnh ${side} ${calculatedLots.value} lot tại $${activePrice.value.toFixed(2)}!`
+    await loadAnalysis()
+    setTimeout(() => { actionMessage.value = '' }, 6000)
+  } catch (err) {
+    actionMessageType.value = 'error'
+    actionMessage.value = err.message || 'Lỗi gửi lệnh theo Setup'
+  } finally {
+    executing.value = false
   }
 }
 
@@ -385,6 +450,40 @@ onUnmounted(() => {
                 Số dư: ${{ (props.account?.current_balance || 10000).toLocaleString() }} &middot;
                 Rủi ro: ${{ ((props.account?.current_balance || 10000) * (riskPercent / 100)).toFixed(0) }}
               </small>
+            </div>
+          </div>
+
+          <!-- ACTION CONTROLS & CIRCUIT BREAKER WARNING -->
+          <div class="setup-actions-bar">
+            <div v-if="orderStore.circuitBreaker.active" class="circuit-inline-alert">
+              <ShieldAlert :size="14" />
+              <span><b>Cảnh báo Ngắt mạch:</b> Khóa mở lệnh do tin tức USD đỏ ({{ orderStore.circuitBreaker.reason || 'High Impact USD Event' }})</span>
+            </div>
+
+            <div class="actions-buttons-row">
+              <button
+                class="btn-action-primary"
+                :disabled="executing || orderStore.circuitBreaker.active || !analysis.predicted_setup?.entry_price"
+                @click="handleExecuteSetup"
+                title="Tự động mở vị thế theo kịch bản và lot tính toán"
+              >
+                <Zap :size="14" />
+                <span>{{ executing ? 'Đang gửi lệnh...' : 'Kích hoạt theo Setup ⚡' }}</span>
+              </button>
+
+              <button
+                class="btn-action-secondary"
+                :disabled="scanning"
+                @click="handleScanSignals"
+                title="Quét lại tín hiệu SMC trên nến M15"
+              >
+                <RotateCw :size="13" :class="{ 'spin-icon': scanning }" />
+                <span>{{ scanning ? 'Đang quét...' : 'Quét Tín hiệu M15' }}</span>
+              </button>
+            </div>
+
+            <div v-if="actionMessage" class="setup-action-feedback" :class="actionMessageType">
+              {{ actionMessage }}
             </div>
           </div>
         </div>
@@ -988,6 +1087,118 @@ onUnmounted(() => {
 
 .lot-calc-info {
   color: #526357;
+}
+
+.setup-actions-bar {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #dbe5dc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.circuit-inline-alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fbf0ee;
+  border: 1px solid #f2c7c2;
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: #b84a3c;
+  font-size: 10px;
+}
+
+.actions-buttons-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-action-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #2b704c;
+  color: #fff;
+  border: 1px solid #235c3e;
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-action-primary:hover:not(:disabled) {
+  background: #235c3e;
+  box-shadow: 0 2px 6px rgba(43, 112, 76, 0.25);
+}
+
+.btn-action-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.btn-action-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f4f7f4;
+  color: #3b4e41;
+  border: 1px solid #ccd8cf;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-action-secondary:hover:not(:disabled) {
+  background: #eaf1eb;
+  border-color: #b7c8bc;
+}
+
+.btn-action-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.setup-action-feedback {
+  font-size: 10px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-family: 'DM Mono', monospace;
+}
+
+.setup-action-feedback.success {
+  background: #e9f5ed;
+  color: #236841;
+  border: 1px solid #c2e2cc;
+}
+
+.setup-action-feedback.error {
+  background: #fdf0ee;
+  color: #ba4739;
+  border: 1px solid #f4c9c3;
+}
+
+.setup-action-feedback.info {
+  background: #eef3f8;
+  color: #2b5579;
+  border: 1px solid #cde0f1;
 }
 
 /* INVALIDATION */

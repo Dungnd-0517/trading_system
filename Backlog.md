@@ -1,5 +1,211 @@
 # Backlog cập nhật
 
+## 2026-10-10 00:30 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hệ Thống Giám Sát Tính Toàn Vẹn & Tự Động Bù Đắp Khoảng Trống Nến Khi Server Downtime (Candle Gap Healer & Integrity Engine)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Động cơ Phát hiện & Bù đắp Nến Tự động (`backend/data_ingestion/candle_healer.py`):**
+    - Giải quyết dứt điểm vấn đề nến bị đứt đoạn, nhảy cóc thời gian do server local tắt máy, sleep hoặc mất kết nối mạng.
+    - Xây dựng thuật toán quét khoảng trống đa khung thời gian (`detect_gaps`):
+      - *Trailing Gap:* Khoảng cách từ nến mới nhất tới thời gian thực tế `now` ($> 1.5 \times \text{Interval}$).
+      - *Internal Gaps:* Các đoạn đứt gãy giữa 2 nến liên tiếp trong 7 ngày gần nhất.
+      - *Leading Gap:* Bù đắp lịch sử cũ nếu tổng số nến chưa đủ 300-500 nến.
+    - Cơ chế bù đắp phân trang (`heal_range`): Tự động gọi Binance REST API (`PAXGUSDT` giao dịch 24/7 không nghỉ) với các mẻ 1000 nến, upsert an toàn vào `market_candles` qua `ON CONFLICT DO UPDATE`.
+    - Hỗ trợ đầy đủ cả 6 khung thời gian: `M1`, `M5`, `M15`, `H1`, `H4`, `D1`.
+  - **Worker Chạy Ngầm & Phục Hồi Khi Khởi Động (`CandleIntegrityWorker` & `main.py`):**
+    - Tích hợp `CandleIntegrityWorker` vào FastAPI `lifespan`:
+      - *Startup Recovery:* Chạy ngay lập tức khi hệ thống khởi động lại, tự động bù đắp toàn bộ nến bị mất trong suốt thời gian server offline (đã vá hơn 4,700 nến trong DB).
+      - *Periodic Monitor:* Chạy ngầm định kỳ mỗi 60 giây, tự động phát hiện nếu WebSocket bị nghẽn mạng hoặc trễ nến để tự động kích hoạt bù đắp tức thì.
+    - Nâng cấp `seed_binance_history_if_needed` trong `chart_streamer.py`: kiểm tra độ tươi mới của nến mới nhất thay vì chỉ đếm tổng số lượng bản ghi.
+  - **API Backend Endpoints (`backend/api/v1/market.py`):**
+    - Nâng cấp `GET /api/v1/market/history`: tự động kiểm tra và kích hoạt đồng bộ nếu nến bị trễ quá 2 chu kỳ, đảm bảo biểu đồ không bao giờ trả về dữ liệu cũ.
+    - Bổ sung `GET /api/v1/market/integrity`: trả về báo cáo chi tiết tính toàn vẹn, số nến đã vá, và trạng thái đồng bộ của từng khung thời gian.
+    - Bổ sung `POST /api/v1/market/heal`: cho phép kích hoạt quét và vá nến toàn diện theo yêu cầu.
+  - **Giao diện Người dùng (`SettingsView.vue`):**
+    - Thêm khối **Candle Continuity & Gap Healer** trong Section 3 (Hạ tầng kỹ thuật & Diagnostics).
+    - Hiển thị huy hiệu trạng thái: `GAP-FREE` (xanh), `HEALING` (vàng cam), `GAPS DETECTED` (đỏ).
+    - Thẻ chip thống kê số lượng nến và trạng thái `SYNC` của từng khung thời gian (`M1`, `M5`, `M15`, `H1`, `H4`, `D1`).
+    - Nút bấm trực quan `[ Kiểm tra & Vá nến ]` cho phép trader chủ động kiểm tra và bù nến bất kỳ lúc nào.
+  - **Kiểm thử & Triển khai:**
+    - Toàn bộ backend test suite: **53 passed in 3.48s** trên container `trading_backend` (bao gồm 3 unit tests mới trong `test_candle_healer.py`).
+    - Frontend build: `npm run build` hoàn thành thành công không có lỗi.
+    - Cơ sở dữ liệu: Loại bỏ 100% các khoảng trống nến trong 7 ngày gần nhất, nến liên tục từng phút.
+- **Trạng thái:** Hoàn thành toàn diện.
+
+---
+
+### [Update Phase 02 - Sprint 03]: Hoàn thiện Động cơ Phân tích Cảm xúc Tin tức (News Sentiment Engine & AI Context)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Động cơ Phân tích Cảm xúc Chuyên sâu cho Vàng XAUUSD (`backend/ai_engine/sentiment.py`):**
+    - Xây dựng thuật toán NLP phân tích cảm xúc thị trường tài chính chuyên biệt cho cặp tỷ giá XAUUSD và dữ liệu kinh tế vĩ mô toàn cầu.
+    - Nhận diện đa chiều: phân biệt tác động trực tiếp lên Vàng (đà bứt phá, lực mua gom, nhu cầu phòng hộ rủi ro, căng thẳng địa chính trị) và tác động nghịch chiều từ chỉ số USD (DXY), lợi suất trái phiếu (Treasury yields) cùng chính sách lãi suất Fed (hawkish/dovish).
+    - Xử lý ngữ cảnh đảo ngược (negation handling): tự động nhận biết các từ phủ định/thất bại (`fails to rally`, `struggles to`, `unlikely to`) trong cụm từ ngữ.
+    - Phân cấp mức độ biến động rủi ro (`LOW`, `MEDIUM`, `HIGH_RISK_HALT`) dựa trên biên độ cảm xúc và sự kiện đặc biệt (CPI, NFP, FOMC, địa chính trị).
+    - Tự động sinh tóm tắt phân tích AI (`ai_analysis_summary`) chi tiết, giải thích cụ thể lý do tích cực/tiêu cực/trung lập đối với giá Vàng.
+  - **Tích hợp Ingestion Thời gian thực & Tự động Backfill (`backend/data_ingestion/news_worker.py`):**
+    - Tích hợp hàm `analyze_sentiment` vào chu trình xử lý tin tức định kỳ của `NewsCollector`: mọi tin tức mới từ Kitco News, FXStreet News và Finnhub đều được tự động chấm điểm và sinh tóm tắt AI ngay khi lưu DB.
+    - Phát sự kiện `news.upsert` qua Redis kênh `news:events` kèm theo trường `sentiment_score` và `ai_analysis_summary` phục vụ hiển thị trực tiếp trên UI.
+    - Xây dựng cơ chế tự động quét nạp bổ sung (`backfill_news_sentiment`) khi backend khởi động: đã hoàn tất chấm điểm toàn bộ hơn 500 bản ghi tin tức lịch sử trong DB PostgreSQL.
+  - **Mở rộng API Backend (`backend/api/v1/news.py`):**
+    - Bổ sung endpoint `GET /api/v1/news/sentiment` trả về các chỉ số thống kê cảm xúc tổng hợp: điểm số trung bình, xu hướng (BULLISH/BEARISH/NEUTRAL), số lượng tin tức tích cực, tiêu cực và trung tính.
+    - Bổ sung endpoint `POST /api/v1/news/analyze` cho phép kích hoạt quy trình phân tích và cập nhật lại điểm số theo yêu cầu.
+  - **Nâng cấp Giao diện Đo Cảm xúc (`SentimentGauge.vue` & `NewsEventsView.vue`):**
+    - `SentimentGauge.vue`:
+      - Kim đo động (animated pointer) mượt mà với hiệu ứng cubic-bezier bám sát trục dải màu từ Bearish (-1.0) đến Bullish (+1.0).
+      - Hiển thị điểm số định dạng tài chính có dấu (`+0.35`, `-0.20`, `0.00`).
+      - Huy hiệu trạng thái xu hướng động: `BULLISH` (xanh), `BEARISH` (đỏ), `NEUTRAL` (xám) với icon trực quan.
+      - Dòng giải thích bối cảnh vĩ mô tương ứng cho Vàng (XAUUSD).
+      - Bộ đếm phân loại số lượng tin tức theo từng trạng thái (Bullish ↑ / Neutral – / Bearish ↓).
+    - `NewsEventsView.vue`:
+      - Hiển thị chuẩn xác huy hiệu Sentiment Pill trên từng thẻ tin tức kèm icon `TrendingUp`, `TrendingDown`, `Minus`.
+      - Hộp thông tin `AI INSIGHT` hiển thị sinh động phân tích giải thích lý do tác động.
+      - Bộ lọc tin tức theo cảm xúc (Tất cả, Bullish, Bearish, Neutral) hoạt động chính xác 100%.
+  - **Kiểm thử & Triển khai:**
+    - Toàn bộ backend test suite: **50 passed in 3.62s** trên container `trading_backend` (bao gồm 7 tests mới cho `test_sentiment.py`).
+    - Frontend build: `npm run build` hoàn thành không có lỗi (`built in 2.63s`, 1598 modules).
+    - Các dịch vụ Docker (`trading_backend`, `trading_frontend`, `trading_postgres`, `trading_redis`) hoạt động ổn định và đồng bộ dữ liệu.
+- **Trạng thái:** Hoàn thành toàn diện.
+
+---
+
+### [Update Phase 02 - Sprint 03]: Làm Mới Biểu Đồ Nến Liên Tục (Chống Khoảng Trống Nhảy Giá) & Quy Đổi Khung Thời Gian về Giờ Việt Nam (ICT, UTC+7)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Cơ chế Làm Mới Liên Tục & Đồng Bộ Nến Thời Gian Thực (`marketStore.js`):**
+    - Thiết lập cơ chế chạy ngầm `syncHistory()` định kỳ 2.5 giây (`startPolling(2500)`): tự động so khớp và đồng bộ chuỗi nến lịch sử từ cơ sở dữ liệu backend, lấp kín hoàn toàn các khoảng trống (gaps) nếu có độ trễ mạng hoặc gói tin WebSocket bị gián đoạn.
+    - Duy trì nến đang hình thành (forming candle) và nạp tức thì các nến mới mở (`new bar opened`) trực tiếp vào mảng nến trong bộ nhớ `marketStore.candles` khi nhận sự kiện tick `chart.update`, ngăn chặn triệt để tình trạng nhảy lùi thời gian hoặc mất nến gần nhất khi vẽ lại.
+    - Nâng cấp `connectMarketStream` (`websocket.js`) với cơ chế tự động kết nối lại (Auto-reconnect sau 2 giây) khi kết nối mạng chập chờn hoặc đứt quãng, bảo đảm luồng dữ liệu biểu đồ không bị ngắt quãng.
+  - **Tối ưu Cơ chế Render Tránh Nhảy Zoom / Khung Hình (`TradingViewChart.vue`):**
+    - Quản lý cờ trạng thái `hasInitialFit`: chỉ kích hoạt `chart.timeScale().fitContent()` một lần duy nhất khi lần đầu tải biểu đồ hoặc khi người dùng chuyển đổi cặp tiền / khung thời gian (`timeframe`).
+    - Trong các chu kỳ làm mới liên tục ngầm tiếp theo, hệ thống cập nhật dữ liệu mượt mà qua `setData` mà không làm reset góc nhìn, giữ nguyên 100% tọa độ phóng to/thu nhỏ (zoom/pan) của trader.
+  - **Quy Đổi Khung Timeframe và Trục Thời Gian về Giờ Việt Nam (ICT, UTC+7):**
+    - **Trục hoành thời gian (Horizontal TimeScale):** Thiết lập `timeScale.tickMarkFormatter` quy đổi chuẩn xác toàn bộ nhãn thời gian trên trục biểu đồ về múi giờ Việt Nam (UTC+7, không phụ thuộc vào cài đặt múi giờ máy khách), định dạng linh hoạt theo cấp độ thời gian (Năm, Tháng, Ngày, Giờ:Phút).
+    - **Nhãn Crosshair trục thời gian:** Tích hợp `localization.timeFormatter` hiển thị chi tiết `DD/MM/YYYY HH:mm (ICT)` ngay dưới con trỏ định vị.
+    - **Thanh Legend Bar & Tooltip nổi:** Hàm `formatBarTime` quy đổi và hiển thị thời gian nến chuẩn xác `YYYY-MM-DD HH:mm (ICT)` cả khi hover và ở trạng thái nến mới nhất.
+    - **Chân biểu đồ (Chart Footer):** Cập nhật nhãn tham chiếu `ICT (UTC+7, Vietnam) · {timeframe}` tại `App.vue`.
+  - **Kiểm thử & Triển khai Hệ thống:**
+    - Biên dịch production build frontend (`npm run build`) thành công 100% không lỗi cú pháp.
+    - Hệ thống Nginx container `trading_frontend` tự động nhận bản build mới và đồng bộ tức thời trên cả Localhost, LAN và Cloudflare Tunnel.
+- **Trạng thái:** Hoàn thành.
+
+---
+
+## 2026-10-09 17:15 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hiển thị Đường EMA, Giá trị Chỉ báo trên Biểu đồ & Tùy biến Tham số trong Cài đặt
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Tích hợp Thuật toán & Vẽ Đường EMA (`TradingViewChart.vue`):**
+    - Hiện thực hàm tính toán chỉ số Trung bình Động Lũy thừa `computeEMA(candles, period)` theo công thức chuẩn kỹ thuật:
+      $$\text{Multiplier} = \frac{2}{\text{Period} + 1}, \quad \text{EMA}_t = (\text{Close}_t - \text{EMA}_{t-1}) \times \text{Multiplier} + \text{EMA}_{t-1}$$
+    - Tạo `addLineSeries` trong TradingView `lightweight-charts` với các tùy chọn nét vẽ mượt mà, độ dày nét, màu sắc cấu hình linh hoạt.
+    - Xử lý cập nhật động thời gian thực (`applyLiveEvent`): tính toán và đẩy giá trị EMA tick mới nhất vào chuỗi line series khi có nến mới hoặc tick giá biến động.
+    - Tự động phản ứng (reactive watchers) khi người dùng thay đổi bật/tắt EMA, thay đổi chu kỳ (period) hoặc đổi màu sắc đường.
+  - **Hiển thị Giá trị Đường EMA Động trên Legend Bar & Floating Tooltip:**
+    - **Candle Legend Bar:** Hiển thị thẻ chỉ số `EMA({period}): {value}` với màu sắc đồng bộ của đường EMA. Giá trị tự động cập nhật theo nến đang hover hoặc nến mới nhất khi không hover.
+    - **Floating Hover Tooltip:** Thêm dòng hiển thị giá trị đường EMA tại đúng tọa độ thời gian của nến mà con trỏ chuột đang chỉ tới.
+    - Lưu trữ bộ chỉ mục `emaMap` tối ưu truy xuất $O(1)$ theo timestamp giúp thao tác rê chuột mượt mà 60fps.
+  - **Thiết lập Tham số Chỉ số EMA trong Cài đặt (`SettingsView.vue`):**
+    - Thêm Section 5: **Chỉ báo kỹ thuật & Đường EMA (Technical Indicators)** trong trang Settings.
+    - Tùy chọn Bật/Tắt hiển thị EMA với công tắc chuyển đổi trực quan.
+    - Ô nhập chu kỳ EMA (`Period`) dạng số tùy ý, đi kèm các nút chọn nhanh (Quick Presets) cho các chu kỳ kinh điển: `EMA 9`, `EMA 20`, `EMA 50`, `EMA 100`, `EMA 200`.
+    - Bảng chọn màu sắc trực quan (Vàng kim, Cam, Xanh dương, Xanh ngọc, Tím, Đỏ hồng) và bảng mã màu HTML tùy ý (`color input`).
+    - Thẻ xem trước trực quan (Badge Preview) phản chiếu tức thì chu kỳ và màu sắc cấu hình.
+    - Lưu trữ bền vững vào `localStorage` (`fieldnote_user_settings`) và đồng bộ tức thì trên toàn bộ ứng dụng qua `settingsStore`.
+  - **Nút Bật/Tắt Nhanh trên Khung Biểu đồ (`ChartOverlayControls.vue`):**
+    - Bổ sung nút chuyển đổi nhanh `EMA ({period})` ngay tại thanh công cụ góc trên biểu đồ nến giúp trader bật/tắt nhanh mà không cần rời màn hình giao dịch.
+    - Hiển thị chấm màu sắc tương ứng chỉ báo và nhãn trạng thái kích hoạt.
+  - **Kiểm thử & Triển khai Hệ thống:**
+    - Biên dịch production build frontend (`npm run build`) thành công 100% không cảnh báo/lỗi cú pháp.
+    - Volume mount Docker tự động cập nhật mã nguồn phân phối qua Nginx `trading_frontend` trên cả cổng localhost, mạng nội bộ (LAN) và Cloudflare Tunnel.
+- **Trạng thái:** Hoàn thành.
+
+---
+
+## 2026-10-09 15:35 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hiển thị Chi tiết Thông tin Nến (OHLCV & Price Change) khi Hover trên Biểu đồ TradingView
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Tích hợp Bắt sự kiện Crosshair Hover (`TradingViewChart.vue`):**
+    - Sử dụng `chart.subscribeCrosshairMove` từ thư viện `lightweight-charts` để theo dõi tọa độ di chuột và dữ liệu nến chính xác theo thời gian thực.
+    - Phân giải và tính toán dữ liệu: Open, High, Low, Close, Volume, Biên độ thay đổi giá (Change = Close - Open) và tỷ lệ % biến động.
+    - Xây dựng cơ chế tra cứu nến nhanh (Candle Map lookup) và hủy đăng ký sự kiện (`unsubscribeCrosshairMove`) khi component unmounted để tối ưu hóa bộ nhớ và hiệu năng render.
+  - **Thanh Thông tin Trạng thái Nến (Candle Legend Bar):**
+    - Đặt cố định góc trên bên trái khung biểu đồ (`top: 8px, left: 10px`), thiết kế kính mờ (Glassmorphism) hiện đại, đồng bộ hệ màu DM Mono của hệ thống.
+    - Hiển thị đầy đủ thông số: Mã cặp tiền (`XAUUSD`), Thời gian nến, O, H, L, C, Chênh lệch giá & % (phân biệt màu xanh Bullish / đỏ Bearish), và Volume.
+    - Chế độ hiển thị kép thông minh: Tự động cập nhật thông số của nến đang hover kèm tag `[HOVER]`; khi chuột rời biểu đồ, tự động chuyển về hiển thị thông số của nến mới nhất (`latest candle`) tránh để trống giao diện.
+  - **Thẻ Tooltip Nổi Thông minh (Floating Hover Tooltip Card):**
+    - Hiển thị thẻ tooltip bám sát con trỏ chuột khi hover qua từng nến trên biểu đồ.
+    - Cung cấp đầy đủ: Thời gian nến, Badge xu hướng nến (`BULLISH ▲` / `BEARISH ▼`), bảng chi tiết Open / High / Low / Close, Biên độ giá ($ & %), và Khối lượng giao dịch.
+    - Tự động giới hạn vị trí (Bounding Box Clamping) chống tràn viền phải và viền dưới biểu đồ, thiết lập `pointer-events: none` giúp thao tác chuột trên canvas mượt mà 100%.
+  - **Cập nhật & Kiểm thử Hệ thống:**
+    - Truyền prop `:symbol="marketStore.symbol"` từ `App.vue` sang `TradingViewChart.vue`.
+    - Kiểm thử build production frontend (`npm run build`) hoàn thành 100% không lỗi (`1597 modules transformed`).
+    - Nginx Docker container `trading_frontend` tự động nhận và phân phối ngay lập tức bản build mới nhất thông qua volume mount `./frontend/dist`.
+- **Trạng thái:** Hoàn thành.
+
+---
+
+## 2026-10-09 11:30 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hoàn thành Động cơ Tự động Kích hoạt SMC, Quản trị Vị thế Động (BE Move / Partial TP) & Màn hình Backtest Lab
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **D12. Database Schema & Migration Sprint 3 (`0004_phase2_sprint3.sql` - `backend/migrations/`):**
+    - Tạo bảng `system_trading_config`: lưu trữ cấu hình chế độ thực thi (`MANUAL`, `SEMI_AUTO`, `FULL_AUTO`), tỷ lệ rủi ro (`risk_percent_per_trade: 1.0%`), giới hạn vị thế mở (`max_open_positions: 2`), giới hạn lỗ tối đa trong ngày (`max_daily_drawdown_percent: 5.0%`), cờ tin tức (`circuit_breaker_enabled: true`), cấu hình dời SL (`be_trigger_r_multiple: 1.5R`), tỷ lệ chốt lời từng phần (`partial_tp_ratio: 0.5`).
+    - Tạo bảng `strategy_signals`: lưu trữ tín hiệu phân tích SMC theo thời gian thực (`symbol`, `timeframe`, `signal_type`, `entry_price`, `stop_loss`, `take_profit`, `confidence_score`, `reasons`, `status`, `execution_ticket_id`).
+    - Mở rộng bảng `simulated_orders`: bổ sung các trường vị thế động: `parent_ticket_id`, `is_breakeven_moved`, `is_partial_closed`, `trailing_stop_price`.
+    - Cập nhật SQLAlchemy ORM models (`backend/core/models.py`) và nạp seed config mặc định vào cơ sở dữ liệu PostgreSQL.
+
+  - **D13. News Circuit Breaker Guard (`backend/ai_engine/news_guard.py`):**
+    - Module `NewsCircuitBreaker` tự động quét các sự kiện kinh tế USD có độ ảnh hưởng cao (High Impact - 3 sao đỏ như CPI, NFP, FOMC Interest Rate).
+    - Cửa sổ bảo vệ: Tự động kích hoạt trạng thái cấm mở lệnh trước 30 phút và sau 30 phút (`cooldown_minutes=30`) so với thời điểm công bố tin.
+    - Phát broadcast sự kiện `circuit_breaker.update` qua WebSocket đến toàn bộ client kết nối khi trạng thái ngắt mạch thay đổi.
+    - Bộ test unit `test_news_guard.py` kiểm thử đầy đủ các tình huống: tin tức đang trong vùng cấm, tin ngoài vùng cấm, và cấu hình bypass khi tắt circuit breaker.
+
+  - **D14. Signal Generation Engine (`backend/ai_engine/signal_worker.py`):**
+    - Worker chạy ngầm theo chu kỳ nến M15 (tự động khởi động và quản lý vòng đời trong FastAPI lifespan).
+    - Tích hợp toàn diện pipeline phân tích SMC 3 tầng: HTF Alignment D1/H4 -> POI Discount/Premium H1 -> M15 Trigger CHoCH / Kill Zone.
+    - Kiểm tra bộ lọc News Circuit Breaker trước khi phê duyệt tín hiệu.
+    - Lưu tín hiệu đủ điều kiện vào bảng `strategy_signals` và phát thông báo tức thời `market:signals` (`signal.new`).
+    - Bổ sung test unit `test_signal_worker.py` giả lập nến và luồng xử lý tín hiệu.
+
+  - **D15. Dynamic Position Management & Auto Executor (`backend/simulation/`):**
+    - **Tự động Dời SL về Hòa Vốn (Break-Even Move):** Khi giá đi đúng hướng và tỷ lệ lợi nhuận chạm $\ge 1.5R$, `paper_worker.py` / `paper_engine.py` tự động nâng/hạ Stop Loss về đúng giá Entry ban đầu (`entry_price`), bảo toàn 100% vốn cho lệnh.
+    - **Chốt Lời Từng Phần (Partial Take-Profit 50% TP1):** Khi giá chạm vùng TP1 hoặc trader click nút `[ 50% TP ]`, hệ thống chốt 50% volume vị thế hiện tại vào Realized PnL, đồng thời tự động dời SL của 50% volume còn lại về điểm hòa vốn (`is_breakeven_moved=True`).
+    - **Động cơ Auto Executor (`auto_executor.py`):** Xử lý thực thi tự động theo 3 chế độ:
+      - `MANUAL`: Chỉ phát tín hiệu và âm thanh cảnh báo, người dùng tự duyệt vào lệnh.
+      - `SEMI_AUTO`: Tự động điền thông số và hiển thị popup cho trader xác nhận bằng 1 click.
+      - `FULL_AUTO`: Tự động tính Lot size theo 1% rủi ro tài khoản và mở lệnh ngay lập tức khi tín hiệu xuất hiện.
+    - Tích hợp kiểm tra giới hạn an toàn: `max_open_positions`, `max_daily_drawdown_percent`, và `circuit_breaker`.
+
+  - **D16. API Router `/api/v1/strategy` & WebSocket Multiplexing:**
+    - `GET /api/v1/strategy/signals`: Danh sách tín hiệu kèm phân trang và lọc trạng thái.
+    - `POST /api/v1/strategy/evaluate`: Quét và đánh giá tín hiệu SMC tức thời cho cặp tiền.
+    - `POST /api/v1/strategy/execute`: Kích hoạt khớp lệnh từ tín hiệu chiến lược.
+    - `GET/PUT /api/v1/strategy/config`: Đọc và cập nhật cấu hình chế độ giao dịch thời gian thực.
+    - `POST /api/v1/strategy/backtest`: Mô phỏng chiến lược trên chuỗi nến lịch sử, tính toán tỷ lệ Winrate, Profit Factor, Max Drawdown, Sharpe Ratio, và đường cong vốn Equity Curve.
+    - `POST /api/v1/orders/{id}/partial-close`: API chốt lời từng phần vị thế mô phỏng.
+    - Mở rộng kênh WebSocket `market:signals` và `market:circuit_breaker` trên cùng endpoint `/api/v1/ws/market`.
+
+  - **D17. Giao diện Frontend - Điều khiển Chế độ & Quản trị Lệnh (`frontend/`):**
+    - **Thanh Topbar Controller (`App.vue` & `style.css`):** Bổ sung cụm điều khiển Mode Pill 3 trạng thái (`MANUAL`, `SEMI-AUTO`, `FULL-AUTO`), hiển thị badge cảnh báo Circuit Breaker đỏ nhấp nháy khi có tin tức USD lớn.
+    - **Audio Alert (`orderStore.js`):** Sử dụng Web Audio API tổng hợp âm báo tần số kép khi có tín hiệu SMC mới xuất hiện mà không cần phụ thuộc vào file âm thanh ngoài.
+    - **Bảng Paper Positions (`OrderBookTable.vue`):** Bổ sung nút thao tác nhanh `[ 50% TP ]` cho từng lệnh đang mở, hiển thị badge `[BE]` khi đã dời hòa vốn và `[50% Banked]` khi đã chốt một phần.
+    - **Khối Setup Action (`MarketAnalysisStatus.vue`):** Bổ sung nút `[ Kích hoạt theo Setup ⚡ ]` tự động tính lot size theo rủi ro mở lệnh trực tiếp, nút `[ Quét Tín hiệu M15 🔄 ]`, và cảnh báo Circuit Breaker trực tiếp.
+    - **Màn hình Backtest Lab (`BacktestLabView.vue`):** Màn hình kiểm thử chiến lược toàn diện với KPI tóm tắt (Net Profit, Win Rate, Total Trades, Profit Factor, Max DD), biểu đồ SVG Interactive Equity Curve, và bảng danh sách chi tiết các lệnh backtest kèm lọc theo kết quả WIN / LOSS.
+
+  - **Kiểm thử & Nghiệm thu:**
+    - Toàn bộ backend test suite: **43/43 tests passed in 2.56s** trên Docker `trading_backend`.
+    - Frontend production build: `npm run build` hoàn thành 100% không lỗi (`✓ built in 4.01s`, 1597 modules).
+    - Đã deploy dist bundle sang container `trading_frontend` (`http://localhost:3000`) và reload nginx.
+- **Trạng thái:** Hoàn thành toàn diện Sprint 03.
+
+---
+
 ## 2026-10-07 22:30 +07:00
 
 ### [Update Phase 02 - Sprint 02]: Bổ sung Khối Trạng thái Phân tích & Kịch bản Giao dịch trong Trading Cockpit (Dưới Paper Positions)

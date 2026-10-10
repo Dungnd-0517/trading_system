@@ -1,12 +1,13 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { ClipboardList, XCircle } from 'lucide-vue-next'
+import { CheckCircle2, ClipboardList, Scissors, ShieldAlert, XCircle } from 'lucide-vue-next'
 import { marketStore } from '../../stores/marketStore'
 import { orderStore } from '../../stores/orderStore'
 
 const props = defineProps({ orders: { type: Array, default: () => [] } })
 const activeOrders = computed(() => props.orders.filter((order) => ['PENDING', 'FILLED', 'OPEN'].includes(order.status)))
 const closingMap = ref({})
+const partialMap = ref({})
 
 function calculateUnrealizedPnL(order) {
   const current = marketStore.lastPrice
@@ -29,13 +30,29 @@ async function handleClose(orderId) {
     closingMap.value[orderId] = false
   }
 }
+
+async function handlePartialClose(orderId) {
+  partialMap.value[orderId] = true
+  try {
+    await orderStore.partialCloseOrder(orderId, 0.5, 'MANUAL_PARTIAL_TP')
+  } catch (err) {
+    alert(`Không thể chốt lời 50% lệnh #${orderId}: ${err.message}`)
+  } finally {
+    partialMap.value[orderId] = false
+  }
+}
 </script>
 
 <template>
   <section class="orders-panel">
     <header>
       <div><ClipboardList :size="15" /><h2>Paper positions</h2></div>
-      <span>{{ activeOrders.length }} OPEN</span>
+      <div class="header-tags">
+        <span v-if="orderStore.circuitBreaker?.active" class="cb-alert-pill">
+          <ShieldAlert :size="11" /> CIRCUIT BREAKER
+        </span>
+        <span class="count-pill">{{ activeOrders.length }} OPEN</span>
+      </div>
     </header>
     <div class="table-scroll">
       <table>
@@ -48,20 +65,36 @@ async function handleClose(orderId) {
             <th>ENTRY</th>
             <th>STOP</th>
             <th>TARGET</th>
+            <th>PROTECTION</th>
             <th>LIVE P&amp;L</th>
             <th>STATUS</th>
-            <th>ACTION</th>
+            <th>ACTIONS</th>
           </tr>
         </thead>
         <tbody v-if="activeOrders.length">
           <tr v-for="order in activeOrders" :key="order.id">
-            <td>#{{ order.id }}</td>
-            <td>{{ order.symbol }}</td>
-            <td :class="order.order_type.toLowerCase()">{{ order.order_type }}</td>
-            <td>{{ order.lot_size }}</td>
+            <td class="ticket-cell">#{{ order.id }}</td>
+            <td class="font-bold">{{ order.symbol }}</td>
+            <td :class="order.order_type.toLowerCase() + '-badge'">{{ order.order_type }}</td>
+            <td>{{ order.lot_size }}L</td>
             <td>{{ Number(order.entry_price).toFixed(2) }}</td>
-            <td>{{ Number(order.stop_loss).toFixed(2) }}</td>
+            <td>
+              <span :class="{ 'be-highlight': order.is_breakeven_moved }">
+                {{ Number(order.stop_loss).toFixed(2) }}
+              </span>
+            </td>
             <td>{{ Number(order.take_profit).toFixed(2) }}</td>
+            <td>
+              <div class="badges-wrap">
+                <span v-if="order.is_breakeven_moved" class="tag-be" title="Stop Loss đã dời về hòa vốn">
+                  <CheckCircle2 :size="10" /> BE
+                </span>
+                <span v-if="order.is_partial_closed" class="tag-partial" title="Đã chốt 50% khối lượng">
+                  <Scissors :size="10" /> 50% Banked
+                </span>
+                <span v-if="!order.is_breakeven_moved && !order.is_partial_closed" class="text-muted">Standard</span>
+              </div>
+            </td>
             <td>
               <span v-if="calculateUnrealizedPnL(order) !== null" :class="calculateUnrealizedPnL(order) >= 0 ? 'pnl-up' : 'pnl-down'">
                 {{ calculateUnrealizedPnL(order) >= 0 ? '+' : '' }}{{ calculateUnrealizedPnL(order) }} USD
@@ -70,20 +103,31 @@ async function handleClose(orderId) {
             </td>
             <td><span class="status-pill">{{ order.status }}</span></td>
             <td>
-              <button
-                class="close-btn"
-                :disabled="closingMap[order.id]"
-                @click="handleClose(order.id)"
-                title="Đóng lệnh này với giá hiện tại"
-              >
-                <XCircle :size="12" />
-                <span>{{ closingMap[order.id] ? 'Closing...' : 'Close' }}</span>
-              </button>
+              <div class="actions-row">
+                <button
+                  class="partial-btn"
+                  :disabled="partialMap[order.id] || order.is_partial_closed || Number(order.lot_size) <= 0.01"
+                  @click="handlePartialClose(order.id)"
+                  title="Chốt lời 50% vị thế và dời SL về hòa vốn"
+                >
+                  <Scissors :size="11" />
+                  <span>{{ partialMap[order.id] ? 'Saving...' : '50% TP' }}</span>
+                </button>
+                <button
+                  class="close-btn"
+                  :disabled="closingMap[order.id]"
+                  @click="handleClose(order.id)"
+                  title="Đóng toàn bộ vị thế"
+                >
+                  <XCircle :size="11" />
+                  <span>{{ closingMap[order.id] ? 'Closing...' : 'Close' }}</span>
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
         <tbody v-else>
-          <tr><td colspan="10" class="empty">No open paper positions</td></tr>
+          <tr><td colspan="11" class="empty">No open paper positions</td></tr>
         </tbody>
       </table>
     </div>
@@ -95,39 +139,30 @@ async function handleClose(orderId) {
 header { min-height: 43px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #e4e9e3; }
 header div { display: flex; align-items: center; gap: 8px; color: #526359; }
 h2 { margin: 0; color: #29382e; font-size: 11px; }
-header > span { color: #849087; font: 9px 'DM Mono', monospace; }
+.header-tags { display: flex; align-items: center; gap: 6px; }
+.count-pill { color: #849087; font: 9px 'DM Mono', monospace; }
+.cb-alert-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 9px; font-weight: 800; background: #fee2e2; color: #b91c1c; border-radius: 4px; border: 1px solid #fecaca; }
 .table-scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; white-space: nowrap; text-align: left; }
-th { padding: 9px 11px; border-bottom: 1px solid #e8ece7; color: #98a198; font: 8px 'DM Mono', monospace; }
-td { padding: 8px 11px; border-bottom: 1px solid #eff2ed; color: #58665d; font: 9px 'DM Mono', monospace; vertical-align: middle; }
-tbody tr:last-child td { border-bottom: 0; }
-.buy { color: #34805a; font-weight: 600; }
-.sell { color: #bf5c4e; font-weight: 600; }
-.status-pill { color: #4b7559; background: #eaf1eb; padding: 2px 5px; border-radius: 3px; }
-.pnl-up { color: #2e7a52; font-weight: 600; }
-.pnl-down { color: #bb594c; font-weight: 600; }
-.text-muted { color: #9aa59d; }
-.empty { height: 62px; text-align: center; color: #919c93; font: 10px 'Manrope', sans-serif; }
-.close-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 7px;
-  background: #fff;
-  border: 1px solid #cfd8d0;
-  border-radius: 4px;
-  font: 8px 'DM Mono', monospace;
-  color: #a8473a;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.close-btn:hover:not(:disabled) {
-  background: #fdf2f1;
-  border-color: #e59d94;
-  color: #8c2e22;
-}
-.close-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+th { padding: 9px 12px; font-size: 9px; color: #849087; font-weight: 500; border-bottom: 1px solid #e4e9e3; }
+td { padding: 8px 12px; border-bottom: 1px solid #edf2ec; font-size: 11px; color: #2b392f; }
+.ticket-cell { font-family: 'DM Mono', monospace; color: #526359; }
+.buy-badge { color: #16a34a; font-weight: 700; }
+.sell-badge { color: #dc2626; font-weight: 700; }
+.be-highlight { color: #0284c7; font-weight: 700; }
+.badges-wrap { display: flex; align-items: center; gap: 4px; }
+.tag-be { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #0284c7; background: #e0f2fe; padding: 1px 6px; border-radius: 4px; border: 1px solid #bae6fd; }
+.tag-partial { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #7c3aed; background: #f3e8ff; padding: 1px 6px; border-radius: 4px; border: 1px solid #e9d5ff; }
+.status-pill { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: #e7ede6; color: #43544a; }
+.pnl-up { color: #16a34a; font-weight: 700; }
+.pnl-down { color: #dc2626; font-weight: 700; }
+.text-muted { color: #9ca3af; font-size: 10px; }
+.actions-row { display: flex; align-items: center; gap: 5px; }
+.partial-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #d8b4fe; background: #faf5ff; color: #7e22ce; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+.partial-btn:hover:not(:disabled) { background: #f3e8ff; border-color: #c084fc; }
+.partial-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.close-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #fecaca; background: #fff5f5; color: #dc2626; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+.close-btn:hover:not(:disabled) { background: #fee2e2; border-color: #fca5a5; }
+.close-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.empty { text-align: center; color: #849087; font-size: 11px; padding: 22px 0; }
 </style>

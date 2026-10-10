@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Filter,
   Globe2,
+  Minus,
   Newspaper,
   RefreshCw,
   Search,
@@ -517,7 +518,8 @@ onUnmounted(() => {
               >
                 <TrendingUp v-if="item.sentiment_score > 0.1" :size="12" />
                 <TrendingDown v-else-if="item.sentiment_score < -0.1" :size="12" />
-                <span>{{ Number(item.sentiment_score).toFixed(2) }}</span>
+                <Minus v-else :size="12" />
+                <span>{{ Number(item.sentiment_score) > 0 ? '+' : '' }}{{ Number(item.sentiment_score).toFixed(2) }}</span>
               </div>
             </div>
 

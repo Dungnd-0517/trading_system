@@ -4,12 +4,6 @@ from simulation.paper_engine import OrderStatus, PaperEngine
 from simulation.paper_worker import PaperEngineWorker
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_db_pool():
-    yield
-    await engine.dispose()
-
-
 @pytest.mark.anyio
 async def test_paper_worker_open_and_manual_close(monkeypatch):
     worker = PaperEngineWorker(PaperEngine(slippage_points=0))
@@ -20,7 +14,7 @@ async def test_paper_worker_open_and_manual_close(monkeypatch):
 
     monkeypatch.setattr(worker, "_broadcast_order_event", mock_broadcast)
 
-    # 1. Test open order via worker
+    # 1. Test open order via worker with is_test=True
     order_dict = await worker.open_order(
         symbol="XAUUSD",
         side="BUY",
@@ -28,11 +22,13 @@ async def test_paper_worker_open_and_manual_close(monkeypatch):
         stop_loss=2680.0,
         take_profit=2700.0,
         quote=(2685.0, 2685.2),
+        is_test=True,
     )
 
     assert order_dict["symbol"] == "XAUUSD"
     assert order_dict["status"] == "FILLED"
     assert order_dict["entry_price"] == 2685.2
+    assert order_dict["is_test"] is True
     assert len(published_events) == 1
     assert published_events[0]["event"] == "ORDER_FILLED"
 
@@ -68,8 +64,10 @@ async def test_paper_worker_on_tick_triggers_tp(monkeypatch):
         stop_loss=2680.0,
         take_profit=2695.0,
         quote=(2685.0, 2685.2),
+        is_test=True,
     )
     ticket = order_dict["id"]
+    assert order_dict["is_test"] is True
 
     # Tick that hits Take Profit
     events = await worker.on_tick("XAUUSD", bid=2695.5, ask=2695.7)

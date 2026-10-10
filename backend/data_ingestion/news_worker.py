@@ -7,9 +7,12 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Awaitable, Callable
 
+from decimal import Decimal
+
 import httpx
 from sqlalchemy import select
 
+from ai_engine.sentiment import analyze_sentiment
 from core.config import settings
 from core.database import session_factory
 from core.models import EconomicEvent, EconomicEventRevision, FinancialNews
@@ -338,6 +341,11 @@ class NewsCollector:
                 item_hash = str(item.get("content_hash") or _content_hash(fields))
                 if row is None:
                     stars = fields["impact_stars"]
+                    sentiment = analyze_sentiment(
+                        title=fields["title"],
+                        content=fields["content"],
+                        impact_stars=stars,
+                    )
                     row = FinancialNews(
                         source=source,
                         title=fields["title"],
@@ -353,6 +361,8 @@ class NewsCollector:
                         classification_status=fields["classification_status"],
                         keywords_matched=item.get("keywords_matched"),
                         impact_level={1: "LOW", 2: "MEDIUM", 3: "HIGH"}.get(stars, "UNKNOWN"),
+                        sentiment_score=Decimal(str(sentiment.score)),
+                        ai_analysis_summary=sentiment.summary,
                     )
                     session.add(row)
                     await session.flush()
@@ -362,6 +372,11 @@ class NewsCollector:
                 row.last_seen_at = now
                 if row.content_hash == item_hash:
                     continue
+                sentiment = analyze_sentiment(
+                    title=fields["title"],
+                    content=fields["content"],
+                    impact_stars=fields["impact_stars"],
+                )
                 row.title = fields["title"]
                 row.content = fields["content"] or None
                 row.published_at = published_at
@@ -372,6 +387,8 @@ class NewsCollector:
                 row.classification_status = fields["classification_status"]
                 row.keywords_matched = item.get("keywords_matched")
                 row.impact_level = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}.get(row.impact_stars, "UNKNOWN")
+                row.sentiment_score = Decimal(str(sentiment.score))
+                row.ai_analysis_summary = sentiment.summary
                 changed.append(self._news_event(row))
             await session.commit()
         return changed
@@ -478,6 +495,7 @@ class NewsCollector:
             "classification_status": row.classification_status,
             "impact_level": row.impact_level,
             "sentiment_score": float(row.sentiment_score) if row.sentiment_score is not None else None,
+            "ai_analysis_summary": row.ai_analysis_summary,
             "revision_no": row.revision_no,
         }
 
