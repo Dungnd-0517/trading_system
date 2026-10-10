@@ -20,6 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -230,6 +231,11 @@ class SystemTradingConfig(Base):
     news_circuit_breaker_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
     news_circuit_breaker_buffer_mins: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     max_open_positions: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    atr_sl_multiplier: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("1.50"), server_default=text("1.50"), nullable=False)
+    min_risk_reward_ratio: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("1.50"), server_default=text("1.50"), nullable=False)
+    trading_allowed: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    halt_reason: Mapped[str | None] = mapped_column(Text)
+    updated_by_agent: Mapped[str] = mapped_column(String(64), default="SYSTEM_INIT", server_default=text("'SYSTEM_INIT'"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -258,4 +264,49 @@ class StrategySignal(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     executed_order_id: Mapped[int | None] = mapped_column(ForeignKey("simulated_orders.id", ondelete="SET NULL"))
     is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class TradingKnowledge(Base):
+    __tablename__ = "trading_knowledge"
+    __table_args__ = (
+        Index("idx_trading_knowledge_category", "category"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict[str, object]] = mapped_column(
+        "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class EpisodicTradeMemory(Base):
+    __tablename__ = "episodic_trade_memory"
+    __table_args__ = (
+        Index("idx_episodic_trade_memory_order_id", "order_id"),
+        Index("idx_episodic_trade_memory_outcome", "outcome"),
+        Index("idx_episodic_trade_memory_mistake", "mistake_category"),
+        Index("idx_episodic_trade_memory_is_test", "is_test"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    order_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("simulated_orders.id", ondelete="CASCADE"), nullable=True
+    )
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    market_context_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    root_cause: Mapped[str | None] = mapped_column(Text)
+    lesson_learned: Mapped[str] = mapped_column(Text, nullable=False)
+    mistake_category: Mapped[str | None] = mapped_column(String(64))
+    rule_to_add: Mapped[str | None] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
