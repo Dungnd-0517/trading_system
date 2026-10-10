@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_engine import sessions
 from core.database import get_session
 from core.models import MarketCandle
+from data_ingestion.candle_healer import candle_gap_healer, TIMEFRAMES
 from data_ingestion.chart_streamer import TIMEFRAME_TO_BINANCE_INTERVAL, seed_history_for_timeframe
 
 router = APIRouter()
@@ -26,8 +27,17 @@ async def history(
     )
     rows = (await session.scalars(query)).all()
 
-    # Tự động nạp nến lịch sử nếu DB chưa có dữ liệu cho khung thời gian này
-    if not rows and timeframe in TIMEFRAME_TO_BINANCE_INTERVAL:
+    # Tự động nạp nến lịch sử nếu DB chưa có dữ liệu hoặc nến mới nhất bị trễ hơn 2 chu kỳ nến
+    interval_secs = TIMEFRAMES.get(timeframe, 60)
+    now_ts = datetime.now(timezone.utc).timestamp()
+    needs_sync = False
+
+    if not rows:
+        needs_sync = True
+    elif (now_ts - rows[0].open_time.timestamp()) > interval_secs * 2.5:
+        needs_sync = True
+
+    if needs_sync and timeframe in TIMEFRAME_TO_BINANCE_INTERVAL:
         binance_symbol = "PAXGUSDT" if symbol.upper() in {"XAUUSD", "PAXG", "PAXGUSDT"} else symbol.upper()
         await seed_history_for_timeframe(
             target_symbol=symbol,
@@ -49,6 +59,21 @@ async def history(
         }
         for row in reversed(rows)
     ]
+
+
+@router.get("/integrity")
+async def market_integrity(symbol: str = "XAUUSD") -> dict[str, object]:
+    """Báo cáo tình trạng tính liên tục và các khoảng trống của nến trên tất cả các khung thời gian"""
+    return await candle_gap_healer.get_integrity_report(symbol)
+
+
+@router.post("/heal")
+async def heal_market_gaps(
+    symbol: str = "XAUUSD",
+    lookback_hours: int = Query(default=168, ge=1, le=720),
+) -> dict[str, object]:
+    """Kích hoạt quét toàn diện và bù đắp các khoảng trống nến lịch sử do server downtime"""
+    return await candle_gap_healer.check_and_heal_all(symbol, lookback_hours=lookback_hours)
 
 
 @router.get("/analysis")

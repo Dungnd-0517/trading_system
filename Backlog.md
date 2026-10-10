@@ -1,6 +1,39 @@
 # Backlog cập nhật
 
-## 2026-10-09 21:55 +07:00
+## 2026-10-10 00:30 +07:00
+
+### [Update Phase 02 - Sprint 03]: Hệ Thống Giám Sát Tính Toàn Vẹn & Tự Động Bù Đắp Khoảng Trống Nến Khi Server Downtime (Candle Gap Healer & Integrity Engine)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Động cơ Phát hiện & Bù đắp Nến Tự động (`backend/data_ingestion/candle_healer.py`):**
+    - Giải quyết dứt điểm vấn đề nến bị đứt đoạn, nhảy cóc thời gian do server local tắt máy, sleep hoặc mất kết nối mạng.
+    - Xây dựng thuật toán quét khoảng trống đa khung thời gian (`detect_gaps`):
+      - *Trailing Gap:* Khoảng cách từ nến mới nhất tới thời gian thực tế `now` ($> 1.5 \times \text{Interval}$).
+      - *Internal Gaps:* Các đoạn đứt gãy giữa 2 nến liên tiếp trong 7 ngày gần nhất.
+      - *Leading Gap:* Bù đắp lịch sử cũ nếu tổng số nến chưa đủ 300-500 nến.
+    - Cơ chế bù đắp phân trang (`heal_range`): Tự động gọi Binance REST API (`PAXGUSDT` giao dịch 24/7 không nghỉ) với các mẻ 1000 nến, upsert an toàn vào `market_candles` qua `ON CONFLICT DO UPDATE`.
+    - Hỗ trợ đầy đủ cả 6 khung thời gian: `M1`, `M5`, `M15`, `H1`, `H4`, `D1`.
+  - **Worker Chạy Ngầm & Phục Hồi Khi Khởi Động (`CandleIntegrityWorker` & `main.py`):**
+    - Tích hợp `CandleIntegrityWorker` vào FastAPI `lifespan`:
+      - *Startup Recovery:* Chạy ngay lập tức khi hệ thống khởi động lại, tự động bù đắp toàn bộ nến bị mất trong suốt thời gian server offline (đã vá hơn 4,700 nến trong DB).
+      - *Periodic Monitor:* Chạy ngầm định kỳ mỗi 60 giây, tự động phát hiện nếu WebSocket bị nghẽn mạng hoặc trễ nến để tự động kích hoạt bù đắp tức thì.
+    - Nâng cấp `seed_binance_history_if_needed` trong `chart_streamer.py`: kiểm tra độ tươi mới của nến mới nhất thay vì chỉ đếm tổng số lượng bản ghi.
+  - **API Backend Endpoints (`backend/api/v1/market.py`):**
+    - Nâng cấp `GET /api/v1/market/history`: tự động kiểm tra và kích hoạt đồng bộ nếu nến bị trễ quá 2 chu kỳ, đảm bảo biểu đồ không bao giờ trả về dữ liệu cũ.
+    - Bổ sung `GET /api/v1/market/integrity`: trả về báo cáo chi tiết tính toàn vẹn, số nến đã vá, và trạng thái đồng bộ của từng khung thời gian.
+    - Bổ sung `POST /api/v1/market/heal`: cho phép kích hoạt quét và vá nến toàn diện theo yêu cầu.
+  - **Giao diện Người dùng (`SettingsView.vue`):**
+    - Thêm khối **Candle Continuity & Gap Healer** trong Section 3 (Hạ tầng kỹ thuật & Diagnostics).
+    - Hiển thị huy hiệu trạng thái: `GAP-FREE` (xanh), `HEALING` (vàng cam), `GAPS DETECTED` (đỏ).
+    - Thẻ chip thống kê số lượng nến và trạng thái `SYNC` của từng khung thời gian (`M1`, `M5`, `M15`, `H1`, `H4`, `D1`).
+    - Nút bấm trực quan `[ Kiểm tra & Vá nến ]` cho phép trader chủ động kiểm tra và bù nến bất kỳ lúc nào.
+  - **Kiểm thử & Triển khai:**
+    - Toàn bộ backend test suite: **53 passed in 3.48s** trên container `trading_backend` (bao gồm 3 unit tests mới trong `test_candle_healer.py`).
+    - Frontend build: `npm run build` hoàn thành thành công không có lỗi.
+    - Cơ sở dữ liệu: Loại bỏ 100% các khoảng trống nến trong 7 ngày gần nhất, nến liên tục từng phút.
+- **Trạng thái:** Hoàn thành toàn diện.
+
+---
 
 ### [Update Phase 02 - Sprint 03]: Hoàn thiện Động cơ Phân tích Cảm xúc Tin tức (News Sentiment Engine & AI Context)
 

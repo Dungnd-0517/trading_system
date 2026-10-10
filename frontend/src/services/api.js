@@ -29,6 +29,10 @@ async function put(path, body = {}) {
 export const fetchHealth = () => fetch('/health').then((response) => response.json())
 export const fetchHistory = (symbol = 'XAUUSD', timeframe = 'M1') =>
   get(`/market/history?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=500`)
+export const fetchMarketIntegrity = (symbol = 'XAUUSD') =>
+  get(`/market/integrity?symbol=${encodeURIComponent(symbol)}`)
+export const healMarketGaps = (symbol = 'XAUUSD', lookbackHours = 168) =>
+  post(`/market/heal?symbol=${encodeURIComponent(symbol)}&lookback_hours=${lookbackHours}`)
 export const fetchOrders = (limit = 200) => get(`/orders?limit=${limit}`)
 export const createOrder = (data) => post('/orders', data)
 export const closeOrder = (orderId, reason = 'MANUAL_CLOSE') => post(`/orders/${orderId}/close`, { reason })

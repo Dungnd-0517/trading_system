@@ -11,6 +11,7 @@ from core.config import settings
 from core.database import close_database, ping_database, session_factory
 from core.migrations import run_migrations
 from core.redis_client import close_redis, ping_redis
+from data_ingestion.candle_healer import candle_integrity_worker
 from data_ingestion.chart_streamer import ChartStreamer
 from data_ingestion.news_worker import NewsCollector
 from simulation.paper_worker import paper_worker
@@ -28,14 +29,16 @@ async def lifespan(_: FastAPI):
     chart_task = asyncio.create_task(ChartStreamer().run(), name="chart-streamer")
     paper_task = asyncio.create_task(paper_worker.run(), name="paper-worker")
     signal_task = asyncio.create_task(signal_worker.run(), name="signal-worker")
+    integrity_task = asyncio.create_task(candle_integrity_worker.run(), name="candle-integrity-worker")
     try:
         yield
     finally:
-        for task in (news_task, chart_task, paper_task, signal_task):
+        for task in (news_task, chart_task, paper_task, signal_task, integrity_task):
             task.cancel()
+        candle_integrity_worker.stop()
         paper_worker.stop()
         signal_worker.stop()
-        await asyncio.gather(news_task, chart_task, paper_task, signal_task, return_exceptions=True)
+        await asyncio.gather(news_task, chart_task, paper_task, signal_task, integrity_task, return_exceptions=True)
         await close_redis()
         await close_database()
 

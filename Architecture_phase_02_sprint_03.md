@@ -54,7 +54,7 @@
 
 ---
 
-## 2. QUYẾT ĐỊNH KIẾN TRÚC (DECISION LOG D12–D16)
+## 2. QUYẾT ĐỊNH KIẾN TRÚC (DECISION LOG D12–D17)
 
 | ID | Quyết định Kiến trúc | Trạng thái | Tác động Kỹ thuật |
 | :--- | :--- | :---: | :--- |
@@ -63,6 +63,7 @@
 | **D14** | **Mở rộng Schema Additive qua Migration `0004_phase2_sprint3.sql`** | `ACCEPTED` | Tạo bảng mới `strategy_signals` (lưu trữ tín hiệu, trạng thái, lý do hủy). Tạo bảng `system_trading_config`. Bổ sung cột `parent_ticket_id`, `is_breakeven_moved`, `is_partial_closed`, `trailing_stop_price` vào `simulated_orders`. Không làm thay đổi schema cũ. |
 | **D15** | **Xử lý Partial Take Profit bằng cơ chế Phân tách Lệnh (Order Splitting)** | `ACCEPTED` | Khi chạm TP1, hệ thống thực hiện: Đóng 50% khối lượng ban đầu với lý do `PARTIAL_TP1`, cập nhật `realized_pnl` cho nửa lot đó; cập nhật vị thế còn lại với `lot_size = lot_size * 0.5`, chuyển `stop_loss = entry` (BE) và gắn cờ `is_partial_closed = True`. |
 | **D16** | **Tái sử dụng WebSocket Multiplexing Hub (`/api/v1/ws/market`) với Event Type Mới** | `ACCEPTED` | Không mở thêm port hoặc endpoint WebSocket mới. Sử dụng Redis channel `market:signals` để phát `type: "signal.new"`, và `market:circuit_breaker` để phát `type: "circuit_breaker.update"`. WebSocket hub tự động chuyển tiếp đến client. |
+| **D17** | **Động cơ Bù đắp Khoảng trống Nến Tự động (`CandleGapHealer` & `CandleIntegrityWorker`)** | `ACCEPTED` | Tự động phát hiện và vá khoảng trống nến lịch sử do server downtime khi chạy local (tắt máy, mất mạng). Tự động chạy ngay khi restart và định kỳ mỗi 60s, bù nến từ Binance REST API cho cả 6 khung thời gian (M1 đến D1). |
 
 ---
 
@@ -114,6 +115,22 @@ flowchart TB
         WSHub --> ClientUI["Vue 3 Frontend<br/>- Cockpit Auto-Trade Switcher<br/>- Signal Audio Alert & Confirm Modal<br/>- Orders Table with BE/Partial Badges<br/>- Backtesting Lab View"]
     end
 ```
+
+### 3.1. Cơ chế Tự động Bù đắp Khoảng trống Nến do Server Downtime (Candle Gap Healing Engine)
+Do hệ thống vận hành tại máy cục bộ (local host), các sự cố tắt máy, gập máy, mất kết nối mạng hoặc khởi động lại container thường tạo ra các khoảng trống thời gian (gaps) từ hàng chục phút đến nhiều ngày trong chuỗi nến lịch sử. Module `CandleGapHealer` (`backend/data_ingestion/candle_healer.py`) giải quyết triệt để vấn đề này:
+
+1. **Thuật toán Phát hiện Khoảng trống (`detect_gaps`):**
+   * **Trailing/Head Gap:** Khoảng trống từ thời điểm nến mới nhất trong DB đến thời điểm hiện tại `now` ($> 1.5 \times \text{Interval}$).
+   * **Internal Gaps:** Quét toàn bộ các đoạn đứt gãy giữa 2 nến liên tiếp trong 7 ngày gần nhất ($\Delta t > 1.5 \times \text{Interval}$).
+   * **Leading Gap:** Bổ sung nếu số lượng nến lịch sử chưa đạt mức tối thiểu (300 nến).
+2. **Cơ chế Bù đắp Nến Phân trang (`heal_range`):**
+   * Tự động ánh xạ `XAUUSD` sang `PAXGUSDT` (nguồn Binance giao dịch 24/7 không nghỉ cuối tuần).
+   * Phân trang gọi Binance REST API `https://api.binance.com/api/v3/klines` với `limit=1000`, liên tục nạp và ghi đè an toàn qua `ON CONFLICT (symbol, timeframe, open_time) DO UPDATE`.
+   * Hỗ trợ đồng bộ chuẩn xác cho cả 6 khung thời gian: `M1`, `M5`, `M15`, `H1`, `H4`, `D1`.
+3. **Cơ chế Kích hoạt Kép (Dual Triggering):**
+   * **Khi Khởi động lại (Startup Recovery):** Chạy ngay lập tức khi ứng dụng khởi động trong lifespan của FastAPI, phục hồi toàn bộ nến bị mất trong suốt thời gian server tắt.
+   * **Định kỳ Chạy ngầm (`CandleIntegrityWorker`):** Chạy ngầm mỗi 60 giây, tự động phát hiện nếu WebSocket bị nghẽn mạng hoặc trễ nến để tự động kích hoạt bù đắp tức thì.
+   * **On-Demand API:** Hỗ trợ `GET /api/v1/market/integrity` và `POST /api/v1/market/heal` cho phép giao diện Settings kiểm tra và kích hoạt vá nến thủ công.
 
 ---
 

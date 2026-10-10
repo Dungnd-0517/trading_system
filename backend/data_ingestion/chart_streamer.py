@@ -351,15 +351,22 @@ class ChartStreamer:
         await asyncio.gather(self._run_mt5(), self._run_binance())
 
     async def seed_binance_history_if_needed(self, symbol: str = "PAXGUSDT", target_symbol: str = "XAUUSD") -> None:
+        now_ts = datetime.now(timezone.utc).timestamp()
         for tf, interval in TIMEFRAME_TO_BINANCE_INTERVAL.items():
+            interval_secs = TIMEFRAMES.get(tf, 60)
             try:
                 async with session_factory() as session:
-                    count = await session.scalar(
-                        select(func.count())
-                        .select_from(MarketCandle)
-                        .where(MarketCandle.symbol == target_symbol, MarketCandle.timeframe == tf)
-                    )
-                    if count and count >= 50:
+                    row = (
+                        await session.execute(
+                            select(
+                                func.count(MarketCandle.id),
+                                func.max(MarketCandle.open_time),
+                            ).where(MarketCandle.symbol == target_symbol, MarketCandle.timeframe == tf)
+                        )
+                    ).first()
+                    count = row[0] if row else 0
+                    newest = row[1] if row else None
+                    if count and count >= 50 and newest and (now_ts - newest.timestamp()) <= interval_secs * 2.0:
                         continue
                 await seed_history_for_timeframe(
                     target_symbol=target_symbol,

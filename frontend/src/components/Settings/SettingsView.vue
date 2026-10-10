@@ -8,6 +8,7 @@ import {
   Database,
   DollarSign,
   HelpCircle,
+  Layers,
   Radio,
   RefreshCw,
   Save,
@@ -21,7 +22,7 @@ import {
   Wifi,
   Zap,
 } from 'lucide-vue-next'
-import { fetchHealth } from '../../services/api'
+import { fetchHealth, fetchMarketIntegrity, healMarketGaps } from '../../services/api'
 import { marketStore } from '../../stores/marketStore'
 import { orderStore } from '../../stores/orderStore'
 import { settingsStore } from '../../stores/settingsStore'
@@ -145,13 +146,40 @@ async function testConnectionPing() {
   }
 }
 
-async function refreshAccount() {
-  await orderStore.refreshAccount()
+const integrityReport = ref(null)
+const healingLoading = ref(false)
+const healNotice = ref('')
+
+async function loadIntegrity() {
+  try {
+    integrityReport.value = await fetchMarketIntegrity('XAUUSD')
+  } catch (err) {
+    console.warn('Failed to load integrity report', err)
+  }
+}
+
+async function runHealGaps() {
+  healingLoading.value = true
+  healNotice.value = ''
+  try {
+    const res = await healMarketGaps('XAUUSD', 168)
+    const total = res.total_healed ?? 0
+    healNotice.value = `Hoàn tất! Đã kiểm tra và vá ${total} nến bị thiếu.`
+    await loadIntegrity()
+  } catch (err) {
+    healNotice.value = 'Lỗi khi kiểm tra/vá nến: ' + (err.message || err)
+  } finally {
+    healingLoading.value = false
+    setTimeout(() => {
+      healNotice.value = ''
+    }, 6000)
+  }
 }
 
 onMounted(() => {
   loadSettings()
   testConnectionPing()
+  loadIntegrity()
 })
 </script>
 
@@ -388,6 +416,46 @@ onMounted(() => {
             <div class="infra-status">
               <span class="badge-online">
                 <span class="status-dot green"></span> RUNNING
+              </span>
+            </div>
+          </div>
+
+          <!-- Candle Gap Healer & Integrity Monitor -->
+          <div class="infra-item">
+            <div class="infra-icon-wrap"><Layers :size="16" /></div>
+            <div class="infra-details">
+              <div class="infra-title-row">
+                <strong>Candle Continuity &amp; Gap Healer</strong>
+                <button class="mini-heal-btn" :disabled="healingLoading" @click="runHealGaps">
+                  <RefreshCw :size="11" :class="{ spinning: healingLoading }" />
+                  {{ healingLoading ? 'Đang vá nến...' : 'Kiểm tra &amp; Vá nến' }}
+                </button>
+              </div>
+              <span>
+                Chạy ngầm định kỳ 60s &amp; Tự động bù đắp khoảng trống nến khi downtime ·
+                Đã bù đắp: <b>{{ integrityReport?.total_healed_bars ?? 0 }} nến</b>
+              </span>
+              <div v-if="integrityReport?.timeframes" class="tf-chips-grid">
+                <span
+                  v-for="(info, tf) in integrityReport.timeframes"
+                  :key="tf"
+                  :class="['tf-chip', info.is_synced ? 'chip-synced' : 'chip-lagging']"
+                  :title="`Khung ${tf}: ${info.count} nến, trễ ${info.minutes_behind ?? 0}m`"
+                >
+                  <b>{{ tf }}</b> {{ info.count }} ({{ info.is_synced ? 'SYNC' : `${info.minutes_behind}m` }})
+                </span>
+              </div>
+              <div v-if="healNotice" class="heal-notice">{{ healNotice }}</div>
+            </div>
+            <div class="infra-status">
+              <span v-if="integrityReport?.overall_status === 'HEALTHY'" class="badge-online">
+                <span class="status-dot green"></span> GAP-FREE
+              </span>
+              <span v-else-if="integrityReport?.is_healing || healingLoading" class="badge-warning">
+                <span class="status-dot orange"></span> HEALING
+              </span>
+              <span v-else class="badge-offline">
+                <span class="status-dot red"></span> GAPS DETECTED
               </span>
             </div>
           </div>
@@ -939,6 +1007,7 @@ onMounted(() => {
 
 .status-dot.green { background: #2e7a52; box-shadow: 0 0 0 2px #2e7a5220; }
 .status-dot.red { background: #c25243; }
+.status-dot.orange { background: #d97706; box-shadow: 0 0 0 2px #d9770620; }
 
 .badge-online {
   display: inline-flex;
@@ -949,6 +1018,19 @@ onMounted(() => {
   color: #1e7043;
   background: #e3f4e6;
   border: 1px solid #c2e5c8;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.badge-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 9px 'DM Mono', monospace;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
   padding: 2px 7px;
   border-radius: 4px;
 }
@@ -964,6 +1046,80 @@ onMounted(() => {
   border: 1px solid #f6c0ba;
   padding: 2px 7px;
   border-radius: 4px;
+}
+
+.infra-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-heal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  background: #225c43;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font: 600 9px 'DM Mono', monospace;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.mini-heal-btn:hover:not(:disabled) {
+  background: #1b4b36;
+}
+
+.mini-heal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tf-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.tf-chip {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font: 8px 'DM Mono', monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chip-synced {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.chip-lagging {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
+}
+
+.heal-notice {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #1e7043;
+  font-weight: 600;
 }
 
 .ping-bar {
