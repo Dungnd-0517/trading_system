@@ -6,7 +6,15 @@ import pytest
 from sqlalchemy import delete
 
 from core.database import engine, session_factory
-from core.models import SimulatedOrder, SimulationAccount, StrategySignal
+from core.models import (
+    EpisodicTradeMemory,
+    SimulatedOrder,
+    SimulationAccount,
+    StrategySignal,
+    SystemTradingConfig,
+    TradingKnowledge,
+)
+from core.redis_client import redis_client
 from simulation.paper_worker import paper_worker
 
 logger = logging.getLogger(__name__)
@@ -21,20 +29,41 @@ async def _clean_test_data_async():
         pass
 
     async with session_factory() as session:
-        # 1. Xóa tất cả các lệnh test
+        # 1. Xóa các ký ức trade test và tri thức test
+        await session.execute(delete(EpisodicTradeMemory).where(EpisodicTradeMemory.is_test.is_(True)))
+        await session.execute(delete(TradingKnowledge).where(TradingKnowledge.category == "TEST"))
+
+        # 2. Xóa tất cả các lệnh test
         await session.execute(delete(SimulatedOrder).where(SimulatedOrder.is_test.is_(True)))
 
-        # 2. Xóa tất cả các tín hiệu test
+        # 3. Xóa tất cả các tín hiệu test
         await session.execute(delete(StrategySignal).where(StrategySignal.is_test.is_(True)))
 
-        # 3. Khôi phục số dư tài khoản simulation_account về ban đầu $10,000.00 nếu có test lệnh
+        # 4. Khôi phục số dư tài khoản simulation_account về ban đầu $10,000.00 nếu có test lệnh
         acc = await session.get(SimulationAccount, 1)
         if acc:
             acc.current_balance = Decimal("10000.00")
             acc.equity = Decimal("10000.00")
             acc.margin_used = Decimal("0.00")
 
+        # 5. Khôi phục SystemTradingConfig về mặc định an toàn ban đầu
+        cfg = await session.get(SystemTradingConfig, 1)
+        if cfg:
+            cfg.atr_sl_multiplier = Decimal("1.50")
+            cfg.min_risk_reward_ratio = Decimal("1.50")
+            cfg.trading_allowed = True
+            cfg.halt_reason = None
+            cfg.risk_per_trade_percent = Decimal("1.00")
+            cfg.execution_mode = "MANUAL"
+            cfg.updated_by_agent = "SYSTEM_INIT"
+
         await session.commit()
+
+    # 6. Dọn dẹp Redis cache runtime params
+    try:
+        await redis_client.delete("runtime:params:XAUUSD")
+    except Exception:
+        pass
 
     # 4. Dọn dẹp in-memory test orders trong paper_worker
     test_tickets = [

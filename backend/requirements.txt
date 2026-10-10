@@ -9,4 +9,5 @@ websockets>=13.0,<16.0
 python-multipart>=0.0.9
 numpy>=1.26
 pandas>=2.2
+pgvector>=0.3.0
 pytest>=8.0
