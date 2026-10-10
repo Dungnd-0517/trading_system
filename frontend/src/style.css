@@ -119,3 +119,45 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
 .mode-btn.auto-btn.active { background: #059669; color: #ffffff; }
 .circuit-breaker-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font: 9px var(--mono); font-weight: 800; background: #fee2e2; color: #dc2626; border-radius: 5px; border: 1px solid #fca5a5; animation: pulse 1.5s infinite; flex-shrink: 0; white-space: nowrap; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* Phase 03 - Sprint 01: TradingAgents Cockpit UI */
+.column-switcher {
+  display: flex;
+  background: #e2ece0;
+  padding: 3px;
+  border-radius: 7px;
+  border: 1px solid #cedcce;
+  gap: 3px;
+  user-select: none;
+}
+.switch-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: #55665b;
+  font: 10px 'DM Mono', monospace;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.switch-btn:hover {
+  color: #1b2a23;
+  background: #d8e5d6;
+}
+.switch-btn.active {
+  background: #ffffff;
+  color: #225c43;
+  box-shadow: 0 1px 3px rgba(27, 42, 35, 0.08);
+  font-weight: 800;
+}
+.governor-state i.pulse-red {
+  background: #dc2626 !important;
+  animation: pulse 1s infinite;
+}
