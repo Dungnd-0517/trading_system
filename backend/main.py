@@ -4,6 +4,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai_engine.rag_service import rag_service
 from ai_engine.sentiment import backfill_news_sentiment
 from ai_engine.signal_worker import signal_worker
 from api.v1 import router as api_router
@@ -23,6 +24,12 @@ async def lifespan(_: FastAPI):
     try:
         async with session_factory() as session:
             await backfill_news_sentiment(session, batch_size=2000)
+    except Exception:
+        pass
+    try:
+        stats = await rag_service.get_stats()
+        if stats.get("total_chunks", 0) == 0:
+            await rag_service.ingest_all_knowledge()
     except Exception:
         pass
     news_task = asyncio.create_task(NewsCollector().run(), name="news-collector")

@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     fxstreet_news_rss_url: str = "https://www.fxstreet.com/rss/news"
     finnhub_api_key: str | None = None
     finnhub_economic_calendar_enabled: bool = False
+    openai_api_key: str | None = None
+    gemini_api_key: str | None = None
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
