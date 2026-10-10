@@ -3,6 +3,7 @@ from redis.asyncio import Redis
 from core.config import settings
 
 client = Redis.from_url(settings.redis_url, decode_responses=True)
+redis_client = client
 
 
 async def ping_redis() -> bool:

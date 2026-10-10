@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_engine.rag_service import rag_service
+from ai_engine.reflexion_service import reflexion_worker
 from ai_engine.sentiment import backfill_news_sentiment
 from ai_engine.signal_worker import signal_worker
 from api.v1 import router as api_router
@@ -37,15 +38,19 @@ async def lifespan(_: FastAPI):
     paper_task = asyncio.create_task(paper_worker.run(), name="paper-worker")
     signal_task = asyncio.create_task(signal_worker.run(), name="signal-worker")
     integrity_task = asyncio.create_task(candle_integrity_worker.run(), name="candle-integrity-worker")
+    reflexion_task = asyncio.create_task(reflexion_worker.run(), name="reflexion-worker")
     try:
         yield
     finally:
-        for task in (news_task, chart_task, paper_task, signal_task, integrity_task):
+        for task in (news_task, chart_task, paper_task, signal_task, integrity_task, reflexion_task):
             task.cancel()
         candle_integrity_worker.stop()
         paper_worker.stop()
         signal_worker.stop()
-        await asyncio.gather(news_task, chart_task, paper_task, signal_task, integrity_task, return_exceptions=True)
+        reflexion_worker.stop()
+        await asyncio.gather(
+            news_task, chart_task, paper_task, signal_task, integrity_task, reflexion_task, return_exceptions=True
+        )
         await close_redis()
         await close_database()
 
