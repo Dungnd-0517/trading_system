@@ -91,53 +91,63 @@ Strategy Governor Agent đọc bảng bài học gần nhất và điều chỉn
 
 ### 4. Thiết kế Cơ sở Dữ liệu & Schema (PostgreSQL + pgvector)
 
+> [!NOTE]
+> **Đồng nhất Single Source of Truth:** Để đảm bảo tính tương thích 100% với Phase 02 và tránh phân mảnh cấu hình, hệ thống **không tạo bảng riêng `strategy_runtime_params`**, mà mở rộng trực tiếp bảng `system_trading_config` kết hợp Redis Cache (`runtime:params:XAUUSD`). Bảng `episodic_trade_memory` có cờ `is_test` theo chuẩn phân lập dữ liệu D18.
+
 ```sql
--- 1. Kích hoạt tiện ích vector cho Postgres
+-- 1. Kích hoạt tiện ích vector cho Postgres (pgvector/pgvector:pg16)
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 2. Lưu trữ kiến thức và tài liệu chiến lược (RAG)
-CREATE TABLE trading_knowledge (
-    id SERIAL PRIMARY KEY,
-    title VARCHAR(128) NOT NULL,
-    category VARCHAR(64) NOT NULL, -- SMC, PRICE_ACTION, RISK_MANAGEMENT
-    content TEXT NOT NULL,
-    embedding vector(1536),        -- Kích thước vector chuẩn OpenAI/Gemini
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. Bộ nhớ trải nghiệm (Episodic Memory / Reflexion Logs)
-CREATE TABLE episodic_trade_memory (
+-- 2. Lưu trữ kiến thức và tài liệu chiến lược (RAG Knowledge Base)
+CREATE TABLE IF NOT EXISTS trading_knowledge (
     id BIGSERIAL PRIMARY KEY,
-    order_id BIGINT REFERENCES simulated_orders(id),
-    outcome VARCHAR(8) NOT NULL,            -- WIN, LOSS, BREAKEVEN
-    market_context_summary TEXT NOT NULL,  -- Bối cảnh thị trường lúc vào lệnh
-    root_cause TEXT NOT NULL,              -- Nguyên nhân chính (SL quá ngắn, tin ra...)
-    lesson_learned TEXT NOT NULL,          -- Bài học rút ra
-    embedding vector(1536),                -- Dùng để search lại bài học tương tự
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(64) NOT NULL, -- SMC, PRICE_ACTION, RISK_MANAGEMENT, MACRO, POST_MORTEM
+    content TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    embedding vector(1536),        -- Kích thước vector chuẩn OpenAI/Gemini/Local Hashing
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Bảng tham số vận hành được AI cập nhật động
-CREATE TABLE strategy_runtime_params (
-    id SERIAL PRIMARY KEY,
-    symbol VARCHAR(16) DEFAULT 'XAUUSD',
-    risk_per_trade_percent NUMERIC(4, 2) DEFAULT 1.00,  -- 0.25% - 1.50%
-    min_risk_reward_ratio NUMERIC(4, 2) DEFAULT 1.50,   -- Tối thiểu 1:1.5
-    atr_sl_multiplier NUMERIC(4, 2) DEFAULT 1.50,       -- Hệ số nhân SL theo ATR
-    max_open_positions INT DEFAULT 2,
-    trading_allowed BOOLEAN DEFAULT TRUE,
-    halt_reason TEXT,
-    updated_by_agent VARCHAR(64) DEFAULT 'SYSTEM_INIT',
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+CREATE INDEX IF NOT EXISTS idx_trading_knowledge_category ON trading_knowledge(category);
+CREATE INDEX IF NOT EXISTS idx_trading_knowledge_embedding ON trading_knowledge USING hnsw (embedding vector_cosine_ops);
+
+-- 3. Bộ nhớ trải nghiệm (Episodic Memory / Reflexion Post-Mortem Logs)
+CREATE TABLE IF NOT EXISTS episodic_trade_memory (
+    id BIGSERIAL PRIMARY KEY,
+    order_id BIGINT REFERENCES simulated_orders(id) ON DELETE CASCADE,
+    outcome VARCHAR(16) NOT NULL,            -- WIN, LOSS, BREAKEVEN
+    market_context_summary TEXT NOT NULL,  -- Bối cảnh thị trường lúc vào/thoát lệnh
+    root_cause TEXT,                       -- Nguyên nhân cốt lõi (SL quá ngắn, tin ra...)
+    lesson_learned TEXT NOT NULL,          -- Bài học kinh nghiệm rút ra
+    mistake_category VARCHAR(64),          -- EARLY_ENTRY, SL_TOO_TIGHT, TRADED_DURING_NEWS_SPIKE, FOMO_CHASING...
+    rule_to_add TEXT,                      -- Quy tắc đề xuất cho Governor cập nhật
+    embedding vector(1536),                -- Hỗ trợ semantic search tìm bài học tương tự
+    is_test BOOLEAN NOT NULL DEFAULT FALSE,-- Phân lập dữ liệu kiểm thử (D18)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_order_id ON episodic_trade_memory(order_id);
+CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_outcome ON episodic_trade_memory(outcome);
+CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_mistake ON episodic_trade_memory(mistake_category);
+CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_is_test ON episodic_trade_memory(is_test);
+CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_embedding ON episodic_trade_memory USING hnsw (embedding vector_cosine_ops);
+
+-- 4. Mở rộng system_trading_config với các tham số thích ứng AI (Dynamic Runtime Parameters)
+ALTER TABLE system_trading_config
+    ADD COLUMN IF NOT EXISTS atr_sl_multiplier NUMERIC(4, 2) NOT NULL DEFAULT 1.50,
+    ADD COLUMN IF NOT EXISTS min_risk_reward_ratio NUMERIC(4, 2) NOT NULL DEFAULT 1.50,
+    ADD COLUMN IF NOT EXISTS trading_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS halt_reason TEXT,
+    ADD COLUMN IF NOT EXISTS updated_by_agent VARCHAR(64) NOT NULL DEFAULT 'SYSTEM_INIT';
 ```
 
 ---
 
 ### 5. Bộ Rào chắn Cứng (Hard Constraints Guardrails)
 
-Để triệt tiêu hoàn toàn rủi ro ảo giác (hallucination) hoặc việc Agent "học quá đà" (overfitting) dẫn đến phá hủy tài khoản, mọi đề xuất của TradingAgents bắt buộc phải đi qua **Bộ lọc quy tắc cứng viết bằng Python thuần**:
+Để triệt tiêu hoàn toàn rủi ro ảo giác (hallucination) hoặc việc Agent "học quá đà" (overfitting) dẫn đến phá hủy tài khoản, mọi đề xuất của Strategy Governor bắt buộc phải đi qua **Bộ lọc quy tắc cứng viết bằng Python thuần**:
 
 ```python
 from pydantic import BaseModel, Field
@@ -147,8 +157,9 @@ class AgentParamAdjustment(BaseModel):
     risk_per_trade_percent: float = Field(..., ge=0.25, le=1.50)  # Cấm vượt quá 1.5%
     min_risk_reward_ratio: float = Field(..., ge=1.20, le=4.00)   # Không chấp nhận R:R < 1:1.2
     atr_sl_multiplier: float = Field(..., ge=1.00, le=3.00)       # SL không quá 3x ATR
-    trading_allowed: bool
+    trading_allowed: bool = True
     halt_reason: Optional[str] = None
+    updated_by_agent: str = "STRATEGY_GOVERNOR"
 
 def validate_and_apply_adjustments(proposed_params: dict, current_daily_drawdown: float):
     # RÀO CHẮN 1: Nếu tổng lỗ trong ngày >= 3%, khóa cứng quyền giao dịch bất kể AI đề xuất gì
@@ -161,10 +172,9 @@ def validate_and_apply_adjustments(proposed_params: dict, current_daily_drawdown
     # RÀO CHẮN 2: Ép kiểu và kiểm tra biên độ qua Pydantic
     validated = AgentParamAdjustment(**proposed_params)
     
-    # Cập nhật vào Redis Cache để Fast Execution Engine áp dụng ngay
+    # Cập nhật vào DB system_trading_config & Redis Cache (runtime:params:XAUUSD)
     redis_client.set("runtime:params:XAUUSD", validated.model_dump_json())
     return validated.model_dump()
-
 ```
 
 ---
@@ -183,23 +193,18 @@ Giao diện người dùng trên Vue 3 sẽ được bổ sung 2 panel tương t
 | SL Multiplier: 1.8x ATR                 | thêm 15 points cho các lệnh cùng setup.  |
 | Trạng thái: CHO PHÉP MỞ LỆNH            |                                          |
 +─────────────────────────────────────────+──────────────────────────────────────────+
-
 ```
 
 ---
 
-### 7. Lộ trình Triển khai (3 Giai đoạn Kỹ thuật)
+### 7. Lộ trình Triển khai Sprint 01 (Sprint 01 Task Breakdown & Status)
 
-1. **Giai đoạn 1: Triển khai Reflexion & Logging (Thu thập kinh nghiệm)**
-* Thiết lập bảng `episodic_trade_memory`.
-* Tạo worker chạy ngầm sau mỗi lệnh của Paper Trading Engine để viết bài học tóm tắt (sử dụng Gemini 2.0 Flash hoặc Groq Llama-3.3 để tối ưu chi phí).
+Sprint 01 được phân rã thành 5 Task kỹ thuật tuần tự và khép kín:
 
-
-2. **Giai đoạn 2: Cài đặt RAG & Knowledge Ingestion (Cung cấp tri thức)**
-* Bật `pgvector` trên PostgreSQL container.
-* Nạp tài liệu phân tích kỹ thuật và định nghĩa các mẫu hình nến vàng vào hệ thống.
-
-
-3. **Giai đoạn 3: Đóng vòng lặp Tự thích ứng (Adaptive Loop Closure)**
-* Kích hoạt Strategy Governor để đồng bộ các tham số tối ưu vào Redis.
-* Để hệ thống vận hành tự thích ứng trên môi trường Paper Trading tối thiểu 100 lệnh, đánh giá sự thay đổi của các chỉ số Winrate và Profit Factor trước khi xem xét kết nối sàn thực tế.
+| Task | Tên Hạng mục | Mục tiêu Kỹ thuật | Trạng thái |
+| :--- | :--- | :--- | :--- |
+| **Task 1** | **Vector Infrastructure & Database Schema** | Nâng cấp image `pgvector/pgvector:pg16`, migration `0005_phase3_agents_memory.sql`, models `TradingKnowledge`, `EpisodicTradeMemory`, mở rộng `SystemTradingConfig`, cách ly test D18 trong `conftest.py`. | **HOÀN THÀNH** |
+| **Task 2** | **RAG Knowledge Ingestion Pipeline & Embeddings** | Tạo `backend/knowledge_base/` (SMC, Price Action, Macro Risk, Post-Mortem), xây dựng `EmbeddingService` 1536 chiều (OpenAI/Gemini/Local Hashing), `RAGService`, CLI `ingest_knowledge.py`, API `/api/v1/knowledge/`. | **HOÀN THÀNH** |
+| **Task 3** | **Reflexion Engine Service** | Xây dựng `ReflexionService` tự động phân tích post-mortem (SL_TOO_TIGHT, EARLY_ENTRY, TRADED_DURING_NEWS_SPIKE), lưu vào `episodic_trade_memory`, `ReflexionWorker` nghe Redis `ORDER_CLOSED`, API `/api/v1/reflexion/`. | **HOÀN THÀNH** |
+| **Task 4** | **Strategy Governor Agent & Hard Guardrails Closure** | Xây dựng `StrategyGovernor` thu thập đồng thuận từ 3 Agents (News, Technical RAG, Reflexion), áp dụng Pydantic Hard Guardrails, Daily Drawdown Lock 3%, đồng bộ `system_trading_config` & Redis `runtime:params:XAUUSD`. | **CHUẨN BỊ TRIỂN KHAI** |
+| **Task 5** | **Cockpit UI Integration** | Tích hợp hiển thị trực quan lên Vue 3 Dashboard: Panel Agent Consensus & Parameters Adjustment, Panel Reflexion Memories & Lessons Learned. | **CHỜ TRIỂN KHAI** |

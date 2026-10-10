@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from api.v1.governor import router as governor_router
 from api.v1.knowledge import router as knowledge_router
 from api.v1.market import router as market_router
 from api.v1.news import router as news_router
@@ -10,6 +11,7 @@ from api.v1.strategy import router as strategy_router
 from api.v1.websocket import router as websocket_router
 
 router = APIRouter()
+router.include_router(governor_router, prefix="/governor", tags=["governor"])
 router.include_router(knowledge_router, prefix="/knowledge", tags=["knowledge"])
 router.include_router(reflexion_router, prefix="/reflexion", tags=["reflexion"])
 router.include_router(market_router, prefix="/market", tags=["market"])

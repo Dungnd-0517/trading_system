@@ -1,5 +1,98 @@
 # Backlog cập nhật
 
+## 2026-10-10 19:45 +07:00
+
+### [Update Phase 03 - Sprint 01]: Hoàn Thành Task 4 - Strategy Governor Agent & Đóng Vòng Lặp Hard Guardrails (Risk Circuit Breaker, Dual-Tier Sync & Execution Interceptor)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Pydantic Hard Guardrails & An Toàn Tham Số (`backend/ai_engine/strategy_governor.py`):**
+    - Thiết lập Schema `AgentParamAdjustment` với các ngưỡng ranh giới tuyệt đối (Hard Limits) ngăn chặn Agent hallucination làm sai lệch tham số rủi ro:
+      - `risk_per_trade_percent`: Giới hạn nghiêm ngặt trong khoảng $[0.25\%, 1.50\%]$ (mặc định $1.00\%$).
+      - `min_risk_reward_ratio`: Giới hạn tối thiểu $\ge 1.20$, tối đa $\le 3.00$ (mặc định $1.50$).
+      - `atr_sl_multiplier`: Giới hạn nới/thu Stop Loss trong khoảng $[1.00, 3.00]$ (mặc định $1.50$).
+    - Thuật toán `validate_and_apply_hard_guardrails`: Tự động kẹp giá trị (clamp) vào biên độ an toàn trước khi nạp vào hệ thống.
+  - **Hard Circuit Breaker Khóa Lỗ Ngày (Daily Max Drawdown 3.0%):**
+    - Kiểm tra tổng lỗ thực tế trong ngày từ `simulated_orders` (cộng dồn realized PnL và unrealized PnL).
+    - Nếu mức sụt giảm vốn trong ngày $\ge 3.0\%$, hệ thống tự động cưỡng chế khóa quyền giao dịch (`trading_allowed = False`, `halt_reason = "HARD_LIMIT_BREACHED: Daily drawdown (X.XX%) exceeded safety limit (3.0%)"`).
+    - Thắt chặt rủi ro theo chuỗi lỗ liên tiếp: Nếu $\ge 3$ lệnh gần nhất bị thua lỗ liên tiếp, tự động giảm tỷ lệ rủi ro mỗi lệnh xuống $50\%$ (còn $0.5\%$).
+  - **Tổng Hợp Đồng Thuận Đa Agent (Consensus Synthesis Engine):**
+    - Đánh giá Chế độ Thị trường (`market_regime`): Nhận diện trạng thái biến động nến M15 (`COMPRESSION_CHOP`, `TRENDING_EXPANSION`, `HIGH_VOLATILITY_EXPANSION`).
+    - Phản hồi từ Reflexion Memory Engine: Nếu phát hiện $\ge 2$ lệnh lỗ gần nhất do lỗi `SL_TOO_TIGHT`, tự động mở rộng `atr_sl_multiplier` lên $1.8\times - 2.0\times$ để tránh bị quét râu nến.
+    - Tích hợp với News Circuit Breaker: Tự động phát hiện tin tức 3 sao USD để tạm ngừng mở lệnh hoặc nâng tiêu chuẩn R:R.
+  - **Kiến Trúc Đồng Bộ Kép (Dual-Tier Sync Architecture):**
+    - **Tầng Bền Vững (PostgreSQL):** Ghi trực tiếp vào bảng `system_trading_config` duy nhất (`updated_by_agent = "STRATEGY_GOVERNOR"`), giữ vững nguyên tắc Single Source of Truth.
+    - **Tầng Bộ Nhớ Đệm Siêu Tốc (Redis Cache & Pub/Sub):** Cập nhật key `runtime:params:XAUUSD` (<1ms) cho execution worker và broadcast sự kiện `governor:consensus` qua Redis Pub/Sub.
+  - **Đóng Vòng Lặp Thực Thi Tại AutoExecutor (`backend/simulation/auto_executor.py`):**
+    - Interceptor trong `execute_signal`: Tự động kiểm tra cấu hình Governor trước khi phê duyệt bất kỳ lệnh nào.
+    - Ngăn chặn triệt để khi `trading_allowed == False` (`ValueError: Trading halted by Governor: {halt_reason}`).
+    - Ngăn chặn các tín hiệu có tỷ lệ $R:R$ thấp hơn tiêu chuẩn an toàn `min_risk_reward_ratio` của Governor.
+  - **Bộ REST API Router (`backend/api/v1/governor.py`):**
+    - `GET /api/v1/governor/consensus`: Lấy báo cáo phân tích chế độ thị trường và quyết định đồng thuận mới nhất.
+    - `GET /api/v1/governor/runtime-params`: Đọc tham số đang hoạt động tức thì từ Redis Cache / Database.
+    - `POST /api/v1/governor/evaluate`: Kích hoạt vòng lặp đánh giá tức thời và đồng bộ cấu hình.
+    - `POST /api/v1/governor/override`: Cho phép Trader can thiệp thủ công ghi đè tham số (vẫn đi qua bộ lọc Hard Guardrails).
+  - **Quản Lý Vòng Đời & Background Worker (`backend/main.py`):**
+    - Tích hợp `GovernorWorker` chu kỳ 60 giây vào FastAPI `lifespan`.
+    - Đăng ký `governor_router` tại prefix `/api/v1/governor`.
+  - **Kiểm Thử & Bảo Đảm Cách Ly Dữ Liệu (D18 Isolation):**
+    - Xây dựng bộ test `backend/tests/test_strategy_governor.py` (5/5 passed).
+    - Cập nhật fixture `backend/tests/conftest.py` tự động khôi phục cấu hình mặc định an toàn cho `SystemTradingConfig` và xóa Redis cache sau mỗi test.
+    - Toàn bộ backend test suite: **72/72 tests passed** trong 6.80 giây.
+    - Kiểm tra cơ sở dữ liệu: Dữ liệu test hoàn toàn sạch sẽ (`is_test = TRUE count = 0`).
+- **Trạng thái:** Hoàn thành Task 4. Sẵn sàng triển khai Task 5 (Cockpit UI Integration cho Vue 3 Frontend).
+
+---
+
+## 2026-10-10 17:30 +07:00
+
+### [Update Phase 03 - Sprint 01]: Triển Khai TradingAgents LLM Architecture (Hạ tầng Vector DB, RAG Knowledge & Reflexion Memory Engine)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Task 1: Hạ Tầng Vector Database & Schema Bộ Nhớ Ký Ức (`pgvector` + Migrations + Models):**
+    - Nâng cấp image PostgreSQL trong `docker-compose.yml` từ `postgres:16-alpine` sang `pgvector/pgvector:pg16` với extension `vector 0.8.7`, bảo toàn nguyên vẹn 100% dữ liệu 10 bảng hiện có trên volume `pgdata`.
+    - Tạo migration `backend/migrations/0005_phase3_agents_memory.sql` và đồng bộ `backend/schema.sql`:
+      - `trading_knowledge`: Bảng tri thức chiến lược với vector 1536 chiều, chỉ mục `HNSW` (`vector_cosine_ops`), `metadata JSONB` và phân loại `category` (`SMC`, `PRICE_ACTION`, `RISK_MANAGEMENT`, `MACRO`, `POST_MORTEM`).
+      - `episodic_trade_memory`: Bảng ký ức kiểm điểm lệnh đóng cho Reflexion Engine với vector 1536 chiều, chỉ mục `HNSW`, liên kết `order_id` (foreign key cascade `simulated_orders`) và cờ phân lập test `is_test BOOLEAN`.
+      - Mở rộng `system_trading_config`: Bổ sung các tham số động cho AI Governor (`atr_sl_multiplier`, `min_risk_reward_ratio`, `trading_allowed`, `halt_reason`, `updated_by_agent`), duy trì làm Single Source of Truth thay vì tạo bảng mới gây phân mảnh.
+    - Khai báo các SQLAlchemy ORM models `TradingKnowledge`, `EpisodicTradeMemory` và cập nhật `SystemTradingConfig` trong `backend/core/models.py`.
+    - Áp dụng chuẩn cách ly dữ liệu D18 trong `backend/tests/conftest.py`: tự động xóa sạch các bản ghi test `is_test == True` và `category == 'TEST'` sau mỗi test run.
+  - **Task 2: RAG Knowledge Ingestion Pipeline & Dịch Vụ Embeddings Đa Tầng (`backend/ai_engine/`):**
+    - Xây dựng 4 tài liệu tri thức chuẩn mực cho Vàng (XAUUSD) trong `backend/knowledge_base/`:
+      - `smc_trading_rules.md`: Dealing Range, 50% Equilibrium, Discount/Premium, Order Block (OB), Fair Value Gap (FVG), BOS vs CHoCH, Liquidity Sweeps, Kill Zones.
+      - `price_action_patterns.md`: Pin Bar hấp thụ tại POI, Engulfing nến, chu kỳ Wyckoff (Accumulation Spring Phase C, Distribution UTAD), Volume Climax.
+      - `macro_risk_playbook.md`: Quy chế tin đỏ 3 sao (CPI, NFP, FOMC), News Circuit Breaker đóng băng 30 phút, điều chỉnh động ATR SL Multiplier $1.5\times \to 2.0-2.5\times$.
+      - `post_mortem_playbook.md`: Định nghĩa taxonomy các nhóm lỗi phổ biến (`EARLY_ENTRY`, `FOMO_CHASING`, `SL_TOO_TIGHT`, `COUNTER_TREND`, `TRADED_DURING_NEWS_SPIKE`) kèm quy tắc khắc phục bắt buộc.
+    - Xây dựng `EmbeddingService` (`backend/ai_engine/embeddings.py`):
+      - Chuẩn vector 1536 chiều. Hỗ trợ đa tầng: gọi OpenAI API (`text-embedding-3-small`) hoặc Gemini API khi có key; tự động fallback sang thuật toán **Deterministic Feature Hashing Vectorizer** (unigram + bigram hashing với multi-seed random projection và L2 normalization) khi chạy offline/local/test.
+      - Tốc độ xử lý < 1ms, độ tương đồng Cosine chuẩn xác, 100% không phụ thuộc mạng hay tốn phí API.
+    - Xây dựng `RAGService` (`backend/ai_engine/rag_service.py`):
+      - Parser tự động tách tài liệu thành 18 knowledge chunks theo tiêu đề H2/H3, trích xuất metadata và lưu vào PostgreSQL.
+      - Hỗ trợ semantic search qua Cosine Distance (`<=>`), lọc theo danh mục và tính `similarity = 1.0 - distance`.
+    - Viết script nạp độc lập `backend/scripts/ingest_knowledge.py` và tự động bootstrap trong `backend/main.py`.
+    - Mở rộng REST API (`backend/api/v1/knowledge.py`): `GET /stats`, `GET /search`, `POST /reindex`.
+  - **Task 3: Động Cơ Tự Học & Kiểm Điểm Lệnh Đóng (Reflexion Engine Service):**
+    - Xây dựng `ReflexionService` (`backend/ai_engine/reflexion_service.py`):
+      - Tự động phân tích post-mortem toàn diện khi lệnh đóng (Win/Loss/Breakeven).
+      - Thu thập bối cảnh tin tức vĩ mô 3 sao và tin Breaking News trong cửa sổ 30 phút quanh lệnh.
+      - Phân loại lỗi chính xác: `SL_TOO_TIGHT`, `EARLY_ENTRY`, `TRADED_DURING_NEWS_SPIKE`, `MANUAL_PANIC_EXIT`, `MARKET_NOISE_OR_NORMAL_VARIANCE`.
+      - Tổng hợp bài học kinh nghiệm và quy tắc mới đề xuất cho Governor.
+      - Vectorize bài học 1536 chiều và lưu trữ vào bảng `episodic_trade_memory`.
+      - Cung cấp tính năng tra cứu Semantic Memory (`search_similar_lessons`) cho các Agent khác tham khảo.
+    - Xây dựng background worker `ReflexionWorker` lắng nghe Redis Pub/Sub kênh `paper:orders`:
+      - Bắt sự kiện `ORDER_CLOSED` từ Paper Trading Engine và tự động kích hoạt Reflexion bất đồng bộ, không làm trễ tiến trình khớp lệnh.
+    - Mở rộng REST API (`backend/api/v1/reflexion.py`):
+      - `GET /api/v1/reflexion/memories`: Danh sách nhật ký học tập gần đây.
+      - `GET /api/v1/reflexion/search`: Tìm kiếm bài học kinh nghiệm tương đồng.
+      - `POST /api/v1/reflexion/analyze/{order_id}`: Kích hoạt phân tích thủ công theo yêu cầu.
+      - `GET /api/v1/reflexion/stats`: Báo cáo thống kê Win/Loss và phân bổ các nhóm sai lầm.
+- **Kiểm thử & Triển khai:**
+  - Toàn bộ backend test suite: **67/67 tests passed in 6.08s** trên container `trading_backend` (bao gồm 3 tests trong `test_agents_memory.py`, 4 tests trong `test_rag_service.py`, 6 tests trong `test_reflexion.py`).
+  - Kiểm tra cơ sở dữ liệu: Dữ liệu test được dọn dẹp sạch sẽ 100% sau mỗi lần chạy test (`is_test = TRUE count = 0`).
+  - Dịch vụ hệ thống: `/health` trả về `200 OK` (PostgreSQL & Redis hoạt động bình thường).
+- **Trạng thái:** Hoàn thành Task 1, Task 2, Task 3. Sẵn sàng triển khai Task 4 (Strategy Governor & Hard Guardrails Closure).
+
+---
+
 ## 2026-10-10 00:30 +07:00
 
 ### [Update Phase 02 - Sprint 03]: Hệ Thống Giám Sát Tính Toàn Vẹn & Tự Động Bù Đắp Khoảng Trống Nến Khi Server Downtime (Candle Gap Healer & Integrity Engine)
