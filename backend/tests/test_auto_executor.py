@@ -8,10 +8,6 @@ from core.models import StrategySignal, SystemTradingConfig
 from simulation.auto_executor import AutoExecutionController
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_db_pool():
-    yield
-    await engine.dispose()
 
 
 @pytest.mark.anyio
@@ -41,7 +37,7 @@ async def test_execute_signal_manual_mode_requires_force():
             cfg.max_open_positions = 10
             await session.commit()
 
-        # Tạo signal test
+        # Tạo signal test có cờ is_test=True
         now = datetime.now(timezone.utc)
         sig = StrategySignal(
             symbol="XAUUSD",
@@ -54,6 +50,7 @@ async def test_execute_signal_manual_mode_requires_force():
             risk_reward=Decimal("2.00"),
             status="PENDING",
             reason="Test Signal",
+            is_test=True,
         )
         session.add(sig)
         await session.commit()
@@ -67,7 +64,4 @@ async def test_execute_signal_manual_mode_requires_force():
         res = await ctrl.execute_signal(sig.id, session=session, force_manual=True)
         assert res["status"] == "EXECUTED"
         assert res["order"]["symbol"] == "XAUUSD"
-
-        # Cleanup
-        await session.execute(delete(StrategySignal).where(StrategySignal.id == sig.id))
-        await session.commit()
+        assert res["order"]["is_test"] is True

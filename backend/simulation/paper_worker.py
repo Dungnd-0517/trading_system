@@ -68,6 +68,7 @@ class PaperEngineWorker(BaseOrderExecutor):
                     is_partial_closed=bool(row.is_partial_closed),
                     parent_ticket_id=row.parent_ticket_id,
                     trailing_stop_price=float(row.trailing_stop_price) if row.trailing_stop_price else None,
+                    is_test=bool(row.is_test),
                     status=OrderStatus.FILLED,
                     open_time=row.open_time,
                 )
@@ -145,6 +146,7 @@ class PaperEngineWorker(BaseOrderExecutor):
         take_profit: float,
         strategy_trigger: str | None = None,
         quote: tuple[float, float] | None = None,
+        is_test: bool = False,
     ) -> dict[str, Any]:
         symbol = symbol.upper()
         if quote is not None:
@@ -162,6 +164,7 @@ class PaperEngineWorker(BaseOrderExecutor):
             ask=ask,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            is_test=is_test,
         )
 
         # 2. Persist vào PostgreSQL
@@ -180,6 +183,7 @@ class PaperEngineWorker(BaseOrderExecutor):
                 swap=Decimal(f"{order.swap:.2f}"),
                 is_breakeven_moved=order.is_breakeven_moved,
                 is_partial_closed=order.is_partial_closed,
+                is_test=order.is_test,
                 open_time=order.open_time,
                 strategy_trigger=strategy_trigger,
             )
@@ -282,6 +286,7 @@ class PaperEngineWorker(BaseOrderExecutor):
                 close_time=partial_sub_order.close_time,
                 realized_pnl=Decimal(str(partial_sub_order.realized_pnl or 0.0)),
                 close_reason=reason,
+                is_test=partial_sub_order.is_test,
             )
             session.add(db_sub)
 
@@ -405,6 +410,7 @@ class PaperEngineWorker(BaseOrderExecutor):
             "close_time": order.close_time.isoformat() if order.close_time else None,
             "realized_pnl": order.realized_pnl,
             "close_reason": order.close_reason,
+            "is_test": order.is_test,
         }
 
 

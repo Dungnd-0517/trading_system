@@ -158,6 +158,9 @@ class EconomicEventRevision(Base):
 
 class SimulatedOrder(Base):
     __tablename__ = "simulated_orders"
+    __table_args__ = (
+        Index("idx_simulated_orders_is_test", "is_test"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     ticket_uuid: Mapped[uuid.UUID] = mapped_column(
@@ -179,6 +182,7 @@ class SimulatedOrder(Base):
     is_breakeven_moved: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     is_partial_closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     trailing_stop_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     open_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     close_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     realized_pnl: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
@@ -236,6 +240,7 @@ class StrategySignal(Base):
     __table_args__ = (
         Index("idx_strategy_signals_status", "status"),
         Index("idx_strategy_signals_generated_at", "generated_at"),
+        Index("idx_strategy_signals_is_test", "is_test"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -252,4 +257,5 @@ class StrategySignal(Base):
     invalidated_reason: Mapped[str | None] = mapped_column(Text)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     executed_order_id: Mapped[int | None] = mapped_column(ForeignKey("simulated_orders.id", ondelete="SET NULL"))
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

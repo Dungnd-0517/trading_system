@@ -7,10 +7,6 @@ from core.database import engine, session_factory
 from core.models import EconomicEvent, SystemTradingConfig
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_db_pool():
-    yield
-    await engine.dispose()
 
 
 @pytest.mark.anyio

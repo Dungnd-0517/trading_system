@@ -31,7 +31,7 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
 .nav-tab.active { background: #ffffff; color: var(--green); border-color: #d0ded0; box-shadow: 0 1px 3px #1b2a2312; font-weight: 700; }
 .nav-badge { font: 9px var(--mono); font-weight: 700; padding: 1px 5px; border-radius: 6px; background: #e2ece0; color: #35473d; }
 .nav-tab.active .nav-badge { background: #225c43; color: #c9f06b; }
-.topbar-center { display: flex; align-items: center; gap: 9px; margin: auto; color: var(--green); font: 10px var(--mono); white-space: nowrap; }
+.topbar-center { display: flex; align-items: center; gap: 9px; margin-left: auto; margin-right: 14px; color: var(--green); font: 10px var(--mono); white-space: nowrap; }
 .eyebrow { color: var(--muted); }
 .mode-dot { width: 7px; height: 7px; border-radius: 50%; background: #8eb74a; box-shadow: 0 0 0 3px #8eb74a22; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -40,15 +40,15 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
 .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #526158; cursor: pointer; }
 .icon-button:hover, .icon-button.active { background: #e2e9e1; color: var(--green); }
 .avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #d2dfd2; color: var(--green); font-size: 11px; font-weight: 800; }
-.status-strip { min-height: 36px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid var(--line); color: #637168; font: 9px var(--mono); }
+.status-strip { min-height: 36px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); color: #637168; font: 9px var(--mono); }
 .status-label { color: #95a097; }
-.service-state { display: flex; align-items: center; gap: 6px; }
+.service-state { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .service-state b { color: #55645a; font-size: 9px; font-weight: 500; }
 .service-state i { width: 6px; height: 6px; border-radius: 50%; background: #c5c9c4; }
 .service-state i.up { background: #54a267; }
 .service-state i.down { background: #d49b50; }
-.status-spacer { flex: 1; }
-.read-only { display: flex; align-items: center; gap: 6px; color: var(--green); }
+.status-spacer { flex: 1; min-width: 12px; }
+.read-only { display: flex; align-items: center; gap: 6px; color: var(--green); white-space: nowrap; flex-shrink: 0; }
 .instrument-bar { display: flex; min-height: 93px; align-items: center; gap: 34px; border-bottom: 1px solid var(--line); }
 .instrument-title { display: flex; align-items: center; gap: 12px; min-width: 185px; }
 .asset-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; border: 1px solid #d0b674; background: #f2e8cb; color: #8b6b23; font: 12px var(--mono); }
@@ -111,11 +111,11 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
 }
 
 /* Sprint 3: Auto-Trading Mode & Circuit Breaker */
-.trading-mode-pill { display: flex; align-items: center; gap: 3px; background: #e2ece0; padding: 2px 4px; border-radius: 6px; border: 1px solid #cedcce; }
-.mode-label { font-size: 8px; font-weight: 800; color: #526359; padding: 0 4px; }
-.mode-btn { font: 9px var(--mono); font-weight: 700; padding: 3px 7px; border-radius: 4px; border: none; background: transparent; color: #5b6e62; cursor: pointer; transition: all 0.15s; }
+.trading-mode-pill { display: flex; align-items: center; gap: 3px; background: #e2ece0; padding: 2px 4px; border-radius: 6px; border: 1px solid #cedcce; flex-shrink: 0; }
+.mode-label { font-size: 8px; font-weight: 800; color: #526359; padding: 0 4px; user-select: none; }
+.mode-btn { font: 9px var(--mono); font-weight: 700; padding: 3px 7px; border-radius: 4px; border: none; background: transparent; color: #5b6e62; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
 .mode-btn:hover { background: #d0ded0; color: #1b2a23; }
 .mode-btn.active { background: #225c43; color: #c9f06b; font-weight: 800; }
 .mode-btn.auto-btn.active { background: #059669; color: #ffffff; }
-.circuit-breaker-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font: 9px var(--mono); font-weight: 800; background: #fee2e2; color: #dc2626; border-radius: 5px; border: 1px solid #fca5a5; animation: pulse 1.5s infinite; }
+.circuit-breaker-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font: 9px var(--mono); font-weight: 800; background: #fee2e2; color: #dc2626; border-radius: 5px; border: 1px solid #fca5a5; animation: pulse 1.5s infinite; flex-shrink: 0; white-space: nowrap; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }

@@ -35,6 +35,7 @@ class PaperOrder:
     is_partial_closed: bool = False
     parent_ticket_id: int | None = None
     trailing_stop_price: float | None = None
+    is_test: bool = False
 
 
 class PaperEngine:
@@ -47,7 +48,15 @@ class PaperEngine:
         self.orders: dict[int, PaperOrder] = {}
 
     def open_market(
-        self, symbol: str, side: str, lots: float, bid: float, ask: float, stop_loss: float, take_profit: float
+        self,
+        symbol: str,
+        side: str,
+        lots: float,
+        bid: float,
+        ask: float,
+        stop_loss: float,
+        take_profit: float,
+        is_test: bool = False,
     ) -> PaperOrder:
         side = side.upper()
         if side not in {"BUY", "SELL"} or lots <= 0 or bid <= 0 or ask < bid:
@@ -67,6 +76,7 @@ class PaperEngine:
             take_profit=take_profit,
             initial_stop_loss=stop_loss,
             slippage=self.slippage,
+            is_test=is_test,
         )
         self.orders[order.ticket] = order
         self._next_ticket += 1
@@ -137,6 +147,7 @@ class PaperEngine:
             realized_pnl=pnl,
             close_reason=reason,
             close_time=datetime.now(timezone.utc),
+            is_test=order.is_test,
         )
         self.orders[partial_record.ticket] = partial_record
         self._next_ticket += 1

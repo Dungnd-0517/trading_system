@@ -8,10 +8,6 @@ from core.models import MarketCandle, SimulatedOrder, StrategySignal, SystemTrad
 from main import app
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_db_pool():
-    yield
-    await engine.dispose()
 
 
 @pytest.mark.anyio

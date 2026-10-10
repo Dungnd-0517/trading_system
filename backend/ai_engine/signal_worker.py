@@ -87,7 +87,7 @@ class SignalEngineWorker:
         return "Off-Session Window"
 
     async def evaluate_signal(
-        self, symbol: str = "XAUUSD", session: AsyncSession | None = None
+        self, symbol: str = "XAUUSD", session: AsyncSession | None = None, is_test: bool = False
     ) -> StrategySignal | None:
         """Đánh giá tín hiệu SMC từ dữ liệu nến thực tế trong DB"""
         own_session = session is None
@@ -150,6 +150,7 @@ class SignalEngineWorker:
                 status=status,
                 invalidated_reason=inv_reason,
                 reason=sig.reason,
+                is_test=is_test,
             )
             sess.add(signal_record)
             await sess.commit()

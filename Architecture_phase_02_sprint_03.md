@@ -64,6 +64,7 @@
 | **D15** | **Xử lý Partial Take Profit bằng cơ chế Phân tách Lệnh (Order Splitting)** | `ACCEPTED` | Khi chạm TP1, hệ thống thực hiện: Đóng 50% khối lượng ban đầu với lý do `PARTIAL_TP1`, cập nhật `realized_pnl` cho nửa lot đó; cập nhật vị thế còn lại với `lot_size = lot_size * 0.5`, chuyển `stop_loss = entry` (BE) và gắn cờ `is_partial_closed = True`. |
 | **D16** | **Tái sử dụng WebSocket Multiplexing Hub (`/api/v1/ws/market`) với Event Type Mới** | `ACCEPTED` | Không mở thêm port hoặc endpoint WebSocket mới. Sử dụng Redis channel `market:signals` để phát `type: "signal.new"`, và `market:circuit_breaker` để phát `type: "circuit_breaker.update"`. WebSocket hub tự động chuyển tiếp đến client. |
 | **D17** | **Động cơ Bù đắp Khoảng trống Nến Tự động (`CandleGapHealer` & `CandleIntegrityWorker`)** | `ACCEPTED` | Tự động phát hiện và vá khoảng trống nến lịch sử do server downtime khi chạy local (tắt máy, mất mạng). Tự động chạy ngay khi restart và định kỳ mỗi 60s, bù nến từ Binance REST API cho cả 6 khung thời gian (M1 đến D1). |
+| **D18** | **Phân lập Dữ liệu Kiểm thử & Cơ chế Tự động Dọn dẹp với Cờ `is_test` (Test Data Isolation & Auto-Cleanup)** | `ACCEPTED` | Bổ sung cột `is_test BOOLEAN NOT NULL DEFAULT FALSE` vào `simulated_orders` và `strategy_signals`. Tất cả các kịch bản test ghi dữ liệu bắt buộc gắn `is_test = True`. Tự động dọn dẹp sạch toàn bộ dữ liệu test sau mỗi lần chạy test qua autouse fixture (`conftest.py`), khôi phục số dư tài khoản về $10,000.00, loại bỏ hoàn toàn tình trạng rác test làm sai lệch tab Orders History và số dư thật. |
 
 ---
 
@@ -421,7 +422,7 @@ Bổ sung một công cụ kiểm thử chiến lược trực quan:
 
 ---
 
-## 10. KẾ HOẠCH TRIỂN KHAI THEO TASK (TASK BREAKDOWN T3.1–T3.6)
+## 10. KẾ HOẠCH TRIỂN KHAI THEO TASK (TASK BREAKDOWN T3.1–T3.7)
 
 | Mã Task | Phân tầng | Nội dung Triển khai Cụ thể | Kết quả Bàn giao (Deliverables) | Phụ thuộc |
 | :--- | :--- | :--- | :--- | :--- |
@@ -431,6 +432,7 @@ Bổ sung một công cụ kiểm thử chiến lược trực quan:
 | **T3.4** | **Dynamic Position Mgmt & Auto-Executor** | Cài đặt logic Break-Even Move và Partial TP 50% trong `PaperEngine` và `PaperEngineWorker`. Xây dựng `AutoExecutionController` mở lệnh khi ở chế độ `FULL_AUTO`. | `backend/simulation/paper_engine.py`, `backend/simulation/paper_worker.py`, `backend/simulation/auto_executor.py` | T3.1, T3.3 |
 | **T3.5** | **API Routers & Config Controller** | Bổ sung các endpoints `/api/v1/strategy/signals`, `/config`, `/evaluate`, `/execute`, kết nối Redis Pub/Sub channels vào WebSocket hub. | `backend/api/v1/strategy.py`, `backend/main.py` | T3.3, T3.4 |
 | **T3.6** | **Frontend Cockpit & Backtest Lab** | Nâng cấp Header với nút Auto-Trade, tích hợp Audio Alert, popup xác nhận lệnh, badge BE/Partial trên Orders Table, và xây dựng màn hình Backtesting Lab. | `frontend/src/components/Simulation/MarketAnalysisStatus.vue`, `BacktestLabView.vue`, `orderStore.js` | T3.5 |
+| **T3.7** | **Test Data Isolation & Auto-Cleanup** | Thêm cờ `is_test` cho `simulated_orders` & `strategy_signals`, lọc `include_test=False` trên API, xây dựng autouse cleanup fixture trong `conftest.py`, dọn dẹp sạch toàn bộ 53 demo orders cũ và reset tài khoản về ban đầu $10,000. | `backend/tests/conftest.py`, `backend/tests/test_test_data_isolation.py`, `backend/core/models.py`, `backend/api/v1/orders.py` | T3.1, T3.4 |
 
 ---
 
@@ -442,6 +444,7 @@ Bổ sung một công cụ kiểm thử chiến lược trực quan:
 3. **Break-Even Move Trigger:** Khởi tạo lệnh BUY với Entry 2680, SL 2670 ($1R = 10$). Khi tick giá chạm 2695 ($+1.5R$), xác minh Stop Loss tự động cập nhật lên 2680.10 và gắn cờ `is_breakeven_moved = True`.
 4. **Partial Take Profit Trigger:** Khởi tạo lệnh 0.20 lots. Khi giá chạm TP1 ($+2R$), xác minh 0.10 lots được đóng và ghi nhận lợi nhuận, 0.10 lots còn lại tiếp tục chạy với SL tại BE.
 5. **Backtest Determinism:** Chạy thuật toán backtest 2 lần trên cùng một tập dữ liệu nến; xác minh kết quả Win Rate, Max Drawdown và Net PnL hoàn toàn trùng khớp (100% deterministic).
+6. **Test Data Isolation & Auto-Cleanup:** Kiểm tra việc tạo lệnh với `is_test=True` không xuất hiện trên API real-time `/api/v1/orders` và tự động biến mất hoàn toàn khỏi PostgreSQL sau khi test suite hoàn tất.
 
 ### 11.2. Tiêu chuẩn SLO (Service Level Objectives)
 * **Thời gian xử lý tín hiệu (Signal Latency):** Từ khi nến M15 đóng đến khi tín hiệu được lưu DB và bắn lên WebSocket: **$\le 150 \text{ ms}$**.
@@ -449,11 +452,12 @@ Bổ sung một công cụ kiểm thử chiến lược trực quan:
 * **Thời gian hoàn tất Backtest:** Backtest trên 2,000 nến hoàn thành trong **$\le 1.5 \text{ giây}$**.
 
 ### 11.3. Tiêu chí Hoàn thành Sprint (Definition of Done - DoD)
-* [ ] Background worker `SignalEngineWorker` chạy ổn định trong backend, không gây crash hoặc nghẽn event loop.
-* [ ] Khi có tín hiệu nến M15 mới thỏa mãn SMC, giao diện nhận được thông báo ngay lập tức và phát âm thanh alert.
-* [ ] Bật chế độ `FULL_AUTO`: Khi có tín hiệu, hệ thống tự động mở lệnh trong Paper Positions với khối lượng chuẩn theo 1% rủi ro tài khoản.
-* [ ] Khi giá chạy được $+1.5R$: Đường Stop Loss trên biểu đồ TradingView tự động nhảy về giá Entry (Break-Even) mà không cần can thiệp thủ công.
-* [ ] Khi giá chạm $TP_1$: Nửa khối lượng được chốt lãi, tài khoản cộng thêm PnL và vị thế còn lại tiếp tục chạy đến $TP_2$.
-* [ ] Khi có tin đỏ 3 sao sắp công bố: Banner Circuit Breaker cảnh báo đỏ trên Header và hệ thống không cho phép mở lệnh mới.
-* [ ] Toàn bộ bộ test suite backend đạt **$\ge 45$ tests passed** (bổ sung tối thiểu 13 unit tests mới cho Sprint 3).
-* [ ] Frontend build `npm run build` thành công, không có bất kỳ warning nghiêm trọng hay lỗi component.
+* [x] Background worker `SignalEngineWorker` chạy ổn định trong backend, không gây crash hoặc nghẽn event loop.
+* [x] Khi có tín hiệu nến M15 mới thỏa mãn SMC, giao diện nhận được thông báo ngay lập tức và phát âm thanh alert.
+* [x] Bật chế độ `FULL_AUTO`: Khi có tín hiệu, hệ thống tự động mở lệnh trong Paper Positions với khối lượng chuẩn theo 1% rủi ro tài khoản.
+* [x] Khi giá chạy được $+1.5R$: Đường Stop Loss trên biểu đồ TradingView tự động nhảy về giá Entry (Break-Even) mà không cần can thiệp thủ công.
+* [x] Khi giá chạm $TP_1$: Nửa khối lượng được chốt lãi, tài khoản cộng thêm PnL và vị thế còn lại tiếp tục chạy đến $TP_2$.
+* [x] Khi có tin đỏ 3 sao sắp công bố: Banner Circuit Breaker cảnh báo đỏ trên Header và hệ thống không cho phép mở lệnh mới.
+* [x] Toàn bộ bộ test suite backend đạt **$\ge 45$ tests passed** (thực tế đạt 54/54 tests passed).
+* [x] Frontend build `npm run build` thành công, không có bất kỳ warning nghiêm trọng hay lỗi component.
+* [x] Phân lập triệt để dữ liệu test với cờ `is_test`, tự động xóa sạch sau mỗi lần chạy test (`conftest.py`); Orders History không còn bị ô nhiễm bởi dữ liệu demo/test.

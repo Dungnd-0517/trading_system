@@ -9,10 +9,6 @@ from core.database import engine, session_factory
 from core.models import MarketCandle, StrategySignal
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_db_pool():
-    yield
-    await engine.dispose()
 
 
 @pytest.mark.anyio
@@ -71,7 +67,7 @@ async def test_signal_worker_mock_signal_generation(monkeypatch):
         )
         await session.commit()
 
-        record = await worker.evaluate_signal("TEST_XAU", session)
+        record = await worker.evaluate_signal("TEST_XAU", session, is_test=True)
         assert record is not None
         assert record.symbol == "TEST_XAU"
         assert record.side == "BUY"
@@ -80,6 +76,7 @@ async def test_signal_worker_mock_signal_generation(monkeypatch):
         assert record.take_profit_1 == Decimal("2695.00")
         assert record.risk_reward == Decimal("2.00")
         assert record.status in ("PENDING", "INVALIDATED")
+        assert record.is_test is True
 
         # Cleanup
         await session.execute(

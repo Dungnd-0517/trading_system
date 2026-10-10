@@ -178,39 +178,6 @@ onUnmounted(() => {
       </nav>
 
       <div class="topbar-center">
-        <!-- Sprint 3 Trading Mode Pill -->
-        <div class="trading-mode-pill">
-          <span class="mode-label">MODE:</span>
-          <button
-            class="mode-btn"
-            :class="{ active: orderStore.config.execution_mode === 'MANUAL' }"
-            @click="orderStore.setExecutionMode('MANUAL')"
-            title="Chế độ Manual: Chỉ báo tín hiệu, trader duyệt tay"
-          >
-            MANUAL
-          </button>
-          <button
-            class="mode-btn"
-            :class="{ active: orderStore.config.execution_mode === 'SEMI_AUTO' }"
-            @click="orderStore.setExecutionMode('SEMI_AUTO')"
-            title="Chế độ Semi-Auto: Xác nhận nhanh"
-          >
-            SEMI
-          </button>
-          <button
-            class="mode-btn auto-btn"
-            :class="{ active: orderStore.config.execution_mode === 'FULL_AUTO' }"
-            @click="orderStore.setExecutionMode('FULL_AUTO')"
-            title="Chế độ Full-Auto: Tự động tính lot và mở lệnh"
-          >
-            <Zap :size="9" /> FULL AUTO
-          </button>
-        </div>
-
-        <span v-if="orderStore.circuitBreaker?.active" class="circuit-breaker-badge" :title="orderStore.circuitBreaker.reason">
-          <ShieldAlert :size="11" /> CIRCUIT BREAKER
-        </span>
-
         <span class="account-badge">
           BALANCE: ${{ Number(orderStore.account?.current_balance || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}
           <small class="equity-badge">EQUITY: ${{ Number(orderStore.account?.equity || 10000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</small>
@@ -241,13 +208,48 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <!-- System Status Strip -->
+    <!-- System Status Strip (Subheader) -->
     <section class="status-strip" aria-label="Service status">
       <span class="status-label">SYSTEM STATUS</span>
       <span class="service-state"><i :class="dbConnected ? 'up' : 'down'"></i> POSTGRES <b>{{ dbConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
       <span class="service-state"><i :class="redisConnected ? 'up' : 'down'"></i> REDIS <b>{{ redisConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
       <span class="service-state"><i :class="streamConnected ? 'up' : 'down'"></i> MARKET STREAM <b>{{ streamConnected ? 'LIVE' : 'WAITING' }}</b></span>
+      
       <span class="status-spacer"></span>
+
+      <!-- Mode control moved to subheader for a more spacious topbar -->
+      <div class="trading-mode-pill">
+        <span class="mode-label">MODE:</span>
+        <button
+          class="mode-btn"
+          :class="{ active: orderStore.config.execution_mode === 'MANUAL' }"
+          @click="orderStore.setExecutionMode('MANUAL')"
+          title="Chế độ Manual: Chỉ báo tín hiệu, trader duyệt tay"
+        >
+          MANUAL
+        </button>
+        <button
+          class="mode-btn"
+          :class="{ active: orderStore.config.execution_mode === 'SEMI_AUTO' }"
+          @click="orderStore.setExecutionMode('SEMI_AUTO')"
+          title="Chế độ Semi-Auto: Xác nhận nhanh"
+        >
+          SEMI
+        </button>
+        <button
+          class="mode-btn auto-btn"
+          :class="{ active: orderStore.config.execution_mode === 'FULL_AUTO' }"
+          @click="orderStore.setExecutionMode('FULL_AUTO')"
+          title="Chế độ Full-Auto: Tự động tính lot và mở lệnh"
+        >
+          <Zap :size="9" /> FULL AUTO
+        </button>
+      </div>
+
+      <span v-if="orderStore.circuitBreaker?.active" class="circuit-breaker-badge" :title="orderStore.circuitBreaker.reason">
+        <ShieldAlert :size="11" /> CIRCUIT BREAKER
+      </span>
+
       <span class="read-only"><Radio :size="13" /> PAPER MODE · NO LIVE ORDERS</span>
     </section>
 

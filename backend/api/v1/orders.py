@@ -21,6 +21,7 @@ class OrderRequest(BaseModel):
     stop_loss: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     take_profit: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     strategy_trigger: str | None = Field(default=None, max_length=64)
+    is_test: bool = Field(default=False)
 
 
 class CloseOrderRequest(BaseModel):
@@ -29,13 +30,15 @@ class CloseOrderRequest(BaseModel):
 
 @router.get("")
 async def list_orders(
-    limit: int = 100, session: AsyncSession = Depends(get_session)
+    limit: int = 100,
+    include_test: bool = False,
+    session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
-    rows = (
-        await session.scalars(
-            select(SimulatedOrder).order_by(SimulatedOrder.open_time.desc()).limit(limit)
-        )
-    ).all()
+    query = select(SimulatedOrder).order_by(SimulatedOrder.open_time.desc()).limit(limit)
+    if not include_test:
+        query = query.where(SimulatedOrder.is_test.is_(False))
+
+    rows = (await session.scalars(query)).all()
     return [
         {
             "id": row.id,
@@ -70,6 +73,7 @@ async def list_orders(
                 )
             ),
             "strategy_trigger": row.strategy_trigger,
+            "is_test": row.is_test,
         }
         for row in rows
     ]
@@ -103,6 +107,7 @@ async def create_order(request: OrderRequest) -> dict[str, object]:
             take_profit=float(request.take_profit),
             strategy_trigger=request.strategy_trigger,
             quote=quote,
+            is_test=request.is_test,
         )
         return result
     except ValueError as exc:
@@ -143,7 +148,9 @@ async def partial_close_order_endpoint(
 async def get_order_account(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
     account = await session.scalar(select(SimulationAccount).where(SimulationAccount.id == 1))
     open_count = await session.scalar(
-        select(func.count()).select_from(SimulatedOrder).where(SimulatedOrder.status.in_(["OPEN", "FILLED"]))
+        select(func.count())
+        .select_from(SimulatedOrder)
+        .where(SimulatedOrder.status.in_(["OPEN", "FILLED"]), SimulatedOrder.is_test.is_(False))
     ) or 0
 
     if not account:

@@ -26,7 +26,11 @@ class AutoExecutionController:
         return max(0.01, min(5.00, round(lots, 2)))
 
     async def execute_signal(
-        self, signal_id: int, session: AsyncSession | None = None, force_manual: bool = False
+        self,
+        signal_id: int,
+        session: AsyncSession | None = None,
+        force_manual: bool = False,
+        is_test: bool = False,
     ) -> dict[str, Any]:
         own_session = session is None
         sess = session or session_factory()
@@ -67,7 +71,8 @@ class AutoExecutionController:
             tp_p = float(signal.take_profit_1)
             lots = self.calculate_lot_size(equity, risk_pct, entry_p, sl_p)
 
-            # Mở vị thế qua Paper Worker
+            # Mở vị thế qua Paper Worker (gắn cờ is_test nếu signal là test)
+            is_test_flag = is_test or bool(getattr(signal, "is_test", False))
             order_res = await paper_worker.open_order(
                 symbol=signal.symbol,
                 side=signal.side,
@@ -75,6 +80,7 @@ class AutoExecutionController:
                 stop_loss=sl_p,
                 take_profit=tp_p,
                 strategy_trigger=f"SMC #{signal.id}: {signal.reason}",
+                is_test=is_test_flag,
             )
 
             # Cập nhật trạng thái tín hiệu

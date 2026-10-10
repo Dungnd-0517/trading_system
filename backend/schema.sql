@@ -104,8 +104,11 @@ CREATE TABLE IF NOT EXISTS simulated_orders (
     realized_pnl NUMERIC(12, 2),
     pnl_percentage NUMERIC(6, 2),
     strategy_trigger VARCHAR(64),
-    ai_market_context_id BIGINT REFERENCES financial_news(id)
+    ai_market_context_id BIGINT REFERENCES financial_news(id),
+    is_test BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE INDEX IF NOT EXISTS idx_simulated_orders_is_test ON simulated_orders(is_test);
 
 CREATE TABLE IF NOT EXISTS simulation_metrics (
     date DATE PRIMARY KEY,

@@ -40,9 +40,12 @@ class BacktestRequest(BaseModel):
 async def list_signals(
     limit: int = Query(default=50, ge=1, le=200),
     status: str | None = None,
+    include_test: bool = False,
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
     query = select(StrategySignal).order_by(StrategySignal.generated_at.desc()).limit(limit)
+    if not include_test:
+        query = query.where(StrategySignal.is_test.is_(False))
     if status:
         query = query.where(StrategySignal.status == status.upper())
 
@@ -63,6 +66,7 @@ async def list_signals(
             "invalidated_reason": row.invalidated_reason,
             "reason": row.reason,
             "executed_order_id": row.executed_order_id,
+            "is_test": row.is_test,
             "created_at": row.created_at.isoformat(),
         }
         for row in rows
