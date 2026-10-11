@@ -8,6 +8,7 @@ import {
   CircleHelp,
   History,
   LayoutDashboard,
+  MessageSquare,
   Newspaper,
   Radio,
   RefreshCw,
@@ -31,6 +32,7 @@ import SettingsView from './components/Settings/SettingsView.vue'
 import GovernorConsensusPanel from './components/AIAnalysis/GovernorConsensusPanel.vue'
 import ReflexionStreamPanel from './components/AIAnalysis/ReflexionStreamPanel.vue'
 import KnowledgeAssistantModal from './components/AIAnalysis/KnowledgeAssistantModal.vue'
+import GovernorDialogueConsole from './components/AIAnalysis/GovernorDialogueConsole.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
 import { agentStore } from './stores/agentStore'
@@ -102,6 +104,8 @@ onMounted(() => {
       if (event.type === 'signal.new') orderStore.applySignalUpdate(event)
       if (event.type === 'circuit_breaker.update') orderStore.applyCircuitBreakerUpdate(event)
       if (event.type === 'governor.update') agentStore.applyGovernorUpdate(event)
+      if (event.type === 'agent.dialogue.message') agentStore.applyDialogueMessage(event)
+      if (event.type === 'governor.approval_response') agentStore.refreshDialogueHistory()
       if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
     },
     (value) => {
@@ -372,7 +376,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- Right Column: AI Brain & Reflexion / News Feed -->
+      <!-- Right Column: AI Brain & Reflexion / Dialogue / News Feed -->
       <aside class="right-column">
         <!-- Sub-panel Tab Switcher -->
         <div class="column-switcher" role="tablist" aria-label="Right column sub navigation">
@@ -382,7 +386,15 @@ onUnmounted(() => {
             @click="rightPanelTab = 'agents'"
           >
             <BrainCircuit :size="12" />
-            <span>AI Brain &amp; Reflexion</span>
+            <span>Consensus</span>
+          </button>
+          <button
+            class="switch-btn"
+            :class="{ active: rightPanelTab === 'dialogue' }"
+            @click="rightPanelTab = 'dialogue'"
+          >
+            <MessageSquare :size="12" />
+            <span>Dialogue &amp; HITL</span>
           </button>
           <button
             class="switch-btn"
@@ -390,7 +402,7 @@ onUnmounted(() => {
             @click="rightPanelTab = 'news'"
           >
             <Newspaper :size="12" />
-            <span>News &amp; Sentiment</span>
+            <span>News &amp; Macro</span>
           </button>
         </div>
 
@@ -399,11 +411,17 @@ onUnmounted(() => {
           <GovernorConsensusPanel
             @open-knowledge="showKnowledgeModal = true"
             @open-strategy="activeTab = 'strategy'"
+            @open-dialogue="rightPanelTab = 'dialogue'"
           />
           <ReflexionStreamPanel />
         </template>
 
-        <!-- TAB 2: NEWS & MACRO FEED -->
+        <!-- TAB 2: GOVERNOR DIALOGUE & HITL CONSOLE -->
+        <template v-else-if="rightPanelTab === 'dialogue'">
+          <GovernorDialogueConsole />
+        </template>
+
+        <!-- TAB 3: NEWS & MACRO FEED -->
         <template v-else>
           <SentimentGauge :news="orderStore.news" />
           <NewsStream

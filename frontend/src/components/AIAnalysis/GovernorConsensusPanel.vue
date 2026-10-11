@@ -7,6 +7,7 @@ import {
   BrainCircuit,
   CheckCircle2,
   Lock,
+  MessageSquare,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -19,7 +20,7 @@ import {
 } from 'lucide-vue-next'
 import { agentStore } from '../../stores/agentStore'
 
-const emit = defineEmits(['open-knowledge', 'open-strategy'])
+const emit = defineEmits(['open-knowledge', 'open-strategy', 'open-dialogue'])
 
 const showOverrideModal = ref(false)
 const overrideForm = ref({
@@ -126,6 +127,14 @@ async function submitOverride() {
         </div>
       </div>
       <div class="header-actions">
+        <button
+          class="action-btn"
+          title="Kênh đối thoại Trader - Governor & HITL"
+          @click="emit('open-dialogue')"
+        >
+          <MessageSquare :size="12" />
+          <span>Chat CRO</span>
+        </button>
         <button
           class="action-btn"
           title="Mở Thư viện Tri thức RAG"

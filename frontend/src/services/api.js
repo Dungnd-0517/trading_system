@@ -57,16 +57,40 @@ export const updateTradingConfig = (data) => put('/strategy/config', data)
 export const runBacktest = (data) => post('/strategy/backtest', data)
 
 // Phase 03: TradingAgents LLM Services (Governor, Reflexion, Knowledge RAG)
-export const fetchGovernorConsensus = () => get('/governor/consensus')
-export const fetchGovernorRuntimeParams = () => get('/governor/runtime-params')
-export const evaluateGovernor = () => post('/governor/evaluate')
-export const overrideGovernor = (data) => post('/governor/override', data)
+export const fetchGovernorConsensus = () => get('/agents/governor/consensus')
+export const fetchGovernorRuntimeParams = () => get('/agents/governor/runtime-params')
+export const evaluateGovernor = () => post('/agents/governor/evaluate')
+export const overrideGovernor = (data) => post('/agents/governor/override', data)
+export const fetchExecutiveBriefing = () => get('/agents/governor/briefing')
+export const sendGovernorDialogue = (message, isTest = false) =>
+  post('/agents/governor/dialogue', { message, is_test: isTest })
+export const respondTradeApproval = (dialogueId, action, isTest = false) =>
+  post('/agents/governor/respond-approval', { dialogue_id: dialogueId, action, is_test: isTest })
+export const fetchDialogueHistory = (limit = 50) =>
+  get(`/agents/governor/dialogue/history?limit=${limit}`)
 
+// Phase 03 Sprint 02: News & Event Agent
+export const fetchNewsMacroReport = () => get('/agents/news/macro-report')
+export const triggerNewsScan = () => post('/agents/news/trigger-scan')
+export const fetchCircuitBreakerStatus = () => get('/agents/news/circuit-breaker-status')
+
+// Phase 03 Sprint 02: Technical RAG Agent (Multi-School)
+export const fetchTechnicalAnalysis = () => get('/agents/technical/analysis')
+export const submitKnowledge = (data) => post('/agents/technical/knowledge/submit', data)
+export const classifyKnowledge = (text) => post('/agents/technical/knowledge/classify', { text })
+export const fetchKnowledgeSchools = () => get('/agents/technical/knowledge/schools')
+export const seedKnowledge = () => post('/agents/technical/knowledge/seed')
+
+// Phase 03 Sprint 02: Reflexion Agent (Rule Promotion)
 export const fetchReflexionMemories = (limit = 20) => get(`/reflexion/memories?limit=${limit}`)
 export const fetchReflexionStats = () => get('/reflexion/stats')
 export const searchReflexionMemories = (query, limit = 5) =>
   get(`/reflexion/search?query=${encodeURIComponent(query)}&limit=${limit}`)
 export const analyzeReflexionOrder = (orderId) => post(`/reflexion/analyze/${orderId}`)
+export const fetchReflexionAnalytics = () => get('/agents/reflexion/analytics')
+export const promoteReflexionRule = (memoryId) => post(`/agents/reflexion/promote-rule/${memoryId}`)
+export const fetchReflexionFeedbackReport = (orderId) =>
+  get(`/agents/reflexion/feedback-report/${orderId}`)
 
 export const fetchKnowledgeStats = () => get('/knowledge/stats')
 export const searchKnowledge = (query, category = '', limit = 5) =>

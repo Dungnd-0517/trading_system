@@ -1,5 +1,81 @@
 # Backlog cập nhật
 
+## 2026-10-12 01:30 +07:00
+
+### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 5 - Strategy Governor Agent & Human-in-the-Loop Cockpit Integration (Kênh Đối Thoại Hai Chiều Trader - Governor, Executive Briefings, Approval Requests & Cockpit Studio Vue 3)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 5 (Task cuối cùng khép lại Phase 03 - Sprint 02) theo tài liệu kiến trúc [Architecture_phase_03_sprint_02.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_02.md) và các quyết định D20 (Consensus Matrix), D21 (Hard Guardrails), D24 (Trader Dialogue & HITL Protocol).
+  - Nâng cấp `StrategyGovernor` đóng vai trò Giám đốc Quản trị Rủi ro (CRO - Chief Risk Officer) kiêm Tổng chỉ huy Vận hành:
+    1. Kênh đối thoại hai chiều Trader &ndash; Governor qua ngôn ngữ tự nhiên: tiếp nhận chỉ thị ghi đè tham số, tạm dừng / tiếp tục giao dịch.
+    2. Thẩm định qua Bộ Rào chắn Cứng (Hard Guardrails D21/D24): từ chối dứt khoát và giải thích nguyên tắc bảo toàn vốn nếu Trader yêu cầu rủi ro ngoài dải $[0.25\%, 1.50\%]$ hoặc mở giao dịch khi Drawdown ngày $\ge 3.0\%$.
+    3. Định kỳ hoặc theo yêu cầu xuất bản Bản tin Điều hành Chiến lược (Executive Briefing): tổng hợp toàn cảnh vĩ mô, cấu trúc kỹ thuật đa trường phái, bài học reflexion và chỉ thị rủi ro.
+    4. Giao thức xin phê duyệt lệnh (Trade Approval Requests): xử lý các hành động `APPROVE` / `REJECT` từ Trader cho các thiết lập lệnh nhạy cảm.
+    5. Ghi nhật ký quyết định đa agent `AgentDecisionLog` vào CSDL PostgreSQL mỗi khi tổng hợp đồng thuận.
+    6. Xây dựng giao diện Cockpit Studio Vue 3 toàn diện (`GovernorDialogueConsole.vue`, nâng cấp `KnowledgeAssistantModal.vue` đa trường phái và `GovernorConsensusPanel.vue`).
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Nâng Cấp Core Service StrategyGovernor (`backend/ai_engine/strategy_governor.py`):**
+    - **Ghi nhận `AgentDecisionLog`:** Trong phương thức `synthesize_consensus()`, tự động lưu toàn bộ chi tiết điểm số, trọng số phiếu bầu của 3 Agents (`news`, `technical`, `reflexion`), trạng thái Circuit Breaker và tham số vận hành vào PostgreSQL.
+    - **Bản tin Điều hành Chiến lược `generate_executive_briefing()`:**
+      - Thu thập trạng thái vĩ mô từ `NewsEventAgent` (điểm cảm xúc, cờ ngắt mạch sự kiện 3 sao USD).
+      - Thu thập cấu trúc kỹ thuật từ `TechnicalRagAgent` (regime, ATR M15, thiên hướng hợp lưu đa trường phái).
+      - Thu thập bài học từ `ReflexionAgent` (tỷ lệ thua gần đây, taxonomy lỗi cảnh báo).
+      - Soạn thảo bản tin Markdown chuẩn mực, lưu trữ vào bảng `agent_trader_dialogue` (`message_type = 'BRIEFING'`) và phát sóng Redis Pub/Sub `agent:trader:dialogue`.
+    - **Bộ Xử Lý Đối Thoại & Phân Tích Ý Định `process_trader_dialogue()`:**
+      - Lưu tin nhắn Trader vào `agent_trader_dialogue` (`message_type = 'COMMAND'` hoặc `'TEXT'`).
+      - Regex Intent Parsing nhận diện các câu lệnh: thay đổi rủi ro (`risk_per_trade_percent`), khoảng cách dừng lỗ (`atr_sl_multiplier`), tỷ lệ thưởng rủi ro (`min_risk_reward_ratio`), tạm dừng giao dịch (`trading_allowed = False`) và tiếp tục giao dịch (`trading_allowed = True`).
+      - Thẩm định qua Hard Guardrails: Nếu vi phạm $[0.25\%, 1.50\%]$ hoặc Daily Drawdown $\ge 3.0\%$, Governor từ chối và phản hồi giải thích lý do bảo vệ vốn.
+      - Nếu hợp lệ, cập nhật Single Source of Truth trong PostgreSQL (`SystemTradingConfig`) và đồng bộ tức thời sang Redis key `runtime:params:XAUUSD`.
+      - Ghi nhận phản hồi Governor vào `agent_trader_dialogue` và phát sóng Redis Pub/Sub.
+    - **Xử Lý Phê Duyệt Lệnh `respond_trade_approval()`:**
+      - Tiếp nhận `dialogue_id` và hành động `APPROVE` hoặc `REJECT`.
+      - Cập nhật trạng thái `approval_status`, tạo bản ghi xác nhận và phát sóng sự kiện `governor:approval_response`.
+    - **Lịch Sử Đối Thoại `get_dialogue_history()`:** Truy vấn các thông điệp có sắp xếp thời gian chuẩn, hỗ trợ cờ phân lập test `include_test`.
+  - **2. Xây Dựng REST API Router Độc Lập (`backend/api/v1/agents_governor.py` & `backend/api/v1/__init__.py`):**
+    - Đăng ký router `/api/v1/agents/governor`:
+      - `GET /api/v1/agents/governor/briefing`: Lấy bản tin điều hành chiến lược mới nhất.
+      - `POST /api/v1/agents/governor/dialogue`: Tiếp nhận thông điệp / câu lệnh từ Trader và phản hồi tức thì.
+      - `POST /api/v1/agents/governor/respond-approval`: Phê duyệt hoặc từ chối đề xuất mở lệnh.
+      - `GET /api/v1/agents/governor/dialogue/history`: Truy vấn lịch sử hội thoại Trader &ndash; Governor.
+      - `GET /api/v1/agents/governor/consensus`: Lấy báo cáo đồng thuận mới nhất.
+      - `GET /api/v1/agents/governor/runtime-params`: Đọc tham số vận hành từ Redis Cache.
+      - `POST /api/v1/agents/governor/evaluate`: Kích hoạt đánh giá tức thì.
+      - `POST /api/v1/agents/governor/override`: Can thiệp tham số thủ công.
+  - **3. Nâng Cấp Giao Diện Cockpit Studio Vue 3:**
+    - **`GovernorDialogueConsole.vue`:**
+      - Khung console đối thoại hai chiều: Stream tin nhắn Trader &ndash; Governor mượt mà với avatar và styling riêng biệt.
+      - Thẻ Approval Request Card: Hiển thị trực quan đề xuất lệnh kèm 2 nút bấm thao tác nhanh `[ Phê Duyệt (Approve) ]` và `[ Hủy Bỏ (Reject) ]`.
+      - Huy hiệu cảnh báo Hard Guardrails: Báo hiệu rõ ràng khi lệnh bị chặn vì lý do bảo toàn vốn hoặc khi ghi đè thành công.
+      - Thanh lệnh nhanh (Quick Command Pills): 7 phím tắt chỉ thị tức thời (`Executive Briefing`, `Hạ rủi ro 0.5%`, `Đặt rủi ro 1.0%`, `Nới SL 2.0x ATR`, `Tạm dừng giao dịch`, `Tiếp tục giao dịch`, `Test vi phạm 5%`).
+    - **Tích hợp vào `App.vue`:**
+      - Thêm sub-tab `Dialogue & HITL` trên thanh điều hướng cột phải Cockpit.
+      - Bổ sung xử lý sự kiện WebSocket `agent.dialogue.message` và `governor.approval_response` để cập nhật giao diện realtime.
+    - **Nâng cấp `GovernorConsensusPanel.vue`:** Bổ sung nút hành động `[ Chat CRO ]` để chuyển đổi nhanh sang khung đối thoại.
+    - **Nâng cấp `KnowledgeAssistantModal.vue`:**
+      - Bổ sung 2 phân khu: Tra cứu ngữ nghĩa RAG & Ingestion Pipeline nạp tri thức mới.
+      - Form nạp tri thức đa trường phái (Wyckoff, ICT, CMT, Inducement/Traps, SMC) tích hợp tính năng **AI Auto-Classify** tự động phân loại trường phái và gắn tags.
+    - **Cập nhật `frontend/src/services/api.js` & `frontend/src/stores/agentStore.js`:**
+      - Bổ sung các phương thức gọi API Governor, Dialogue, Approval, Multi-School RAG Ingestion và Reflexion Rule Promotion.
+    - **Biên dịch Frontend:** `npm run build` thành công 100% không có lỗi (`dist/index.html`, `dist/assets/index-afj5JURu.css 121.34 kB`, `dist/assets/index-CO1R9Dio.js 468.44 kB`).
+  - **4. Bộ Kiểm Thử Unit Test Toàn Diện (`backend/tests/test_strategy_governor_dialogue.py`):**
+    - `test_governor_intent_parsing_and_valid_overrides`: Kiểm tra bóc tách lệnh rủi ro 0.5%, SL 2.0x, tạm dừng và tiếp tục giao dịch.
+    - `test_governor_hard_guardrails_rejection_of_excessive_risk`: Kiểm tra rào chắn cứng chặn đứng và từ chối lệnh rủi ro 5.0%.
+    - `test_governor_hard_guardrails_rejection_under_high_drawdown`: Kiểm tra từ chối mở lại giao dịch khi Drawdown ngày $\ge 3.0\%$.
+    - `test_governor_executive_briefing_generation`: Kiểm tra xuất bản bản tin điều hành đầy đủ 4 phân khu và lưu vào DB.
+    - `test_governor_respond_trade_approval`: Kiểm tra xử lý phê duyệt (APPROVE) và từ chối (REJECT) yêu cầu lệnh.
+    - `test_governor_dialogue_history_retrieval`: Kiểm tra truy vấn danh sách hội thoại có thứ tự thời gian chuẩn.
+    - `test_governor_rest_api_endpoints`: Kiểm tra tích hợp đầy đủ 7 REST API endpoints qua `AsyncClient`.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Khởi động lại container `trading_backend`, kiểm tra `/health` đạt `{"status":"ok","services":{"postgres":true,"redis":true}}`.
+  - Bộ kiểm thử riêng Task 5: **7/7 tests passed in 2.70s**.
+  - Toàn bộ backend test suite: **97/97 tests passed in 15.26s** (100% pass, tăng từ 90 lên 97 tests).
+  - Kiểm tra trực tiếp cơ sở dữ liệu `trading_postgres`: Toàn bộ các bảng `agent_decision_logs`, `agent_trader_dialogue`, `episodic_trade_memory`, `simulated_orders`, `trading_knowledge` đều đạt số lượng bản ghi test là **0**, duy trì phân lập tuyệt đối D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 5. Toàn bộ 5/5 Tasks của Phase 03 - Sprint 02 đã hoàn thành 100%.
+
+---
+
 ## 2026-10-12 01:00 +07:00
 
 ### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 4 - Reflexion Agent: Deep Post-Mortem & Rule Promotion Pipeline (Học Tập Tự Động Từ Lệnh Đóng, Taxonomy Lỗi & Thăng Cấp Quy Tắc CSDL Tri Thức)
