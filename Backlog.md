@@ -1,5 +1,60 @@
 # Backlog cập nhật
 
+## 2026-10-12 01:00 +07:00
+
+### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 4 - Reflexion Agent: Deep Post-Mortem & Rule Promotion Pipeline (Học Tập Tự Động Từ Lệnh Đóng, Taxonomy Lỗi & Thăng Cấp Quy Tắc CSDL Tri Thức)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 4 của Phase 03 - Sprint 02 theo tài liệu đặc tả [Architecture_phase_03_sprint_02.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_02.md) và Quyết định kiến trúc D23 (Reflexion-to-Knowledge Rule Promotion).
+  - Nâng cấp `ReflexionService` thành `ReflexionAgent` tự trị khép kín vòng lặp tiến hóa (Evolutionary Learning Loop):
+    1. Giám sát toàn bộ chu trình lệnh đóng (Win/Loss/BE) và thực hiện phân tích Post-Mortem chuyên sâu.
+    2. Đối chiếu sai lầm với Taxonomy chuẩn hóa (`SL_TOO_TIGHT`, `EARLY_ENTRY`, `TRADED_DURING_NEWS_SPIKE`, `COUNTER_TREND_FADING`, `FOMO_CHASING`, `MANUAL_PANIC_EXIT`).
+    3. Thống kê đường cong học tập (Learning Curve), đo lường tần suất lỗi lặp lại trong 10–20 lệnh gần nhất.
+    4. Tự động phát hiện và thăng cấp (Rule Promotion Pipeline) các bài học thực nghiệm lặp lại $\ge 2$ lần thành quy tắc chiến lược chính thức trong CSDL `trading_knowledge` (`POST_MORTEM`, `source_type = 'REFLEXION_PROMOTED'`).
+    5. Cung cấp báo cáo phân tích sâu `ReflexionFeedbackReport` phục vụ trực tiếp cho Strategy Governor Agent và Trader.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Xây Dựng Rule Promotion Pipeline (`backend/ai_engine/reflexion_service.py`):**
+    - Phương thức `promote_memory_to_rule(memory_id)`:
+      - Trích xuất ký ức giao dịch từ `episodic_trade_memory`, tổng hợp bối cảnh, nguyên nhân cốt lõi, bài học và quy tắc vận hành.
+      - Chuyển hóa thành tài liệu tri thức chuẩn mực: `title`, `content` Markdown, `school_of_thought = 'POST_MORTEM'`, `category = 'MISTAKE_CORRECTION'`, `source_type = 'REFLEXION_PROMOTED'`, `metadata` chứa tags, sub_categories và ID ký ức gốc.
+      - Vector hóa 1536 chiều bằng `EmbeddingService` và nạp vào `trading_knowledge`.
+      - Bảo toàn tuyệt đối cờ `is_test` để dọn dẹp sạch theo chuẩn D18.
+  - **2. Động Cơ Phân Tích Đường Cong Học Tập (Learning Curve & Analytics Engine):**
+    - Phương thức `get_learning_analytics(include_test)`:
+      - Tính toán tỷ lệ thắng toàn diện và tỷ lệ thắng 10 lệnh gần nhất (`recent_10_trades_winrate`).
+      - Đo lường tần suất từng nhóm lỗi (`repeated_mistake_frequency`).
+      - Tự động nhận diện ứng viên thăng cấp quy tắc (`candidates_for_promotion`): Những lỗi xuất hiện $\ge 2$ lần kèm cờ trạng thái `READY_FOR_PROMOTION` hoặc `ALREADY_PROMOTED`.
+      - Theo dõi tiến trình học tập theo từng khối 5 lệnh (`learning_curve`).
+  - **3. Báo Cáo Phản Hồi Chuyên Sâu `ReflexionFeedbackReport`:**
+    - Phương thức `generate_feedback_report(order_id)`:
+      - Tạo cấu trúc báo cáo phản hồi đầy đủ conforming Section 4.3.B: `agent`, `outcome`, `mistake_category`, `root_cause_analysis`, `lesson_learned`, `rule_to_add`, `promotion_status` (`READY_FOR_GOVERNOR_APPROVAL` / `EVALUATED_MONITORING`), `learning_analytics`.
+  - **4. Xây Dựng REST API Router Độc Lập (`backend/api/v1/agents_reflexion.py` & `backend/api/v1/__init__.py`):**
+    - Đăng ký router `/api/v1/agents/reflexion`:
+      - `GET /api/v1/agents/reflexion/analytics`: Truy vấn thống kê đường cong học tập và các ứng viên thăng cấp quy tắc.
+      - `POST /api/v1/agents/reflexion/promote-rule/{memory_id}`: Thăng cấp bài học từ ký ức vào CSDL tri thức hệ thống.
+      - `GET /api/v1/agents/reflexion/feedback-report/{order_id}`: Xuất bản báo cáo phản hồi chuyên sâu cho lệnh giao dịch.
+      - `GET /api/v1/agents/reflexion/memories`: Truy vấn danh sách ký ức giao dịch phân trang và lọc theo kết quả/lỗi.
+      - `GET /api/v1/agents/reflexion/search`: Tìm kiếm ngữ nghĩa các bài học trong quá khứ qua pgvector.
+  - **5. Tích Hợp Chặt Chẽ Với Strategy Governor Agent (`backend/ai_engine/strategy_governor.py`):**
+    - Governor theo dõi tần suất lỗi từ Reflexion để kích hoạt các phản xạ bảo vệ:
+      - `SL_TOO_TIGHT` $\ge 2$ lần $\to$ Tự động nới `atr_sl_multiplier` lên $\ge 1.80\times$.
+      - `EARLY_ENTRY` $\ge 2$ lần $\to$ Đòi hỏi tỷ lệ R:R $\ge 1.80$ và nến xác nhận M15 đóng.
+      - Chuỗi 3 lệnh thua $\to$ Tự động bóp rủi ro xuống $0.50\%$.
+  - **6. Bộ Kiểm Thử Unit Test Toàn Diện (`backend/tests/test_reflexion_agent_sprint2.py`):**
+    - `test_reflexion_learning_analytics_and_repeated_mistakes`: Kiểm tra đường cong học tập và phát hiện ứng viên lỗi $\ge 2$ lần.
+    - `test_reflexion_rule_promotion_to_trading_knowledge`: Kiểm tra thăng cấp thành công quy tắc vào `trading_knowledge` với vector 1536d.
+    - `test_reflexion_feedback_report_generation`: Kiểm tra sinh báo cáo `ReflexionFeedbackReport` chuẩn.
+    - `test_reflexion_agent_rest_api_endpoints`: Kiểm tra tích hợp đầy đủ 5 REST API endpoints.
+- **Kiểm thử & Nghiệm thu:**
+  - Khởi động lại container `trading_backend`, kiểm tra `/health` đạt `200 OK`.
+  - Bộ kiểm thử Task 4: **4/4 tests passed in 2.23s**.
+  - Toàn bộ backend test suite: **90/90 tests passed in 11.89s** (100% pass, tăng từ 86 lên 90 tests).
+  - Kiểm tra trực tiếp cơ sở dữ liệu `trading_postgres`: Toàn bộ các bảng đạt số lượng bản ghi test là **0**, duy trì chuẩn phân lập tuyệt đối D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 4. Sẵn sàng triển khai Task 5 (Strategy Governor Agent & Human-in-the-Loop Cockpit Integration).
+
+---
+
 ## 2026-10-12 00:40 +07:00
 
 ### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 3 - Technical RAG Agent: Ingestion Pipeline & Multi-School Knowledge Retrieval Engine (CMT, ICT, Wyckoff, SMC, Inducement/Trap Trading)
