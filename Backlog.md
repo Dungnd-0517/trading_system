@@ -1,5 +1,64 @@
 # Backlog cập nhật
 
+## 2026-10-11 01:00 +07:00
+
+### [Update Phase 03 - Sprint 01]: Hoàn Thiện & Nâng Cấp Toàn Diện Hệ Thống Backtest Lab (Mở Rộng Tham Số Đầu Vào, Hiển Thị Thông Số Nến, Nhật Ký Chi Tiết & Chuẩn Hóa Khối Lượng 1% Vốn)
+
+- **Bối cảnh & Mục tiêu:**
+  - Hoàn thiện và nâng cấp toàn diện phân hệ Backtest Lab trước khi bước sang Phase 03 - Sprint 02 để đảm bảo độ tin cậy tuyệt đối khi kiểm thử các chiến lược và hệ thống trading sau này.
+  - Khắc phục triệt để hiện tượng khối lượng vào lệnh (lot size) không đồng nhất và số tiền rủi ro không khớp với con số 1% vốn đang cài đặt.
+  - Bổ sung khả năng tùy biến đa tham số nâng cao và làm giàu thông tin nhật ký lệnh khớp.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Chuẩn Hóa Khối Lượng Vào Lệnh & Khớp Rủi Ro 1% Tuyệt Đối (`backend/api/v1/strategy.py`):**
+    - **Nguyên nhân gốc rễ trước đây:** ATR được tính xấp xỉ cục bộ trên từng nến đơn lẻ (`max(high - low, 1.5)`), dẫn đến khoảng cách Stop Loss biến động mạnh (từ 1.5 đến 15 giá). Khi kết hợp với việc tái đầu tư vốn lãi kép (compounding balance) sau mỗi lệnh thắng/thua, khối lượng vào lệnh và số tiền rủi ro bị lệch hoàn toàn khỏi mức 1% của số vốn ban đầu.
+    - **Giải pháp chuẩn hóa:**
+      - Tính toán chỉ báo True Range và ATR làm mịn chu kỳ 14 nến (14-period smoothed rolling ATR) trên toàn bộ chuỗi nến lịch sử của timeframe được chọn.
+      - Hỗ trợ 2 chế độ quản lý vốn rõ ràng (`sizing_mode`):
+        - `FIXED` (Mặc định): Cố định số tiền rủi ro chính xác $1\% \times \text{Initial Capital}$ (ví dụ: đúng $100.00$ USD trên tài khoản $10,000$ USD cho mọi lệnh).
+        - `COMPOUND`: Tính rủi ro $1\%$ dựa trên vốn thực tế lũy kế tại thời điểm mở lệnh (`current_balance`).
+      - Công thức tính Lot chuẩn XAUUSD: $\text{Lots} = \text{round}\left(\frac{\text{Risk Capital}}{\text{SL Distance} \times 100}, 2\right)$ với mức sàn $0.01$ lot và trần $10.0$ lot. Đảm bảo $\text{Expected Risk} = \text{Lots} \times \text{SL Distance} \times 100 \approx \text{Risk Capital}$ chuẩn xác.
+  - **2. Mở Rộng Bộ Tham Số Kiểm Thử Nâng Cao (Extended Inputs):**
+    - Mở rộng schema `BacktestRequest` với 12 tham số tùy chỉnh linh hoạt:
+      - `timeframe`: Hỗ trợ đầy đủ các khung thời gian `M1`, `M5`, `M15`, `H1`, `H4`, `D1` (truy vấn trực tiếp chuỗi nến từ cơ sở dữ liệu `market_candles`).
+      - `bars_count`: Số lượng nến kiểm thử (50, 100, 200, 500, 1000 nến).
+      - `initial_balance`: Số vốn ban đầu ($1,000$ - $100,000$ USD, mặc định $10,000$).
+      - `risk_pct`: Tỷ lệ rủi ro mỗi lệnh ($0.25\% - 3.00\%$, mặc định $1.0\%$).
+      - `sizing_mode`: Chế độ vốn `FIXED` hoặc `COMPOUND`.
+      - `atr_period` & `atr_sl_multiplier`: Chu kỳ ATR (mặc định 14) và hệ số nhân khoảng cách SL ($1.0\times - 3.0\times$, mặc định $1.5\times$).
+      - `risk_reward_ratio`: Tỷ lệ mục tiêu Lợi nhuận/Rủi ro ($1.0\times - 4.0\times$, mặc định $2.0\times$).
+      - `enable_breakeven`: Tùy chọn tự động dời Stop Loss về hòa vốn (BE) khi giá đạt $1.5R$.
+      - `enable_partial_tp`: Tùy chọn chốt lời từng phần 50% khối lượng tại $1.5R$.
+      - `session_filter`: Bộ lọc phiên giao dịch (`ALL`, `LONDON`, `NEW_YORK`, `ASIAN`).
+  - **3. Hiển Thị Chi Tiết Thông Số Kiểm Thử & Metadata (Test Specs Banner):**
+    - Phản hồi API bổ sung block `test_specs` cung cấp đầy đủ thông tin:
+      - Khung thời gian nến kiểm thử (`timeframe`).
+      - Số lượng nến thực tế đưa vào test (`bars_tested`).
+      - Thời gian nến bắt đầu test (`start_candle_time`).
+      - Thời gian nến kết thúc test (`end_candle_time`).
+      - Tổng khoảng thời gian kiểm thử (`total_duration` ví dụ: `5 days, 5 hours`).
+      - Tóm tắt chiến lược và cơ chế quản lý vốn đã áp dụng.
+    - Giao diện Frontend hiển thị Banner thông số chuyên nghiệp với 4 thẻ chỉ số trực quan.
+  - **4. Làm Giàu Nhật Ký Giao Dịch Chi Tiết (Enriched Trade Log):**
+    - Nâng cấp bảng nhật ký lệnh khớp với đầy đủ thông tin:
+      - Thời điểm vào lệnh (`entry_time`) & Thời điểm thoát lệnh (`exit_time`) theo định dạng nến chuẩn.
+      - Thời gian giữ lệnh (`holding_duration` theo số nến và quy đổi ra giờ).
+      - Khối lượng giao dịch (`lots`), Giá vào (`entry_price`), Stop Loss (`sl_price`), Take Profit (`tp_price`), Giá thoát (`exit_price`).
+      - Số tiền rủi ro dự kiến (`expected_risk` - xác nhận rõ ràng $100.00 cho mỗi lệnh).
+      - Hiệu số R-Multiple thực tế (`r_multiple` ví dụ: `+2.00R`, `-1.00R`, `0.00R`).
+      - Lý do thoát lệnh (`exit_reason`: `TP`, `SL`, `BREAKEVEN`, `PARTIAL_TP`).
+      - Lợi nhuận/Lỗ (`pnl`) và Số dư tài khoản lũy kế sau lệnh (`balance_after`).
+    - Bổ sung bộ lọc trạng thái lệnh nhanh (`Tất cả`, `Thắng`, `Thua`, `Hòa vốn`).
+  - **5. Nâng Cấp Giao Diện Backtest Lab UI (`frontend/src/components/Strategy/BacktestLabView.vue`):**
+    - Thiết kế bảng điều khiển chia 2 tầng: Thanh điều khiển nhanh (Symbol, Timeframe, Số nến, Vốn, Rủi ro %) và Khung tham số mở rộng thu gọn/mở rộng (Collapsible Advanced Settings).
+    - Tích hợp Banner Test Specs trực quan, đồng bộ biểu đồ phân bổ Win/Loss và số dư tài khoản.
+- **Kiểm thử & Triển khai:**
+  - Chạy toàn bộ backend test suite: **72/72 tests passed** trong 7.99 giây, bảo toàn nguyên vẹn tính cách ly D18.
+  - Biên dịch production Frontend thành công và reload Nginx trên container `trading_frontend`.
+- **Trạng thái:** Hoàn tất trọn vẹn cập nhật Backtest Lab. Hệ thống đã sẵn sàng 100% để bước sang Phase 03 - Sprint 02.
+
+---
+
 ## 2026-10-10 20:45 +07:00
 
 ### [Update Phase 03 - Sprint 01]: Hoàn Thành Task 5 - Tích Hợp Giao Diện Frontend Cockpit UI (AI Governor Consensus, Reflexion Lessons Stream & RAG Knowledge Assistant)
