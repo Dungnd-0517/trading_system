@@ -51,9 +51,18 @@ class AutoExecutionController:
             mode = cfg.execution_mode if cfg else "MANUAL"
             risk_pct = float(cfg.risk_per_trade_percent) if cfg else 1.0
             max_open = cfg.max_open_positions if cfg else 2
+            trading_allowed = cfg.trading_allowed if cfg else True
+            halt_reason = cfg.halt_reason if cfg else None
+            min_rr = float(cfg.min_risk_reward_ratio) if cfg else 1.50
+
+            if not force_manual and not trading_allowed:
+                raise ValueError(f"Trading halted by Governor: {halt_reason or 'Trading not allowed'}")
 
             if not force_manual and mode != "FULL_AUTO":
                 raise ValueError(f"Auto-trading is not enabled (current mode: {mode})")
+
+            if not force_manual and float(signal.risk_reward) < min_rr:
+                raise ValueError(f"Signal R:R ({float(signal.risk_reward):.2f}) is below minimum threshold ({min_rr:.2f})")
 
             # Kiểm tra số lượng vị thế đang mở
             open_count = await sess.scalar(

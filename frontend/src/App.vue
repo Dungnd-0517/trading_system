@@ -28,11 +28,17 @@ import NewsEventsView from './components/News/NewsEventsView.vue'
 import StrategyAnalysisView from './components/Strategy/StrategyAnalysisView.vue'
 import BacktestLabView from './components/Strategy/BacktestLabView.vue'
 import SettingsView from './components/Settings/SettingsView.vue'
+import GovernorConsensusPanel from './components/AIAnalysis/GovernorConsensusPanel.vue'
+import ReflexionStreamPanel from './components/AIAnalysis/ReflexionStreamPanel.vue'
+import KnowledgeAssistantModal from './components/AIAnalysis/KnowledgeAssistantModal.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
+import { agentStore } from './stores/agentStore'
 import { connectMarketStream } from './services/websocket'
 
 const activeTab = ref('cockpit')
+const rightPanelTab = ref('agents')
+const showKnowledgeModal = ref(false)
 const calendarInitialSubTab = ref('calendar')
 const streamConnected = ref(false)
 const showVolume = ref(true)
@@ -40,6 +46,7 @@ const now = ref(new Date())
 const priceDirection = ref('neutral')
 let clockTimer
 let sourceTimer
+let agentTimer
 let socket
 
 function openFullCalendar() {
@@ -55,6 +62,17 @@ function openFullNews() {
 const dbConnected = computed(() => marketStore.health?.services?.postgres === true)
 const redisConnected = computed(() => marketStore.health?.services?.redis === true)
 
+const governorAllowed = computed(() => agentStore.runtimeParams?.trading_allowed ?? true)
+const governorStatusText = computed(() => {
+  if (!governorAllowed.value) {
+    const dd = agentStore.consensus?.current_daily_drawdown_pct
+    return dd ? `HALTED (${dd.toFixed(1)}% DD)` : 'HALTED'
+  }
+  const regime = agentStore.consensus?.market_regime || 'COMPRESSION_CHOP'
+  const risk = agentStore.runtimeParams?.risk_per_trade_percent || 1.0
+  return `${regime} (${risk}% RISK)`
+})
+
 function selectTimeframe(timeframe) {
   marketStore.timeframe = timeframe
   marketStore.chartEvent = null
@@ -65,6 +83,7 @@ onMounted(() => {
   marketStore.refresh()
   marketStore.startPolling(2500)
   orderStore.refresh()
+  agentStore.refreshAll()
   socket = connectMarketStream(
     (event) => {
       if (event.type === 'chart.update') {
@@ -75,10 +94,14 @@ onMounted(() => {
           priceDirection.value = curr > prev ? 'tick-up' : curr < prev ? 'tick-down' : priceDirection.value
         }
       }
-      if (event.type === 'order.update') orderStore.applyOrderUpdate(event)
+      if (event.type === 'order.update') {
+        orderStore.applyOrderUpdate(event)
+        agentStore.refreshMemories()
+      }
       if (event.type === 'news.upsert') orderStore.applyNewsUpdate(event)
       if (event.type === 'signal.new') orderStore.applySignalUpdate(event)
       if (event.type === 'circuit_breaker.update') orderStore.applyCircuitBreakerUpdate(event)
+      if (event.type === 'governor.update') agentStore.applyGovernorUpdate(event)
       if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
     },
     (value) => {
@@ -91,12 +114,16 @@ onMounted(() => {
   sourceTimer = window.setInterval(() => {
     orderStore.refreshSources()
   }, 60_000)
+  agentTimer = window.setInterval(() => {
+    agentStore.refreshConsensus()
+  }, 30_000)
 })
 
 onUnmounted(() => {
   marketStore.stopPolling()
   window.clearInterval(clockTimer)
   window.clearInterval(sourceTimer)
+  window.clearInterval(agentTimer)
   socket?.close()
 })
 </script>
@@ -214,6 +241,10 @@ onUnmounted(() => {
       <span class="service-state"><i :class="dbConnected ? 'up' : 'down'"></i> POSTGRES <b>{{ dbConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
       <span class="service-state"><i :class="redisConnected ? 'up' : 'down'"></i> REDIS <b>{{ redisConnected ? 'CONNECTED' : 'OFFLINE' }}</b></span>
       <span class="service-state"><i :class="streamConnected ? 'up' : 'down'"></i> MARKET STREAM <b>{{ streamConnected ? 'LIVE' : 'WAITING' }}</b></span>
+      <span class="service-state governor-state">
+        <i :class="governorAllowed ? 'up' : 'down pulse-red'"></i>
+        GOVERNOR <b>{{ governorStatusText }}</b>
+      </span>
       
       <span class="status-spacer"></span>
 
@@ -340,16 +371,49 @@ onUnmounted(() => {
           :account="orderStore.account"
         />
       </div>
+
+      <!-- Right Column: AI Brain & Reflexion / News Feed -->
       <aside class="right-column">
-        <InsightsPanel @open-strategy="activeTab = 'strategy'" />
-        <SentimentGauge :news="orderStore.news" />
-        <NewsStream
-          :news="orderStore.news"
-          :events="orderStore.events"
-          :sources="orderStore.sources"
-          @navigate-calendar="openFullCalendar"
-          @navigate-news="openFullNews"
-        />
+        <!-- Sub-panel Tab Switcher -->
+        <div class="column-switcher" role="tablist" aria-label="Right column sub navigation">
+          <button
+            class="switch-btn"
+            :class="{ active: rightPanelTab === 'agents' }"
+            @click="rightPanelTab = 'agents'"
+          >
+            <BrainCircuit :size="12" />
+            <span>AI Brain &amp; Reflexion</span>
+          </button>
+          <button
+            class="switch-btn"
+            :class="{ active: rightPanelTab === 'news' }"
+            @click="rightPanelTab = 'news'"
+          >
+            <Newspaper :size="12" />
+            <span>News &amp; Sentiment</span>
+          </button>
+        </div>
+
+        <!-- TAB 1: AI BRAIN & REFLEXION (Panel 1: Consensus, Panel 2: Reflexion) -->
+        <template v-if="rightPanelTab === 'agents'">
+          <GovernorConsensusPanel
+            @open-knowledge="showKnowledgeModal = true"
+            @open-strategy="activeTab = 'strategy'"
+          />
+          <ReflexionStreamPanel />
+        </template>
+
+        <!-- TAB 2: NEWS & MACRO FEED -->
+        <template v-else>
+          <SentimentGauge :news="orderStore.news" />
+          <NewsStream
+            :news="orderStore.news"
+            :events="orderStore.events"
+            :sources="orderStore.sources"
+            @navigate-calendar="openFullCalendar"
+            @navigate-news="openFullNews"
+          />
+        </template>
       </aside>
     </section>
 
@@ -388,6 +452,12 @@ onUnmounted(() => {
     <!-- VIEW 6: SETTINGS -->
     <SettingsView
       v-else-if="activeTab === 'settings'"
+    />
+
+    <!-- RAG Knowledge Assistant Modal -->
+    <KnowledgeAssistantModal
+      :show="showKnowledgeModal"
+      @close="showKnowledgeModal = false"
     />
 
     <footer class="footer">

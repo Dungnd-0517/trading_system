@@ -55,3 +55,20 @@ export const executeSignal = (signalId) =>
 export const fetchTradingConfig = () => get('/strategy/config')
 export const updateTradingConfig = (data) => put('/strategy/config', data)
 export const runBacktest = (data) => post('/strategy/backtest', data)
+
+// Phase 03: TradingAgents LLM Services (Governor, Reflexion, Knowledge RAG)
+export const fetchGovernorConsensus = () => get('/governor/consensus')
+export const fetchGovernorRuntimeParams = () => get('/governor/runtime-params')
+export const evaluateGovernor = () => post('/governor/evaluate')
+export const overrideGovernor = (data) => post('/governor/override', data)
+
+export const fetchReflexionMemories = (limit = 20) => get(`/reflexion/memories?limit=${limit}`)
+export const fetchReflexionStats = () => get('/reflexion/stats')
+export const searchReflexionMemories = (query, limit = 5) =>
+  get(`/reflexion/search?query=${encodeURIComponent(query)}&limit=${limit}`)
+export const analyzeReflexionOrder = (orderId) => post(`/reflexion/analyze/${orderId}`)
+
+export const fetchKnowledgeStats = () => get('/knowledge/stats')
+export const searchKnowledge = (query, category = '', limit = 5) =>
+  get(`/knowledge/search?query=${encodeURIComponent(query)}${category ? `&category=${encodeURIComponent(category)}` : ''}&limit=${limit}`)
+export const reindexKnowledge = () => post('/knowledge/reindex')

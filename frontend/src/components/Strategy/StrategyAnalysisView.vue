@@ -21,7 +21,14 @@ import {
   TrendingDown,
   TrendingUp,
   Zap,
+  Database,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  BookMarked,
 } from 'lucide-vue-next'
+import { agentStore } from '../../stores/agentStore'
 
 const props = defineProps({
   candles: { type: Array, default: () => [] },
@@ -34,7 +41,16 @@ const props = defineProps({
 const emit = defineEmits(['navigate-cockpit'])
 
 // Active tab inside Strategy view
-const activeSection = ref('pipeline') // 'pipeline' | 'concepts' | 'sessions' | 'risk' | 'macro' | 'checklist'
+const activeSection = ref('pipeline') // 'pipeline' | 'concepts' | 'sessions' | 'risk' | 'macro' | 'agents' | 'checklist'
+
+const agentSearchQuery = ref('')
+const agentSelectedCat = ref('')
+
+async function runAgentSearch() {
+  if (!agentSearchQuery.value.trim()) return
+  await agentStore.searchKnowledge(agentSearchQuery.value, agentSelectedCat.value)
+}
+
 
 // Interactive Checklist state for trader self-validation
 const checklist = ref([
@@ -169,11 +185,20 @@ const calculatedRiskMoney = computed(() => {
 
       <button
         role="tab"
+        :class="['subnav-btn', { active: activeSection === 'agents' }]"
+        @click="activeSection = 'agents'"
+      >
+        <BrainCircuit :size="14" />
+        <span>6. AI TradingAgents &amp; RAG Brain</span>
+      </button>
+
+      <button
+        role="tab"
         :class="['subnav-btn', { active: activeSection === 'checklist' }]"
         @click="activeSection = 'checklist'"
       >
         <Target :size="14" />
-        <span>6. Checklist Vào lệnh ({{ completedChecks }}/{{ checklist.length }})</span>
+        <span>7. Checklist Vào lệnh ({{ completedChecks }}/{{ checklist.length }})</span>
       </button>
     </nav>
 
@@ -612,7 +637,140 @@ const calculatedRiskMoney = computed(() => {
       </div>
     </section>
 
-    <!-- TAB 6: INTERACTIVE CHECKLIST -->
+    <!-- TAB 6: AI TRADINGAGENTS & RAG BRAIN -->
+    <section v-if="activeSection === 'agents'" class="section-pane">
+      <div class="pane-header">
+        <div>
+          <h2>Kiến Trúc AI TradingAgents &amp; RAG Knowledge Brain</h2>
+          <p>Hệ thống 3 Agents chuyên biệt (News, Technical RAG, Reflexion) tổng hợp đồng thuận qua Strategy Governor và đóng vòng lặp Hard Guardrails</p>
+        </div>
+        <button class="action-btn" @click="emit('navigate-cockpit')">
+          <span>Mở Trading Cockpit</span>
+          <ArrowRight :size="13" />
+        </button>
+      </div>
+
+      <div class="agents-overview-grid">
+        <!-- Card 1: 3-Agent Specialist Tier -->
+        <article class="agent-tier-card">
+          <div class="tier-card-head">
+            <span class="tier-badge blue"><Layers :size="13" /> TẦNG 1: SPECIALIST AGENTS</span>
+            <h3>3 AI Agents Phân Tích Độc Lập</h3>
+          </div>
+          <div class="agent-specs-list">
+            <div class="spec-item">
+              <span class="spec-mark news"><Zap :size="12" /></span>
+              <div>
+                <strong>News &amp; Macro Agent</strong>
+                <p>Quét tin tức kinh tế USD 3 sao (CPI, NFP, FOMC) &amp; tin tức breaking news, phân tích sentiment từ 4 nguồn cấp dữ liệu, kích hoạt News Circuit Breaker cooldown 30m.</p>
+              </div>
+            </div>
+            <div class="spec-item">
+              <span class="spec-mark rag"><Database :size="12" /></span>
+              <div>
+                <strong>Technical RAG Agent</strong>
+                <p>Truy xuất 18 chunks tri thức (SMC, Wyckoff, Price Action) 1536 chiều từ PostgreSQL pgvector qua Cosine Similarity để đối chiếu ngữ cảnh nến hiện tại.</p>
+              </div>
+            </div>
+            <div class="spec-item">
+              <span class="spec-mark reflexion"><Sparkles :size="12" /></span>
+              <div>
+                <strong>Reflexion Memory Agent</strong>
+                <p>Tự động phân tích post-mortem mỗi khi lệnh đóng, phân loại nhóm lỗi (SL_TOO_TIGHT, EARLY_ENTRY, NEWS_SPIKE) và lưu bài học kinh nghiệm vào episodic memory.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 2: Strategy Governor & Hard Guardrails -->
+        <article class="agent-tier-card">
+          <div class="tier-card-head">
+            <span class="tier-badge green"><ShieldCheck :size="13" /> TẦNG 2: STRATEGY GOVERNOR</span>
+            <h3>Hard Guardrails &amp; Đồng Thuận Rủi Ro</h3>
+          </div>
+          <div class="guardrails-summary">
+            <div class="guard-pill-item">
+              <div class="pill-title">RỦI RO MỖI LỆNH</div>
+              <strong>0.25% &rarr; 1.50%</strong>
+              <small>Tự động hạ 50% nếu dính 3 lệnh thua liên tiếp</small>
+            </div>
+            <div class="guard-pill-item">
+              <div class="pill-title">ATR SL MULTIPLIER</div>
+              <strong>1.00x &rarr; 3.00x</strong>
+              <small>Tự động nới lên 1.8x - 2.0x nếu Reflexion báo SL_TOO_TIGHT</small>
+            </div>
+            <div class="guard-pill-item">
+              <div class="pill-title">MIN RISK:REWARD</div>
+              <strong>&ge; 1.20 (Chuẩn 1.5 - 2.0)</strong>
+              <small>Từ chối mọi tín hiệu có R:R không đạt chuẩn an toàn</small>
+            </div>
+            <div class="guard-pill-item highlight-red">
+              <div class="pill-title">KHÓA LỖ NGÀY (CIRCUIT BREAKER)</div>
+              <strong>MAX 3.00% DRAWDOWN</strong>
+              <small>Cưỡng chế trading_allowed = False khi lỗ chạm 3%</small>
+            </div>
+          </div>
+          <div class="sync-tier-note">
+            <Database :size="12" />
+            <span>Đồng bộ kép: PostgreSQL <code>system_trading_config</code> (Single Source of Truth) &amp; Redis <code>runtime:params:XAUUSD</code> (&lt;1ms cache).</span>
+          </div>
+        </article>
+      </div>
+
+      <!-- Live RAG Knowledge Query Sandbox inside Strategy -->
+      <div class="rag-sandbox-panel">
+        <header class="sandbox-head">
+          <div class="sandbox-title">
+            <BookOpen :size="16" />
+            <div>
+              <h3>Tra Cứu Nhanh Thư Viện Tri Thức RAG (18 Knowledge Chunks)</h3>
+              <p>Truy vấn trực tiếp kiến thức chuẩn hóa về SMC, Price Action, Macro Risk và Post-Mortem</p>
+            </div>
+          </div>
+          <span class="chunk-badge">pgvector 1536-dim</span>
+        </header>
+
+        <div class="sandbox-search-bar">
+          <div class="search-input-group">
+            <Search :size="13" class="search-icon" />
+            <input
+              v-model="agentSearchQuery"
+              type="text"
+              placeholder="Nhập từ khóa tìm kiếm (VD: Liquidity Sweeps, CHoCH, Breakeven, SL_TOO_TIGHT...)"
+              @keyup.enter="runAgentSearch"
+            />
+            <button class="search-btn" :disabled="agentStore.searchingKnowledge" @click="runAgentSearch">
+              <Sparkles :size="12" />
+              <span>Tìm Ngữ Nghĩa</span>
+            </button>
+          </div>
+          <div class="quick-tags">
+            <span class="tag-title">Từ khóa phổ biến:</span>
+            <button class="tag-btn" @click="agentSearchQuery = 'Liquidity sweeps turtle soup'; runAgentSearch()">Liquidity Sweeps</button>
+            <button class="tag-btn" @click="agentSearchQuery = 'BOS vs CHoCH'; runAgentSearch()">BOS vs CHoCH</button>
+            <button class="tag-btn" @click="agentSearchQuery = 'Order block FVG discount'; runAgentSearch()">Order Block &amp; FVG</button>
+            <button class="tag-btn" @click="agentSearchQuery = 'SL_TOO_TIGHT ATR'; runAgentSearch()">Lỗi SL_TOO_TIGHT</button>
+          </div>
+        </div>
+
+        <div v-if="agentStore.knowledgeSearchResults.length > 0" class="sandbox-results">
+          <div
+            v-for="res in agentStore.knowledgeSearchResults"
+            :key="res.id"
+            class="chunk-card"
+          >
+            <div class="chunk-card-head">
+              <span class="chunk-category">{{ res.category }}</span>
+              <h4>{{ res.title }}</h4>
+              <span class="match-score">Tương đồng: {{ Math.round((res.similarity || 0) * 100) }}%</span>
+            </div>
+            <pre class="chunk-body">{{ res.content }}</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 7: INTERACTIVE CHECKLIST -->
     <section v-if="activeSection === 'checklist'" class="section-pane">
       <div class="pane-header">
         <div>
@@ -1437,6 +1595,336 @@ h1 {
   background: #fef4e5;
   border: 1px solid #f0cd95;
   color: #7d490c;
+}
+
+/* Agents Section Styling */
+.agents-overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.agent-tier-card {
+  background: #ffffff;
+  border: 1px solid #dce4dc;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tier-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font: 8px 'DM Mono', monospace;
+  font-weight: 800;
+}
+
+.tier-badge.blue {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.tier-badge.green {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.tier-card-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1b2a23;
+}
+
+.agent-specs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spec-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.spec-mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.spec-mark.news { background: #fef3c7; color: #b45309; }
+.spec-mark.rag { background: #e0f2fe; color: #0284c7; }
+.spec-mark.reflexion { background: #ede9fe; color: #7c3aed; }
+
+.spec-item strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #1b2a23;
+}
+
+.spec-item p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: #55675b;
+  line-height: 1.4;
+}
+
+.guardrails-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.guard-pill-item {
+  border: 1px solid #e1e7df;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fcfdfc;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guard-pill-item.highlight-red {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.pill-title {
+  font: 8px 'DM Mono', monospace;
+  font-weight: 800;
+  color: #6e8074;
+}
+
+.guard-pill-item strong {
+  font: 11px 'DM Mono', monospace;
+  font-weight: 800;
+  color: #1b2a23;
+}
+
+.guard-pill-item small {
+  font-size: 8px;
+  color: #718376;
+}
+
+.sync-tier-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #f2f7f1;
+  border-radius: 5px;
+  font-size: 9px;
+  color: #3b5043;
+}
+
+.sync-tier-note code {
+  background: #e2ede0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: 'DM Mono', monospace;
+}
+
+/* RAG Sandbox Panel */
+.rag-sandbox-panel {
+  background: #ffffff;
+  border: 1px solid #dce4dc;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sandbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sandbox-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #0284c7;
+}
+
+.sandbox-title h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1b2a23;
+}
+
+.sandbox-title p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: #647569;
+}
+
+.chunk-badge {
+  font: 9px 'DM Mono', monospace;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.sandbox-search-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-input-group {
+  position: relative;
+  display: flex;
+  gap: 6px;
+}
+
+.search-input-group .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  color: #718377;
+}
+
+.search-input-group input {
+  flex: 1;
+  height: 32px;
+  padding: 0 12px 0 32px;
+  border: 1px solid #c8d7c7;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.search-input-group input:focus {
+  outline: none;
+  border-color: #0284c7;
+}
+
+.search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.search-btn:hover { background: #0369a1; }
+
+.quick-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tag-title {
+  font-size: 9px;
+  color: #738478;
+}
+
+.tag-btn {
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #d4ded4;
+  background: #f5f8f4;
+  color: #3b5042;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.tag-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.sandbox-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.chunk-card {
+  border: 1px solid #e1e7df;
+  border-radius: 6px;
+  padding: 10px;
+  background: #fcfdfc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chunk-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chunk-category {
+  font: 8px 'DM Mono', monospace;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #e2ede0;
+  color: #276949;
+}
+
+.chunk-card-head h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  color: #1b2a23;
+  flex: 1;
+}
+
+.match-score {
+  font: 9px 'DM Mono', monospace;
+  font-weight: 700;
+  color: #059669;
+}
+
+.chunk-body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.45;
+  color: #314237;
+  white-space: pre-wrap;
+  background: #ffffff;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #eef2ed;
 }
 
 @media (max-width: 1024px) {

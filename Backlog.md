@@ -1,5 +1,208 @@
 # Backlog cập nhật
 
+## 2026-10-11 01:00 +07:00
+
+### [Update Phase 03 - Sprint 01]: Hoàn Thiện & Nâng Cấp Toàn Diện Hệ Thống Backtest Lab (Mở Rộng Tham Số Đầu Vào, Hiển Thị Thông Số Nến, Nhật Ký Chi Tiết & Chuẩn Hóa Khối Lượng 1% Vốn)
+
+- **Bối cảnh & Mục tiêu:**
+  - Hoàn thiện và nâng cấp toàn diện phân hệ Backtest Lab trước khi bước sang Phase 03 - Sprint 02 để đảm bảo độ tin cậy tuyệt đối khi kiểm thử các chiến lược và hệ thống trading sau này.
+  - Khắc phục triệt để hiện tượng khối lượng vào lệnh (lot size) không đồng nhất và số tiền rủi ro không khớp với con số 1% vốn đang cài đặt.
+  - Bổ sung khả năng tùy biến đa tham số nâng cao và làm giàu thông tin nhật ký lệnh khớp.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Chuẩn Hóa Khối Lượng Vào Lệnh & Khớp Rủi Ro 1% Tuyệt Đối (`backend/api/v1/strategy.py`):**
+    - **Nguyên nhân gốc rễ trước đây:** ATR được tính xấp xỉ cục bộ trên từng nến đơn lẻ (`max(high - low, 1.5)`), dẫn đến khoảng cách Stop Loss biến động mạnh (từ 1.5 đến 15 giá). Khi kết hợp với việc tái đầu tư vốn lãi kép (compounding balance) sau mỗi lệnh thắng/thua, khối lượng vào lệnh và số tiền rủi ro bị lệch hoàn toàn khỏi mức 1% của số vốn ban đầu.
+    - **Giải pháp chuẩn hóa:**
+      - Tính toán chỉ báo True Range và ATR làm mịn chu kỳ 14 nến (14-period smoothed rolling ATR) trên toàn bộ chuỗi nến lịch sử của timeframe được chọn.
+      - Hỗ trợ 2 chế độ quản lý vốn rõ ràng (`sizing_mode`):
+        - `FIXED` (Mặc định): Cố định số tiền rủi ro chính xác $1\% \times \text{Initial Capital}$ (ví dụ: đúng $100.00$ USD trên tài khoản $10,000$ USD cho mọi lệnh).
+        - `COMPOUND`: Tính rủi ro $1\%$ dựa trên vốn thực tế lũy kế tại thời điểm mở lệnh (`current_balance`).
+      - Công thức tính Lot chuẩn XAUUSD: $\text{Lots} = \text{round}\left(\frac{\text{Risk Capital}}{\text{SL Distance} \times 100}, 2\right)$ với mức sàn $0.01$ lot và trần $10.0$ lot. Đảm bảo $\text{Expected Risk} = \text{Lots} \times \text{SL Distance} \times 100 \approx \text{Risk Capital}$ chuẩn xác.
+  - **2. Mở Rộng Bộ Tham Số Kiểm Thử Nâng Cao (Extended Inputs):**
+    - Mở rộng schema `BacktestRequest` với 12 tham số tùy chỉnh linh hoạt:
+      - `timeframe`: Hỗ trợ đầy đủ các khung thời gian `M1`, `M5`, `M15`, `H1`, `H4`, `D1` (truy vấn trực tiếp chuỗi nến từ cơ sở dữ liệu `market_candles`).
+      - `bars_count`: Số lượng nến kiểm thử (50, 100, 200, 500, 1000 nến).
+      - `initial_balance`: Số vốn ban đầu ($1,000$ - $100,000$ USD, mặc định $10,000$).
+      - `risk_pct`: Tỷ lệ rủi ro mỗi lệnh ($0.25\% - 3.00\%$, mặc định $1.0\%$).
+      - `sizing_mode`: Chế độ vốn `FIXED` hoặc `COMPOUND`.
+      - `atr_period` & `atr_sl_multiplier`: Chu kỳ ATR (mặc định 14) và hệ số nhân khoảng cách SL ($1.0\times - 3.0\times$, mặc định $1.5\times$).
+      - `risk_reward_ratio`: Tỷ lệ mục tiêu Lợi nhuận/Rủi ro ($1.0\times - 4.0\times$, mặc định $2.0\times$).
+      - `enable_breakeven`: Tùy chọn tự động dời Stop Loss về hòa vốn (BE) khi giá đạt $1.5R$.
+      - `enable_partial_tp`: Tùy chọn chốt lời từng phần 50% khối lượng tại $1.5R$.
+      - `session_filter`: Bộ lọc phiên giao dịch (`ALL`, `LONDON`, `NEW_YORK`, `ASIAN`).
+  - **3. Hiển Thị Chi Tiết Thông Số Kiểm Thử & Metadata (Test Specs Banner):**
+    - Phản hồi API bổ sung block `test_specs` cung cấp đầy đủ thông tin:
+      - Khung thời gian nến kiểm thử (`timeframe`).
+      - Số lượng nến thực tế đưa vào test (`bars_tested`).
+      - Thời gian nến bắt đầu test (`start_candle_time`).
+      - Thời gian nến kết thúc test (`end_candle_time`).
+      - Tổng khoảng thời gian kiểm thử (`total_duration` ví dụ: `5 days, 5 hours`).
+      - Tóm tắt chiến lược và cơ chế quản lý vốn đã áp dụng.
+    - Giao diện Frontend hiển thị Banner thông số chuyên nghiệp với 4 thẻ chỉ số trực quan.
+  - **4. Làm Giàu Nhật Ký Giao Dịch Chi Tiết (Enriched Trade Log):**
+    - Nâng cấp bảng nhật ký lệnh khớp với đầy đủ thông tin:
+      - Thời điểm vào lệnh (`entry_time`) & Thời điểm thoát lệnh (`exit_time`) theo định dạng nến chuẩn.
+      - Thời gian giữ lệnh (`holding_duration` theo số nến và quy đổi ra giờ).
+      - Khối lượng giao dịch (`lots`), Giá vào (`entry_price`), Stop Loss (`sl_price`), Take Profit (`tp_price`), Giá thoát (`exit_price`).
+      - Số tiền rủi ro dự kiến (`expected_risk` - xác nhận rõ ràng $100.00 cho mỗi lệnh).
+      - Hiệu số R-Multiple thực tế (`r_multiple` ví dụ: `+2.00R`, `-1.00R`, `0.00R`).
+      - Lý do thoát lệnh (`exit_reason`: `TP`, `SL`, `BREAKEVEN`, `PARTIAL_TP`).
+      - Lợi nhuận/Lỗ (`pnl`) và Số dư tài khoản lũy kế sau lệnh (`balance_after`).
+    - Bổ sung bộ lọc trạng thái lệnh nhanh (`Tất cả`, `Thắng`, `Thua`, `Hòa vốn`).
+  - **5. Nâng Cấp Giao Diện Backtest Lab UI (`frontend/src/components/Strategy/BacktestLabView.vue`):**
+    - Thiết kế bảng điều khiển chia 2 tầng: Thanh điều khiển nhanh (Symbol, Timeframe, Số nến, Vốn, Rủi ro %) và Khung tham số mở rộng thu gọn/mở rộng (Collapsible Advanced Settings).
+    - Tích hợp Banner Test Specs trực quan, đồng bộ biểu đồ phân bổ Win/Loss và số dư tài khoản.
+- **Kiểm thử & Triển khai:**
+  - Chạy toàn bộ backend test suite: **72/72 tests passed** trong 7.99 giây, bảo toàn nguyên vẹn tính cách ly D18.
+  - Biên dịch production Frontend thành công và reload Nginx trên container `trading_frontend`.
+- **Trạng thái:** Hoàn tất trọn vẹn cập nhật Backtest Lab. Hệ thống đã sẵn sàng 100% để bước sang Phase 03 - Sprint 02.
+
+---
+
+## 2026-10-10 20:45 +07:00
+
+### [Update Phase 03 - Sprint 01]: Hoàn Thành Task 5 - Tích Hợp Giao Diện Frontend Cockpit UI (AI Governor Consensus, Reflexion Lessons Stream & RAG Knowledge Assistant)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Kho Trạng Thái Phản Ứng Đa Agent (`frontend/src/stores/agentStore.js`):**
+    - Quản lý tập trung toàn bộ dữ liệu thời gian thực: Báo cáo đồng thuận (`consensus`), Bộ tham số đang thực thi (`runtimeParams`), Nhật ký ký ức lệnh đóng (`memories`), Thống kê tỷ lệ thắng thua và phân bổ sai lầm (`reflexionStats`), Thống kê và kết quả tìm kiếm tri thức RAG (`knowledgeStats`).
+    - Cơ chế cập nhật: Tự động tải khởi tạo trên toàn ứng dụng (`refreshAll`), polling đồng thuận mỗi 30 giây, và bắt sự kiện tức thì qua WebSocket `governor.update`, `order.update`.
+  - **Bộ Thư Viện API Client Mở Rộng (`frontend/src/services/api.js`):**
+    - Bổ sung đầy đủ 11 API endpoints cho AI Services:
+      - Strategy Governor: `fetchGovernorConsensus`, `fetchGovernorRuntimeParams`, `evaluateGovernor`, `overrideGovernor`.
+      - Reflexion Engine: `fetchReflexionMemories`, `fetchReflexionStats`, `searchReflexionMemories`, `analyzeReflexionOrder`.
+      - RAG Knowledge: `fetchKnowledgeStats`, `searchKnowledge`, `reindexKnowledge`.
+  - **Panel 1: AI Strategy Governor & Consensus (`frontend/src/components/AIAnalysis/GovernorConsensusPanel.vue`):**
+    - Hiển thị Chế độ Thị trường (`market_regime`): Nhận diện trực quan `TRENDING EXPANSION` (xanh ngọc), `COMPRESSION / CHOP` (vàng hổ phách), `HIGH VOLATILITY` (đỏ cam) đi kèm thanh đo Độ tin cậy (%) và định hướng Bias (`BULLISH ▲`, `BEARISH ▼`, `NEUTRAL ⬌`).
+    - Trích đoạn bối cảnh lý luận (`rationale`) từ AI Governor.
+    - Ma trận tham số an toàn Hard Guardrails Matrix 4 ô:
+      - Rủi ro mỗi lệnh: Hiển thị mức rủi ro đề xuất cùng nhãn biên an toàn $[0.25\% - 1.50\%]$.
+      - ATR SL Multiplier: Hiển thị hệ số nới SL hiện tại kèm badge `+ADAPTED` màu xanh lá khi Reflexion nới SL do lỗi `SL_TOO_TIGHT`.
+      - Min Risk:Reward: Tỷ lệ $R:R$ tối thiểu để duyệt tín hiệu ($\ge 1.20$).
+      - Lỗ trong ngày: Mức sụt giảm vốn hiện tại và cảnh báo khi tiến gần ngưỡng $3.00\%$ Max Drawdown.
+    - Trạng thái ngắt mạch thực thi: Thẻ `CHO PHÉP GIAO DỊCH` (xanh lá) hoặc `NGẮT MẠCH: DỪNG VÀO LỆNH` (đỏ cảnh báo) kèm lý do `halt_reason`.
+    - Hộp thoại can thiệp thông số thủ công an toàn (`Sliders` Modal): Cung cấp thanh trượt tùy chỉnh tỷ lệ rủi ro, SL Multiplier, Min R:R và công tắc khóa lệnh tức thì trong giới hạn của Pydantic Hard Guardrails.
+  - **Panel 2: AI Reflexion & Lessons Learned (`frontend/src/components/AIAnalysis/ReflexionStreamPanel.vue`):**
+    - Thống kê tỷ lệ học tập: Hiển thị tổng số bài học cùng số lệnh Thắng (`W`) và lệnh Thua (`L`) đã qua kiểm điểm.
+    - Bộ lọc danh mục sai lầm (`ALL`, `SL_TOO_TIGHT`, `EARLY_ENTRY`, `TRADED_DURING_NEWS_SPIKE`, `FOMO_CHASING`, v.v.).
+    - Thanh tìm kiếm ngữ nghĩa bài học kiểm điểm (`searchMemories`) trực tiếp.
+    - Thẻ nhật ký kiểm điểm từng lệnh: Mã vé lệnh (`LỆNH #...`), Kết quả (`WIN` / `LOSS` / `BE`), Lợi nhuận/Lỗ thực tế, Chip phân loại nhóm lỗi, Nguyên nhân gốc rễ, Bài học kinh nghiệm, và Quy tắc tự động đề xuất nạp vào Playbook cho Governor.
+  - **Panel 3: RAG Knowledge Assistant Modal (`frontend/src/components/AIAnalysis/KnowledgeAssistantModal.vue`):**
+    - Hộp thoại tra cứu tri thức chuyên sâu từ cơ sở dữ liệu Vector 1536 chiều của PostgreSQL `pgvector`.
+    - Bộ lọc 4 nhóm tài liệu chuẩn hóa: `SMC` (6 chunks), `PRICE_ACTION` (3 chunks), `MACRO` (3 chunks), `POST_MORTEM` (6 chunks).
+    - Các nút truy vấn nhanh: `Liquidity Sweeps & Turtle Soup`, `BOS vs CHoCH`, `Quy chế tin tức 3 sao USD`, `Xử lý lỗi SL Too Tight`, `Order Block & FVG Discount`.
+    - Hiển thị độ tương đồng Cosine (%) và nội dung chi tiết từng trích đoạn tri thức.
+    - Nút kích hoạt Re-index toàn bộ tri thức ngay từ giao diện.
+  - **Tích Hợp Giao Diện Cockpit & Subheader (`frontend/src/App.vue` & `style.css`):**
+    - Subheader Status Strip: Thêm badge giám sát `GOVERNOR: COMPRESSION_CHOP (1.0% RISK)` với chấm xanh hoạt động hoặc chấm đỏ nhấp nháy khi bị Circuit Breaker ngắt mạch.
+    - Cột phải Cockpit (`right-column`): Thiết kế thanh chuyển đổi 2 chế độ (`column-switcher`): `[ 🧠 AI Brain & Reflexion ]` và `[ 📰 News & Sentiment ]` mang lại trải nghiệm gọn gàng, trực quan và tiện dụng.
+  - **Mở Rộng Trang Chiến Lược (`frontend/src/components/Strategy/StrategyAnalysisView.vue`):**
+    - Bổ sung Tab 6: `6. AI TradingAgents & RAG Brain` minh họa kiến trúc 3 tầng: 3 Specialist Agents $\to$ Strategy Governor $\to$ Hard Guardrails $\to$ Auto Executor.
+    - Tích hợp khung tìm kiếm Sandbox tra cứu RAG Knowledge ngay trong giao diện Chiến lược.
+  - **Cập Nhật WebSocket Pub/Sub (`backend/api/v1/websocket.py`):**
+    - Đăng ký kênh `governor:consensus` vào danh sách kênh truyền phát qua WebSocket `/api/v1/ws/market` để client nhận cập nhật tức thời khi Governor hoàn tất chu kỳ phân tích.
+  - **Kiểm Thử & Triển Khai Hệ Thống:**
+    - Toàn bộ backend test suite: **72/72 tests passed** trong 6.10 giây trên container `trading_backend`.
+    - Đảm bảo 100% cách ly dữ liệu test trong cơ sở dữ liệu (`is_test = TRUE count = 0`).
+    - Frontend production build (`npm run build`) hoàn thành xuất sắc trong 2.20 giây (`1605 modules transformed`).
+    - Container `trading_frontend` đã reload cấu hình Nginx và phân phối bản cập nhật hoàn chỉnh.
+- **Trạng thái:** Hoàn thành toàn diện Task 5. Toàn bộ 5 Task của Phase 03 - Sprint 01 đã HOÀN THÀNH 100%.
+
+---
+
+## 2026-10-10 19:45 +07:00
+
+### [Update Phase 03 - Sprint 01]: Hoàn Thành Task 4 - Strategy Governor Agent & Đóng Vòng Lặp Hard Guardrails (Risk Circuit Breaker, Dual-Tier Sync & Execution Interceptor)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Pydantic Hard Guardrails & An Toàn Tham Số (`backend/ai_engine/strategy_governor.py`):**
+    - Thiết lập Schema `AgentParamAdjustment` với các ngưỡng ranh giới tuyệt đối (Hard Limits) ngăn chặn Agent hallucination làm sai lệch tham số rủi ro:
+      - `risk_per_trade_percent`: Giới hạn nghiêm ngặt trong khoảng $[0.25\%, 1.50\%]$ (mặc định $1.00\%$).
+      - `min_risk_reward_ratio`: Giới hạn tối thiểu $\ge 1.20$, tối đa $\le 3.00$ (mặc định $1.50$).
+      - `atr_sl_multiplier`: Giới hạn nới/thu Stop Loss trong khoảng $[1.00, 3.00]$ (mặc định $1.50$).
+    - Thuật toán `validate_and_apply_hard_guardrails`: Tự động kẹp giá trị (clamp) vào biên độ an toàn trước khi nạp vào hệ thống.
+  - **Hard Circuit Breaker Khóa Lỗ Ngày (Daily Max Drawdown 3.0%):**
+    - Kiểm tra tổng lỗ thực tế trong ngày từ `simulated_orders` (cộng dồn realized PnL và unrealized PnL).
+    - Nếu mức sụt giảm vốn trong ngày $\ge 3.0\%$, hệ thống tự động cưỡng chế khóa quyền giao dịch (`trading_allowed = False`, `halt_reason = "HARD_LIMIT_BREACHED: Daily drawdown (X.XX%) exceeded safety limit (3.0%)"`).
+    - Thắt chặt rủi ro theo chuỗi lỗ liên tiếp: Nếu $\ge 3$ lệnh gần nhất bị thua lỗ liên tiếp, tự động giảm tỷ lệ rủi ro mỗi lệnh xuống $50\%$ (còn $0.5\%$).
+  - **Tổng Hợp Đồng Thuận Đa Agent (Consensus Synthesis Engine):**
+    - Đánh giá Chế độ Thị trường (`market_regime`): Nhận diện trạng thái biến động nến M15 (`COMPRESSION_CHOP`, `TRENDING_EXPANSION`, `HIGH_VOLATILITY_EXPANSION`).
+    - Phản hồi từ Reflexion Memory Engine: Nếu phát hiện $\ge 2$ lệnh lỗ gần nhất do lỗi `SL_TOO_TIGHT`, tự động mở rộng `atr_sl_multiplier` lên $1.8\times - 2.0\times$ để tránh bị quét râu nến.
+    - Tích hợp với News Circuit Breaker: Tự động phát hiện tin tức 3 sao USD để tạm ngừng mở lệnh hoặc nâng tiêu chuẩn R:R.
+  - **Kiến Trúc Đồng Bộ Kép (Dual-Tier Sync Architecture):**
+    - **Tầng Bền Vững (PostgreSQL):** Ghi trực tiếp vào bảng `system_trading_config` duy nhất (`updated_by_agent = "STRATEGY_GOVERNOR"`), giữ vững nguyên tắc Single Source of Truth.
+    - **Tầng Bộ Nhớ Đệm Siêu Tốc (Redis Cache & Pub/Sub):** Cập nhật key `runtime:params:XAUUSD` (<1ms) cho execution worker và broadcast sự kiện `governor:consensus` qua Redis Pub/Sub.
+  - **Đóng Vòng Lặp Thực Thi Tại AutoExecutor (`backend/simulation/auto_executor.py`):**
+    - Interceptor trong `execute_signal`: Tự động kiểm tra cấu hình Governor trước khi phê duyệt bất kỳ lệnh nào.
+    - Ngăn chặn triệt để khi `trading_allowed == False` (`ValueError: Trading halted by Governor: {halt_reason}`).
+    - Ngăn chặn các tín hiệu có tỷ lệ $R:R$ thấp hơn tiêu chuẩn an toàn `min_risk_reward_ratio` của Governor.
+  - **Bộ REST API Router (`backend/api/v1/governor.py`):**
+    - `GET /api/v1/governor/consensus`: Lấy báo cáo phân tích chế độ thị trường và quyết định đồng thuận mới nhất.
+    - `GET /api/v1/governor/runtime-params`: Đọc tham số đang hoạt động tức thì từ Redis Cache / Database.
+    - `POST /api/v1/governor/evaluate`: Kích hoạt vòng lặp đánh giá tức thời và đồng bộ cấu hình.
+    - `POST /api/v1/governor/override`: Cho phép Trader can thiệp thủ công ghi đè tham số (vẫn đi qua bộ lọc Hard Guardrails).
+  - **Quản Lý Vòng Đời & Background Worker (`backend/main.py`):**
+    - Tích hợp `GovernorWorker` chu kỳ 60 giây vào FastAPI `lifespan`.
+    - Đăng ký `governor_router` tại prefix `/api/v1/governor`.
+  - **Kiểm Thử & Bảo Đảm Cách Ly Dữ Liệu (D18 Isolation):**
+    - Xây dựng bộ test `backend/tests/test_strategy_governor.py` (5/5 passed).
+    - Cập nhật fixture `backend/tests/conftest.py` tự động khôi phục cấu hình mặc định an toàn cho `SystemTradingConfig` và xóa Redis cache sau mỗi test.
+    - Toàn bộ backend test suite: **72/72 tests passed** trong 6.80 giây.
+    - Kiểm tra cơ sở dữ liệu: Dữ liệu test hoàn toàn sạch sẽ (`is_test = TRUE count = 0`).
+- **Trạng thái:** Hoàn thành Task 4. Sẵn sàng triển khai Task 5 (Cockpit UI Integration cho Vue 3 Frontend).
+
+---
+
+## 2026-10-10 17:30 +07:00
+
+### [Update Phase 03 - Sprint 01]: Triển Khai TradingAgents LLM Architecture (Hạ tầng Vector DB, RAG Knowledge & Reflexion Memory Engine)
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **Task 1: Hạ Tầng Vector Database & Schema Bộ Nhớ Ký Ức (`pgvector` + Migrations + Models):**
+    - Nâng cấp image PostgreSQL trong `docker-compose.yml` từ `postgres:16-alpine` sang `pgvector/pgvector:pg16` với extension `vector 0.8.7`, bảo toàn nguyên vẹn 100% dữ liệu 10 bảng hiện có trên volume `pgdata`.
+    - Tạo migration `backend/migrations/0005_phase3_agents_memory.sql` và đồng bộ `backend/schema.sql`:
+      - `trading_knowledge`: Bảng tri thức chiến lược với vector 1536 chiều, chỉ mục `HNSW` (`vector_cosine_ops`), `metadata JSONB` và phân loại `category` (`SMC`, `PRICE_ACTION`, `RISK_MANAGEMENT`, `MACRO`, `POST_MORTEM`).
+      - `episodic_trade_memory`: Bảng ký ức kiểm điểm lệnh đóng cho Reflexion Engine với vector 1536 chiều, chỉ mục `HNSW`, liên kết `order_id` (foreign key cascade `simulated_orders`) và cờ phân lập test `is_test BOOLEAN`.
+      - Mở rộng `system_trading_config`: Bổ sung các tham số động cho AI Governor (`atr_sl_multiplier`, `min_risk_reward_ratio`, `trading_allowed`, `halt_reason`, `updated_by_agent`), duy trì làm Single Source of Truth thay vì tạo bảng mới gây phân mảnh.
+    - Khai báo các SQLAlchemy ORM models `TradingKnowledge`, `EpisodicTradeMemory` và cập nhật `SystemTradingConfig` trong `backend/core/models.py`.
+    - Áp dụng chuẩn cách ly dữ liệu D18 trong `backend/tests/conftest.py`: tự động xóa sạch các bản ghi test `is_test == True` và `category == 'TEST'` sau mỗi test run.
+  - **Task 2: RAG Knowledge Ingestion Pipeline & Dịch Vụ Embeddings Đa Tầng (`backend/ai_engine/`):**
+    - Xây dựng 4 tài liệu tri thức chuẩn mực cho Vàng (XAUUSD) trong `backend/knowledge_base/`:
+      - `smc_trading_rules.md`: Dealing Range, 50% Equilibrium, Discount/Premium, Order Block (OB), Fair Value Gap (FVG), BOS vs CHoCH, Liquidity Sweeps, Kill Zones.
+      - `price_action_patterns.md`: Pin Bar hấp thụ tại POI, Engulfing nến, chu kỳ Wyckoff (Accumulation Spring Phase C, Distribution UTAD), Volume Climax.
+      - `macro_risk_playbook.md`: Quy chế tin đỏ 3 sao (CPI, NFP, FOMC), News Circuit Breaker đóng băng 30 phút, điều chỉnh động ATR SL Multiplier $1.5\times \to 2.0-2.5\times$.
+      - `post_mortem_playbook.md`: Định nghĩa taxonomy các nhóm lỗi phổ biến (`EARLY_ENTRY`, `FOMO_CHASING`, `SL_TOO_TIGHT`, `COUNTER_TREND`, `TRADED_DURING_NEWS_SPIKE`) kèm quy tắc khắc phục bắt buộc.
+    - Xây dựng `EmbeddingService` (`backend/ai_engine/embeddings.py`):
+      - Chuẩn vector 1536 chiều. Hỗ trợ đa tầng: gọi OpenAI API (`text-embedding-3-small`) hoặc Gemini API khi có key; tự động fallback sang thuật toán **Deterministic Feature Hashing Vectorizer** (unigram + bigram hashing với multi-seed random projection và L2 normalization) khi chạy offline/local/test.
+      - Tốc độ xử lý < 1ms, độ tương đồng Cosine chuẩn xác, 100% không phụ thuộc mạng hay tốn phí API.
+    - Xây dựng `RAGService` (`backend/ai_engine/rag_service.py`):
+      - Parser tự động tách tài liệu thành 18 knowledge chunks theo tiêu đề H2/H3, trích xuất metadata và lưu vào PostgreSQL.
+      - Hỗ trợ semantic search qua Cosine Distance (`<=>`), lọc theo danh mục và tính `similarity = 1.0 - distance`.
+    - Viết script nạp độc lập `backend/scripts/ingest_knowledge.py` và tự động bootstrap trong `backend/main.py`.
+    - Mở rộng REST API (`backend/api/v1/knowledge.py`): `GET /stats`, `GET /search`, `POST /reindex`.
+  - **Task 3: Động Cơ Tự Học & Kiểm Điểm Lệnh Đóng (Reflexion Engine Service):**
+    - Xây dựng `ReflexionService` (`backend/ai_engine/reflexion_service.py`):
+      - Tự động phân tích post-mortem toàn diện khi lệnh đóng (Win/Loss/Breakeven).
+      - Thu thập bối cảnh tin tức vĩ mô 3 sao và tin Breaking News trong cửa sổ 30 phút quanh lệnh.
+      - Phân loại lỗi chính xác: `SL_TOO_TIGHT`, `EARLY_ENTRY`, `TRADED_DURING_NEWS_SPIKE`, `MANUAL_PANIC_EXIT`, `MARKET_NOISE_OR_NORMAL_VARIANCE`.
+      - Tổng hợp bài học kinh nghiệm và quy tắc mới đề xuất cho Governor.
+      - Vectorize bài học 1536 chiều và lưu trữ vào bảng `episodic_trade_memory`.
+      - Cung cấp tính năng tra cứu Semantic Memory (`search_similar_lessons`) cho các Agent khác tham khảo.
+    - Xây dựng background worker `ReflexionWorker` lắng nghe Redis Pub/Sub kênh `paper:orders`:
+      - Bắt sự kiện `ORDER_CLOSED` từ Paper Trading Engine và tự động kích hoạt Reflexion bất đồng bộ, không làm trễ tiến trình khớp lệnh.
+    - Mở rộng REST API (`backend/api/v1/reflexion.py`):
+      - `GET /api/v1/reflexion/memories`: Danh sách nhật ký học tập gần đây.
+      - `GET /api/v1/reflexion/search`: Tìm kiếm bài học kinh nghiệm tương đồng.
+      - `POST /api/v1/reflexion/analyze/{order_id}`: Kích hoạt phân tích thủ công theo yêu cầu.
+      - `GET /api/v1/reflexion/stats`: Báo cáo thống kê Win/Loss và phân bổ các nhóm sai lầm.
+- **Kiểm thử & Triển khai:**
+  - Toàn bộ backend test suite: **67/67 tests passed in 6.08s** trên container `trading_backend` (bao gồm 3 tests trong `test_agents_memory.py`, 4 tests trong `test_rag_service.py`, 6 tests trong `test_reflexion.py`).
+  - Kiểm tra cơ sở dữ liệu: Dữ liệu test được dọn dẹp sạch sẽ 100% sau mỗi lần chạy test (`is_test = TRUE count = 0`).
+  - Dịch vụ hệ thống: `/health` trả về `200 OK` (PostgreSQL & Redis hoạt động bình thường).
+- **Trạng thái:** Hoàn thành Task 1, Task 2, Task 3. Sẵn sàng triển khai Task 4 (Strategy Governor & Hard Guardrails Closure).
+
+---
+
 ## 2026-10-10 00:30 +07:00
 
 ### [Update Phase 02 - Sprint 03]: Hệ Thống Giám Sát Tính Toàn Vẹn & Tự Động Bù Đắp Khoảng Trống Nến Khi Server Downtime (Candle Gap Healer & Integrity Engine)
