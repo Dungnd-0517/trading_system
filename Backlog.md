@@ -1,5 +1,153 @@
 # Backlog cập nhật
 
+## 2026-10-12 00:40 +07:00
+
+### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 3 - Technical RAG Agent: Ingestion Pipeline & Multi-School Knowledge Retrieval Engine (CMT, ICT, Wyckoff, SMC, Inducement/Trap Trading)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 3 của Phase 03 - Sprint 02 theo tài liệu đặc tả [Architecture_phase_03_sprint_02.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_02.md).
+  - Xây dựng `TechnicalRagAgent` đóng vai trò Viện Hàn Lâm Chiến Lược & Chuyên Gia Phân Tích Cấu Trúc Đa Khung Thời Gian (M15, H1, H4).
+  - Thiết lập kiến trúc tri thức mở rộng (Extensible Multi-School Knowledge System) tích hợp bộ khung học thuật CMT, phương thức ICT, phương pháp Wyckoff, kỹ thuật Inducement & Trap Trading cùng hệ thống vận hành cốt lõi SMC & Price Action.
+  - Xây dựng Ingestion Pipeline hỗ trợ Trader nạp tài liệu động, bộ tự động phân loại trường phái (Auto-Classifier) & gắn nhãn (Auto-Tagging), và công cụ Hợp lưu Đa Trường Phái (Cross-School Confluence Analyzer).
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Xây Dựng Core Service TechnicalRagAgent (`backend/ai_engine/technical_agent.py`):**
+    - Mô hình dữ liệu Pydantic: `KnowledgeSubmissionRequest`, `KnowledgeClassificationResult`, `RetrievedKnowledgeChunk`, `TradeSetupSuggestion`, `TechnicalAnalysisReport`.
+    - **Bộ Tự Động Phân Loại Đa Trường Phái (Auto-Classifier Engine):** Quét từ khóa chuyên biệt nhận diện chính xác 8 trường phái:
+      - `WYCKOFF`: Nhận diện Spring, UTAD, Phase A-E, VSA Effort vs Result, Composite Man.
+      - `ICT`: Nhận diện Judas Swing, Power of 3 (AMD), London/NY Kill Zones, OTE (Fib 62%-79%), FVG.
+      - `INDUCEMENT_TRAPS`: Nhận diện IDM, Engineered Liquidity, Equal Highs/Lows (EQH/EQL), Turtle Soup.
+      - `CMT`: Nhận diện Dow Theory, Support/Resistance Polarity, Intermarket Analysis (XAU vs DXY & Real Yields).
+      - `SMC`: Nhận diện Order Block, BOS, CHoCH, Equilibrium, Discount/Premium.
+      - `PRICE_ACTION`, `MACRO`, `POST_MORTEM`.
+    - **Ingestion Pipeline Đa Chiều:** Vector hóa 1536 chiều bằng `EmbeddingService`, lưu vào PostgreSQL `trading_knowledge` kèm siêu dữ liệu GIN: `sub_categories`, `tags`, `academic_reference`, `core_rule`.
+    - **Truy Vấn Vector Hợp Lưu Ngữ Nghĩa (Contextual Semantic RAG Retrieval):** Truy vấn Cosine Distance qua pgvector hỗ trợ lọc theo trường phái (`school_of_thought`), danh mục (`category`), phân biệt rõ môi trường test (`include_test`).
+    - **Công Cụ Hợp Lưu Đa Trường Phái (Cross-School Confluence Analyzer):** Phân tích 20 nến M15 gần nhất, bóc tách cấu trúc nến (Pinbar, Sweep Lows, ATR), tổng hợp nhận định đồng thời từ 5 trường phái, sinh câu truy vấn Hybrid RAG và đề xuất thiết lập lệnh (`suggested_trade_setup` với Entry, SL, TP, R:R).
+    - **Khởi Tạo Bộ Tri Thức Nền Tảng (Multi-School Knowledge Seeder):** Cung cấp 9 quy tắc chiến lược chuẩn mực nạp sẵn vào DB cho Wyckoff, ICT, Inducement/Traps, CMT và SMC.
+  - **2. Xây Dựng REST API Router Đa Năng (`backend/api/v1/agents_technical.py` & `backend/api/v1/__init__.py`):**
+    - Đăng ký router `/api/v1/agents/technical`:
+      - `GET /api/v1/agents/technical/analysis`: Báo cáo phân tích kỹ thuật hợp lưu đa trường phái thời gian thực.
+      - `POST /api/v1/agents/technical/knowledge/submit`: Nạp tri thức mới từ Trader hoặc hệ thống.
+      - `POST /api/v1/agents/technical/knowledge/classify`: Tự động phân loại trường phái, danh mục và tags cho văn bản thô.
+      - `GET /api/v1/agents/technical/knowledge/schools`: Thống kê số lượng chunks và tỷ lệ kiểm chứng theo từng trường phái.
+      - `GET /api/v1/agents/technical/knowledge/search`: Tìm kiếm tri thức đa trường phái theo vector cosine similarity.
+      - `POST /api/v1/agents/technical/knowledge/seed`: Kích hoạt nạp bộ tri thức nền tảng đa trường phái.
+  - **3. Tích Hợp Vào Strategy Governor (`backend/ai_engine/strategy_governor.py`):**
+    - Governor gọi trực tiếp `technical_rag_agent.generate_technical_analysis(session)`, tích hợp `confidence_score` kỹ thuật và bối cảnh cấu trúc nến vào thuật toán tổng hợp đồng thuận (`synthesize_consensus`).
+  - **4. Bảo Toàn Chuẩn Phân Lập Dữ Liệu Kiểm Thử D18 (`backend/tests/conftest.py`):**
+    - Bổ sung điều kiện dọn dẹp `TradingKnowledge.title.like("TEST %")` bên cạnh `category`, `source_type`, `school_of_thought == "TEST"`.
+    - Bảo đảm 100% không phát sinh bản ghi test rác trong cơ sở dữ liệu.
+  - **5. Xây Dựng Bộ Kiểm Thử Độc Lập Toàn Diện (`backend/tests/test_technical_rag_agent.py`):**
+    - `test_auto_classifier_multi_school`: Kiểm tra độ chính xác của bộ phân loại với 5 trường phái (Wyckoff, ICT, Inducement, CMT, SMC).
+    - `test_multi_school_knowledge_ingestion_and_vector_search`: Kiểm tra nạp tri thức vector 1536d và truy vấn lọc trường phái.
+    - `test_generate_technical_analysis_cross_school_confluence`: Kiểm tra cấu trúc báo cáo hợp lưu đa trường phái và đề xuất setup lệnh.
+    - `test_school_statistics_aggregation`: Kiểm tra tổng hợp thống kê trường phái trong Vector DB.
+    - `test_technical_agent_rest_api_endpoints`: Kiểm tra tích hợp toàn diện cả 5 REST API endpoints.
+- **Kiểm thử & Nghiệm thu:**
+  - Khởi động lại container `trading_backend`, kiểm tra `/health` đạt `200 OK`.
+  - Bộ kiểm thử riêng Task 3: **5/5 tests passed in 2.03s**.
+  - Toàn bộ backend test suite: **86/86 tests passed in 14.21s** (100% pass, tăng từ 81 lên 86 tests).
+  - Seed thành công 9 tri thức nền tảng: `INDUCEMENT_TRAPS: 2, WYCKOFF: 7, SMC: 1, GENERAL: 18, ICT: 2, CMT: 2` (Tổng 32 chunks).
+  - Kiểm tra trực tiếp cơ sở dữ liệu `trading_postgres`: Toàn bộ các bảng đạt số lượng bản ghi test là **0**, duy trì chuẩn phân lập tuyệt đối D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 3. Sẵn sàng triển khai Task 4 (Reflexion Agent: Deep Post-Mortem & Rule Promotion Pipeline).
+
+---
+
+## 2026-10-11 23:40 +07:00
+
+### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 2 - News & Event Agent: Controller, Macro Analyzer & Circuit Breaker Coordinator
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 2 của Phase 03 - Sprint 02 theo tài liệu đặc tả [Architecture_phase_03_sprint_02.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_02.md).
+  - Xây dựng `NewsEventAgent` đóng vai trò bộ điều khiển tin tức trung tâm (News Controller), phân tích định lượng tác động vĩ mô (Macro Analyzer) và điều phối cơ chế ngắt mạch giao dịch (Macro Circuit Breaker Coordinator).
+  - Cung cấp báo cáo phân tích toàn diện `MacroInsightReport` phục vụ trực tiếp cho Strategy Governor Agent đưa ra quyết định đồng thuận an toàn trước các biến động địa chính trị và sự kiện kinh tế vĩ mô.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Xây Dựng NewsEventAgent Core Service (`backend/ai_engine/news_agent.py`):**
+    - Cài đặt mô hình dữ liệu Pydantic mạnh mẽ: `CircuitBreakerDetail`, `BreakingNewsAlert`, `RecommendationForGovernor`, `MacroInsightReport`.
+    - **Macro News Circuit Breaker Coordinator:** Quét các sự kiện kinh tế USD 3 sao trong phạm vi $\pm 30$ phút quanh thời điểm đánh giá; tự động kích hoạt trạng thái ngắt mạch `HALT_ACTIVE`, khóa lệnh mới (`HALT_NEW_ORDERS`), thu hồi rủi ro về 0 (`suggested_risk_scale = 0.0`), và khuyến nghị tăng tốc độ quét định kỳ lên 60 giây.
+    - **Quantitative Surprise Factor Analysis:** Đo lường độ lệch giá trị thực tế so với kỳ vọng $\text{Surprise} = \frac{\text{Actual} - \text{Forecast}}{|\text{Forecast}|}$, chuẩn hóa tác động đối với các chỉ số kinh tế lớn (CPI, NFP, GDP, Retail Sales, Unemployment Rate, FOMC Rate) và xác định tương quan nghịch/thuận đối với Vàng (`XAUUSD`).
+    - **Gold Macro Sentiment Scoring:** Tính toán điểm cảm xúc vĩ mô của Vàng trong dải $[-1.0, +1.0]$, nhận diện thiên hướng thị trường (`BULLISH_GOLD`, `BEARISH_GOLD`, `NEUTRAL`), tương quan đối ứng DXY (`BEARISH_DXY`, `BULLISH_DXY`, `NEUTRAL`), và tự động phát hiện các cảnh báo tin khẩn Breaking News (địa chính trị, chiến tranh, khủng hoảng thanh khoản).
+    - **Tích hợp Redis Event Bus:** Phát sự kiện `agent:news:event` định dạng chuẩn lên kênh Redis khi tạo báo cáo hoặc quét đột biến.
+  - **2. Tích Hợp Chặt Chẽ Với Strategy Governor Agent (`backend/ai_engine/strategy_governor.py`):**
+    - Thay thế logic truy vấn tin tức sơ khởi bằng việc tích hợp trực tiếp `news_event_agent.generate_macro_report()`.
+    - Governor tiếp nhận `MacroInsightReport`, chuyển tiếp trạng thái `active_circuit_breaker`, đưa vào tổng hợp điểm đồng thuận (`consensus_score`), tính toán tỷ lệ phân bổ rủi ro an toàn (`applied_risk_pct`), và ghi lại toàn bộ chi tiết phiếu bầu đa agent vào `agent_decision_logs`.
+  - **3. Cung Cấp REST API Router (`backend/api/v1/agents_news.py` & `backend/api/v1/__init__.py`):**
+    - Đăng ký router `/api/v1/agents/news` với 3 endpoints chuyên dụng:
+      - `GET /api/v1/agents/news/macro-report`: Truy vấn báo cáo vĩ mô tức thời với phân tích sentiment, breaker status, breaking alerts và khuyến nghị.
+      - `POST /api/v1/agents/news/trigger-scan`: Kích hoạt quét khẩn cấp toàn diện tin tức và lịch kinh tế, đồng thời phát sóng WebSocket/Redis.
+      - `GET /api/v1/agents/news/circuit-breaker-status`: Kiểm tra nhanh trạng thái ngắt mạch tin tức thời gian thực phục vụ execution worker và frontend cockpit.
+  - **4. Bảo Toàn Chuẩn Phân Lập Dữ Liệu Kiểm Thử D18 (`backend/tests/conftest.py`):**
+    - Cập nhật hàm dọn dẹp kiểm thử `_clean_test_data_async`: Tự động xóa sạch các bản ghi thử nghiệm trong `economic_events` và `financial_news` có tiền tố `TEST %`.
+    - Đảm bảo 0 bản ghi rác tồn đọng sau các chu kỳ kiểm thử.
+  - **5. Xây Dựng Bộ Kiểm Thử Độc Lập Toàn Diện (`backend/tests/test_news_agent.py`):**
+    - `test_generate_macro_report_default_environment`: Kiểm tra sinh báo cáo chuẩn trong điều kiện bình thường không có tin giật.
+    - `test_generate_macro_report_with_circuit_breaker_active`: Kiểm tra tự động ngắt mạch trong phạm vi $\pm 30$ phút của sự kiện Non-Farm Payrolls 3 sao USD, trả về đề xuất `HALT_NEW_ORDERS`.
+    - `test_generate_macro_report_with_bullish_gold_sentiment`: Kiểm tra nhận diện tin tức Bullish Gold (địa chính trị Trung Đông) và đối ứng Bearish DXY.
+    - `test_calculate_event_surprise_impact`: Kiểm tra công thức định lượng Surprise Factor với các kịch bản CPI tăng/giảm.
+    - `test_news_agent_rest_api_endpoints`: Kiểm tra tích hợp đầy đủ 3 API endpoints thông qua `AsyncClient`.
+- **Kiểm thử & Nghiệm thu:**
+  - Khởi động lại container `trading_backend`, kiểm tra `/health` trả về `200 OK`.
+  - Toàn bộ backend test suite: **81/81 tests passed in 10.28s** (100% pass, tăng từ 76 lên 81 tests).
+  - Kiểm tra trực tiếp cơ sở dữ liệu `trading_postgres`: Toàn bộ các bảng `economic_events`, `financial_news`, `trading_knowledge`, `agent_decision_logs` đều đạt số lượng bản ghi test là **0**, duy trì phân lập tuyệt đối D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 2. Sẵn sàng triển khai Task 3 (Technical RAG Agent: Ingestion Pipeline & Multi-School Knowledge Retrieval Engine).
+
+---
+
+## 2026-10-11 22:50 +07:00
+
+### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 1 - Database Migration 0006, ORM Models & Infrastructure Setup (Agent Decision Memory, Trader Dialogue Hub & Extensible Multi-School Knowledge Schema)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 1 của Phase 03 - Sprint 02 theo tài liệu đặc tả [Architecture_phase_03_sprint_02.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_02.md).
+  - Thiết lập nền tảng cơ sở dữ liệu và mô hình ORM phục vụ hệ sinh thái Đa Agent Tích hợp:
+    1. Bảng lưu trữ nhật ký quyết định đồng thuận của Strategy Governor (`agent_decision_logs`).
+    2. Bảng lưu trữ lịch sử tương tác và đối thoại hai chiều giữa Chủ thể (Trader) và Strategy Governor (`agent_trader_dialogue`).
+    3. Mở rộng bảng `trading_knowledge` hỗ trợ hệ thống tri thức đa trường phái mở rộng (CMT, ICT, Wyckoff, Inducement/Trap Trading, SMC) với cột `school_of_thought` và chỉ mục `GIN (metadata)`.
+  - Bảo đảm nguyên tắc phân lập dữ liệu kiểm thử tuyệt đối D18 (D18 Test Data Isolation).
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Migration Cơ sở Dữ liệu (`backend/migrations/0006_phase3_sprint2_agents.sql`):**
+    - Tạo bảng `agent_decision_logs`:
+      - `id BIGSERIAL PRIMARY KEY`, `timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()`.
+      - Các trường thông số: `market_regime`, `suggested_bias`, `consensus_score`, `technical_confidence`, `macro_sentiment_score`, `active_circuit_breaker`.
+      - Các tham số an toàn áp dụng: `applied_risk_pct`, `applied_sl_mult`, `applied_min_rr`, `trading_allowed`, `halt_reason`.
+      - Báo cáo lý luận: `rationale_summary TEXT`, chi tiết phiếu bầu đa agent: `agent_votes JSONB`, cờ phân lập test: `is_test BOOLEAN`.
+      - Chỉ mục: `idx_agent_decision_logs_timestamp` và `idx_agent_decision_logs_is_test`.
+    - Tạo bảng `agent_trader_dialogue`:
+      - `id BIGSERIAL PRIMARY KEY`, `timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()`.
+      - Định danh người gửi: `sender VARCHAR(32)` (`TRADER` / `GOVERNOR`).
+      - Phân loại thông điệp: `message_type VARCHAR(32)` (`TEXT`, `COMMAND`, `BRIEFING`, `APPROVAL_REQUEST`, `OVERRIDE_CONFIRM`).
+      - Nội dung: `content TEXT`, siêu dữ liệu: `metadata JSONB`, trạng thái phê duyệt: `approval_status VARCHAR(32)` (`PENDING`, `APPROVED`, `REJECTED`, `EXPIRED`).
+      - Cờ phân lập test: `is_test BOOLEAN`.
+      - Chỉ mục: `idx_agent_trader_dialogue_timestamp` và `idx_agent_trader_dialogue_is_test`.
+    - Mở rộng bảng `trading_knowledge`:
+      - Bổ sung các cột: `school_of_thought VARCHAR(64) DEFAULT 'GENERAL'`, `source_type VARCHAR(64) DEFAULT 'SYSTEM_CORE'`, `verified_by_trader BOOLEAN DEFAULT TRUE`, `confidence_score NUMERIC(4, 2) DEFAULT 1.00`.
+      - Tạo các chỉ mục tối ưu: `idx_trading_knowledge_school` (B-Tree), `idx_trading_knowledge_source_type` (B-Tree), `idx_trading_knowledge_metadata` (GIN trên `metadata JSONB`).
+    - Thực thi migration thành công trên container `trading_postgres` (14 bảng quan hệ hoạt động bình thường).
+  - **2. Đồng bộ Schema Toàn Cục (`backend/schema.sql`):**
+    - Cập nhật định nghĩa bảng `trading_knowledge`, `agent_decision_logs`, `agent_trader_dialogue` và các chỉ mục GIN/B-Tree tương ứng.
+  - **3. Khai Báo SQLAlchemy ORM Models (`backend/core/models.py`):**
+    - Cập nhật model `TradingKnowledge` với đầy đủ các thuộc tính mở rộng và chỉ mục GIN.
+    - Khai báo model `AgentDecisionLog` kế thừa `Base` với đầy đủ mapping cột và index.
+    - Khai báo model `AgentTraderDialogue` kế thừa `Base` với đầy đủ mapping cột và index.
+  - **4. Bảo Toàn Chuẩn Cách Ly Dữ Liệu Kiểm Thử D18 (`backend/tests/conftest.py`):**
+    - Cập nhật hàm `_clean_test_data_async`: Tự động xóa sạch các bản ghi test `is_test = True` trên `agent_decision_logs`, `agent_trader_dialogue`.
+    - Tự động xóa các tri thức test trong `trading_knowledge` có `category = 'TEST'`, `source_type = 'TEST'` hoặc `school_of_thought = 'TEST'`.
+    - Duy trì khôi phục số dư `SimulationAccount` về $10,000.00 và `SystemTradingConfig` về mặc định an toàn.
+  - **5. Xây Dựng Bộ Kiểm Thử Unit Test (`backend/tests/test_agents_models_sprint2.py`):**
+    - `test_agent_decision_log_model`: Kiểm tra lưu trữ, JSONB `agent_votes`, kiểu số `Numeric` và truy vấn index.
+    - `test_agent_trader_dialogue_model`: Kiểm tra luồng lệnh `COMMAND` từ Trader và phản hồi `OVERRIDE_CONFIRM` từ Governor.
+    - `test_trading_knowledge_multi_school_and_metadata`: Kiểm tra nạp tri thức đa trường phái (Wyckoff, ICT) và truy vấn metadata GIN index.
+    - `test_d18_isolation_clean_verification`: Xác thực 100% dữ liệu test được dọn dẹp sạch sẽ sau test run.
+- **Kiểm thử & Triển khai:**
+  - Khởi động lại container `trading_backend`, kiểm tra `/health` trả về `200 OK` (PostgreSQL & Redis kết nối hoàn hảo).
+  - Chạy toàn bộ backend test suite: **76/76 tests passed in 7.73s** (0 lỗi).
+  - Kiểm tra trực tiếp cơ sở dữ liệu: Dữ liệu test hoàn toàn sạch sẽ (`is_test = TRUE count = 0`).
+- **Trạng thái:** Hoàn thành xuất sắc Task 1. Sẵn sàng bước sang Task 2 (News & Event Agent Service: Controller, Macro Analyzer & Circuit Breaker Coordinator).
+
+---
+
 ## 2026-10-11 01:00 +07:00
 
 ### [Update Phase 03 - Sprint 01]: Hoàn Thiện & Nâng Cấp Toàn Diện Hệ Thống Backtest Lab (Mở Rộng Tham Số Đầu Vào, Hiển Thị Thông Số Nến, Nhật Ký Chi Tiết & Chuẩn Hóa Khối Lượng 1% Vốn)

@@ -10,8 +10,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_engine.news_agent import news_event_agent
 from ai_engine.news_guard import news_circuit_breaker
 from ai_engine.reflexion_service import reflexion_service
+from ai_engine.technical_agent import technical_rag_agent
 from core.database import session_factory
 from core.models import (
     EpisodicTradeMemory,
@@ -201,19 +203,16 @@ class StrategyGovernor:
         """
         now = datetime.now(timezone.utc)
 
-        # 1. Thu thập dữ liệu News Agent
-        is_news_halt, news_reason, _ = await news_circuit_breaker.is_circuit_active(
-            session, now
+        # 1. Thu thập dữ liệu News Agent từ NewsEventAgent
+        macro_report = await news_event_agent.generate_macro_report(
+            session=session, target_time=now, broadcast=False
         )
+        is_news_halt = macro_report.active_circuit_breaker
+        news_reason = macro_report.recommendation_for_governor.reason
+        sentiment_score = macro_report.macro_sentiment_score
 
-        news_stmt = (
-            select(func.avg(FinancialNews.sentiment_score))
-            .where(FinancialNews.published_at >= now - timedelta(hours=3))
-        )
-        avg_sentiment = (await session.execute(news_stmt)).scalar()
-        sentiment_score = float(avg_sentiment) if avg_sentiment is not None else 0.0
-
-        # 2. Thu thập dữ liệu Technical Agent
+        # 2. Thu thập dữ liệu Technical Agent từ TechnicalRagAgent
+        tech_report = await technical_rag_agent.generate_technical_analysis(session=session)
         regime, current_atr = await self.evaluate_market_regime(session)
 
         # 3. Thu thập dữ liệu Reflexion Agent
@@ -234,6 +233,8 @@ class StrategyGovernor:
         halt_reason = None
         bias = "NEUTRAL"
         confidence = 0.80
+        if tech_report and tech_report.confidence_score:
+            confidence = round((confidence + tech_report.confidence_score) / 2, 2)
         reasons: list[str] = []
 
         # Tác động từ News

@@ -12,6 +12,9 @@ async def get_session():
         yield session
 
 
+get_db = get_session
+
+
 async def ping_database() -> bool:
     try:
         async with engine.connect() as connection:

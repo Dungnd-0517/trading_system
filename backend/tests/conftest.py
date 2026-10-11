@@ -7,6 +7,8 @@ from sqlalchemy import delete
 
 from core.database import engine, session_factory
 from core.models import (
+    AgentDecisionLog,
+    AgentTraderDialogue,
     EpisodicTradeMemory,
     SimulatedOrder,
     SimulationAccount,
@@ -29,15 +31,31 @@ async def _clean_test_data_async():
         pass
 
     async with session_factory() as session:
-        # 1. Xóa các ký ức trade test và tri thức test
-        await session.execute(delete(EpisodicTradeMemory).where(EpisodicTradeMemory.is_test.is_(True)))
-        await session.execute(delete(TradingKnowledge).where(TradingKnowledge.category == "TEST"))
+        # 1. Xóa các bản ghi Agent Decision Logs & Trader Dialogue test
+        await session.execute(delete(AgentDecisionLog).where(AgentDecisionLog.is_test.is_(True)))
+        await session.execute(delete(AgentTraderDialogue).where(AgentTraderDialogue.is_test.is_(True)))
 
-        # 2. Xóa tất cả các lệnh test
+        # 2. Xóa các ký ức trade test và tri thức test
+        await session.execute(delete(EpisodicTradeMemory).where(EpisodicTradeMemory.is_test.is_(True)))
+        await session.execute(
+            delete(TradingKnowledge).where(
+                (TradingKnowledge.category == "TEST")
+                | (TradingKnowledge.source_type == "TEST")
+                | (TradingKnowledge.school_of_thought == "TEST")
+                | (TradingKnowledge.title.like("TEST %"))
+            )
+        )
+
+        # 3. Xóa tất cả các lệnh test
         await session.execute(delete(SimulatedOrder).where(SimulatedOrder.is_test.is_(True)))
 
-        # 3. Xóa tất cả các tín hiệu test
+        # 4. Xóa tất cả các tín hiệu test
         await session.execute(delete(StrategySignal).where(StrategySignal.is_test.is_(True)))
+
+        # 5. Xóa các sự kiện và tin tức test
+        from core.models import EconomicEvent, FinancialNews
+        await session.execute(delete(EconomicEvent).where(EconomicEvent.title.like("TEST %")))
+        await session.execute(delete(FinancialNews).where(FinancialNews.title.like("TEST %")))
 
         # 4. Khôi phục số dư tài khoản simulation_account về ban đầu $10,000.00 nếu có test lệnh
         acc = await session.get(SimulationAccount, 1)
