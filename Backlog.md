@@ -1,5 +1,44 @@
 # Backlog cập nhật
 
+## 2026-10-13 00:54 +07:00
+
+### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 4 - Global Pop-up Chat Widget Xuyên Suốt Toàn Giao Diện
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 4 của Phase 03 - Sprint 03 theo tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) và các quyết định kiến trúc D26 (Dual-Surface Real-time Synchronized Architecture), D27 (Agent Persona Delegation & Context Injection).
+  - Xây dựng thành phần giao diện toàn cục **Global Pop-up Chat Widget (`GlobalChatWidget.vue`)** được nhúng trực tiếp tại cấp độ gốc `App.vue`:
+    1. **Chế độ Thu gọn (Floating Action Pill - FAB):** Nút nổi sang trọng bo tròn tại góc dưới bên phải màn hình (`bottom: 24px, right: 24px`), hiện diện liên tục trên mọi màn hình (Trading Cockpit, Orders History, News & Events, Strategy & Analysis, Backtest Lab, Settings).
+    2. **Hiệu ứng Thở Nhẹ (Pulsing Glow Ring):** Vành hào quang viền phát sáng nhẹ nhàng tạo điểm nhấn hiện đại.
+    3. **Unread Badge & Toast Preview:** Hiển thị số lượng tin nhắn chưa đọc màu đỏ tươi (`unreadCount`) và tự động trượt ra bong bóng xem trước (Toast Slide-in) khi có tin nhắn mới hoặc yêu cầu phê duyệt lệnh (`APPROVAL_REQUEST`), hỗ trợ bấm vào để mở ngay widget.
+    4. **Chế độ Mở rộng (Expanded Mini-Popup Console):** Cửa sổ nổi kích thước chuẩn $400\text{px} \times 550\text{px}$ với hiệu ứng kính mờ tối (Dark Glassmorphism) và bóng đổ đa lớp sang trọng.
+    5. **Duyệt Lệnh Khẩn Cấp (Interactive Action Card):** Hiển thị trực tiếp thông số lệnh và 2 nút bấm tức thì `[ APPROVE ]` (Xanh) và `[ REJECT ]` (Đỏ) để Trader có thể duyệt lệnh từ bất kỳ màn hình nào mà không cần chuyển tab.
+    6. **Phím Tắt Chỉ Thị Nhanh (Quick Commands Strip):** Báo cáo điều hành, Hạ rủi ro 0.5%, Nới SL 2.0x ATR, Tạm dừng / Tiếp tục giao dịch.
+    7. **Chuyển Đổi Nhanh Sang Full Studio:** Nút điều hướng tức thì `[ Mở Toàn Màn Hình Trong Strategy Studio ]` tự động chuyển sang tab Strategy & Analysis với đúng phiên hội thoại đang làm việc.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Component Global Pop-up Widget ([`frontend/src/components/AIAnalysis/GlobalChatWidget.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/GlobalChatWidget.vue)):**
+    - Trạng thái FAB collapsed bo tròn 28px, hiệu ứng thở nhẹ `fab-glow-ring`, icon linh hoạt `BrainCircuit` / `Sparkles`, nhãn `AI Studio` và badge đếm số `unreadCount`.
+    - Toast Preview nổi phía trên FAB tự động biến mất sau 6 giây, bấm vào toast mở thẳng cuộc trò chuyện tương ứng.
+    - Mini Console Header: Avatar Strategy Governor, trạng thái runtime (`ACTIVE` xanh / `HALTED` đỏ), tham số rủi ro % vốn, nút Maximize sang Studio và nút Minimize.
+    - Mini Message Stream: Phân luồng Trader vs Agent, markdown gọn gàng, cuộn tự động xuống tin mới nhất, và hiệu ứng AI Thinking animation.
+    - Thẻ Interactive Approval Card: Hiển thị yêu cầu phê duyệt lệnh mở với nút bấm Phê duyệt / Từ chối tức thời.
+    - Mini Composer & Quick Commands: Thanh lệnh nhanh 4 nút, ô nhập text gọn gàng gửi bằng Enter và nút chuyển nhanh sang Full Studio.
+  - **2. Mở Rộng Quản Lý Widget & Toast Trong Store ([`frontend/src/stores/chatStore.js`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/stores/chatStore.js)):**
+    - Bổ sung `isWidgetOpen`, `latestToast`, `_toastTimer`.
+    - Các actions: `openWidget()`, `closeWidget()`, `toggleWidget()`, `showToast()`, `dismissToast()`.
+    - Tự động kích hoạt Toast và tăng `unreadCount` khi nhận socket message `chat.message.new` trong lúc widget đang đóng hoặc đang xem cuộc trò chuyện khác.
+  - **3. Nhúng Toàn Cục Vào Giao Diện Gốc ([`frontend/src/App.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/App.vue)):**
+    - Đăng ký và mount component `<GlobalChatWidget @open-studio="openFullChatStudio" />` ngay trên footer.
+    - Điều phối sự kiện `@open-studio` chuyển tab sang `activeTab = 'strategy'` và kích hoạt sub-tab `strategyInitialSection = 'chat-studio'`.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Biên dịch Frontend (`npm run build`): **✓ 1612 modules transformed, built in 2.57s (Zero errors/warnings)**.
+  - Toàn bộ backend test suite: **108/108 tests passed in 15.65s (100% Pass Rate)**.
+  - Bảo toàn tuyệt đối chuẩn phân lập dữ liệu kiểm thử D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 4. Sẵn sàng triển khai Task 5 (Động Cơ Đồng Bộ Real-time Hai Chiều - Unified Pinia State & Event Bus).
+
+---
+
 ## 2026-10-13 00:38 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 3 - Dedicated Multi-Conversation Chat Studio Component (Gemini Style) trong Tab Strategy & Analysis

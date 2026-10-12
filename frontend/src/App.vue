@@ -33,6 +33,7 @@ import GovernorConsensusPanel from './components/AIAnalysis/GovernorConsensusPan
 import ReflexionStreamPanel from './components/AIAnalysis/ReflexionStreamPanel.vue'
 import KnowledgeAssistantModal from './components/AIAnalysis/KnowledgeAssistantModal.vue'
 import GovernorDialogueConsole from './components/AIAnalysis/GovernorDialogueConsole.vue'
+import GlobalChatWidget from './components/AIAnalysis/GlobalChatWidget.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
 import { agentStore } from './stores/agentStore'
@@ -52,6 +53,11 @@ let clockTimer
 let sourceTimer
 let agentTimer
 let socket
+
+function openFullChatStudio() {
+  activeTab.value = 'strategy'
+  strategyInitialSection.value = 'chat-studio'
+}
 
 function openFullCalendar() {
   activeTab.value = 'news'
@@ -484,6 +490,11 @@ onUnmounted(() => {
     <KnowledgeAssistantModal
       :show="showKnowledgeModal"
       @close="showKnowledgeModal = false"
+    />
+
+    <!-- GLOBAL FLOATING CHAT & HITL WIDGET (ALL SCREENS) -->
+    <GlobalChatWidget
+      @open-studio="openFullChatStudio"
     />
 
     <footer class="footer">

@@ -31,6 +31,42 @@ export const chatStore = reactive({
   showArchived: false,
   unreadCount: 0,
   isWidgetOpen: false,
+  latestToast: null,
+  _toastTimer: null,
+
+  showToast(payload) {
+    if (this._toastTimer) clearTimeout(this._toastTimer)
+    this.latestToast = payload
+    this._toastTimer = setTimeout(() => {
+      this.latestToast = null
+    }, 6000)
+  },
+
+  dismissToast() {
+    if (this._toastTimer) clearTimeout(this._toastTimer)
+    this.latestToast = null
+  },
+
+  openWidget(conversationId = null) {
+    this.isWidgetOpen = true
+    this.unreadCount = 0
+    this.dismissToast()
+    if (conversationId && conversationId !== this.activeConversationId) {
+      this.selectConversation(conversationId)
+    }
+  },
+
+  closeWidget() {
+    this.isWidgetOpen = false
+  },
+
+  toggleWidget() {
+    if (this.isWidgetOpen) {
+      this.closeWidget()
+    } else {
+      this.openWidget()
+    }
+  },
 
   // Getters tính toán
   get activeConversation() {
@@ -424,13 +460,34 @@ export const chatStore = reactive({
         this.conversations[convIdx].message_count = (this.conversations[convIdx].message_count || 0) + 1
       }
 
-      // Nếu không đang xem cuộc trò chuyện này, tăng unread count
-      if (this.activeConversationId !== convId) {
+      // Nếu widget đóng hoặc không đang xem cuộc trò chuyện này, tăng unread count và kích hoạt Toast
+      if (!this.isWidgetOpen || this.activeConversationId !== convId) {
         this.unreadCount += 1
+        const agentMsg = event.agent_message
+        if (agentMsg) {
+          const isApproval = agentMsg.message_type === 'APPROVAL_REQUEST'
+          this.showToast({
+            title: isApproval ? '⚠️ YÊU CẦU PHÊ DUYỆT LỆNH' : `🤖 ${agentMsg.sender || 'AI Agent'} Phản Hồi`,
+            content: agentMsg.content ? (agentMsg.content.length > 90 ? agentMsg.content.substring(0, 87) + '...' : agentMsg.content) : '',
+            sender: agentMsg.sender || 'GOVERNOR',
+            isApproval,
+            conversationId: convId,
+          })
+        }
       }
     }
 
-    // 2. Phiên trò chuyện được cập nhật
+    // 2. Phản hồi phê duyệt lệnh được cập nhật
+    if (event.type === 'governor.approval_response' && event.dialogue_id) {
+      if (this.activeConversationId && this.messagesMap[this.activeConversationId]) {
+        const msg = this.messagesMap[this.activeConversationId].find((m) => m.id === event.dialogue_id)
+        if (msg) {
+          msg.approval_status = event.status
+        }
+      }
+    }
+
+    // 3. Phiên trò chuyện được cập nhật
     if (event.type === 'chat.session.updated' && event.conversation) {
       const convIdx = this.conversations.findIndex((c) => c.id === event.conversation.id)
       if (convIdx !== -1) {
