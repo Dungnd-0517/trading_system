@@ -1,5 +1,63 @@
 # Backlog cập nhật
 
+## 2026-10-13 00:15 +07:00
+
+### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 2 - Backend Chat Service, Multi-Session Management & REST API Router (Multi-Agent Routing, Auto-Titling, Market Context Snapshot & D18 Isolation)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 2 của Phase 03 - Sprint 03 theo tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) và các quyết định kiến trúc D25 (Multi-Conversation Session Model), D26 (Dual-Surface Real-time Synchronized Architecture), D27 (Agent Persona Delegation & Context Injection).
+  - Xây dựng tầng dịch vụ nghiệp vụ tập trung `ChatService` và bộ điều phối REST API Router `/api/v1/chat/*` hoàn chỉnh:
+    1. Quản lý vòng đời hội thoại đa phiên phong cách Gemini: Tạo, đọc, cập nhật (đổi tên, ghim, lưu trữ), xóa CASCADE, phân trang, đếm tin nhắn và preview tin nhắn gần nhất.
+    2. Thuật toán tự động sinh tiêu đề thông minh (`auto_title_conversation`) từ nội dung câu hỏi đầu tiên (10 - 40 ký tự) mà không ghi đè tiêu đề người dùng đã tùy chỉnh.
+    3. Phân luồng và điều phối thông minh đa Agent Persona: `GOVERNOR` (CRO & Điều hành chiến lược), `TECHNICAL` (Technical RAG Specialist - Wyckoff/ICT/SMC/CMT), `NEWS` (Vĩ mô & Circuit Breaker), `REFLEXION` (Ký ức kiểm điểm & Taxonomy sai lầm), `COUNCIL` (Nghị quyết đồng thuận đa Agent).
+    4. Tiêm snapshot ngữ cảnh thị trường động (`attach_market_context`): Nến XAUUSD M15, tham số rủi ro vận hành, điểm cảm xúc vĩ mô và trạng thái Circuit Breaker.
+    5. Xuất bản toàn bộ cuộc trò chuyện dưới dạng tài liệu Markdown chuẩn mực (`/export`) và JSON.
+    6. Tương tác phê duyệt lệnh trực tiếp (`/respond-approval`) trên thẻ Interactive Card.
+    7. Phát sóng sự kiện thời gian thực qua Redis Pub/Sub kênh `agent:trader:dialogue` và WebSocket `/api/v1/ws/market`.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Backend Chat Service (`backend/ai_engine/chat_service.py`):**
+    - `create_conversation`: Khởi tạo phiên trò chuyện mới, gán `agent_target` mặc định, phát sóng sự kiện `chat.session.created`.
+    - `get_conversations`: Lấy danh sách phiên hội thoại, sắp xếp ưu tiên phiên được ghim (`is_pinned` DESC) và mốc cập nhật gần nhất (`updated_at` DESC), kèm theo số lượng tin nhắn và preview tin nhắn gần nhất.
+    - `get_conversation`: Chi tiết cuộc trò chuyện kèm message count và last message preview.
+    - `update_conversation`: Đổi tiêu đề, ghim (`is_pinned`), lưu trữ (`is_archived`), thay đổi persona mặc định, phát sóng sự kiện `chat.session.updated`.
+    - `delete_conversation`: Xóa phiên và giải phóng toàn bộ tin nhắn liên quan (CASCADE), phát sóng `chat.session.deleted`.
+    - `auto_title_conversation`: Tự động trích xuất tiêu đề ngắn gọn súc tích từ câu hỏi đầu tiên.
+    - `get_messages`: Lấy lịch sử hội thoại trong session theo thứ tự thời gian tăng dần.
+    - `get_market_context_snapshot`: Thu thập nến M15 gần nhất của XAUUSD, tham số rủi ro runtime từ Strategy Governor, và điểm cảm xúc vĩ mô từ News Agent.
+    - `send_message`: Điều phối câu hỏi của Trader tới đúng Agent Persona (`GOVERNOR`, `TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`), liên kết ID hai chiều, tiêm snapshot ngữ cảnh nếu yêu cầu, lưu trữ CSDL và phát sóng real-time `chat.message.new` qua Redis Pub/Sub.
+    - `export_conversation_markdown`: Xuất khẩu nhật ký đối thoại định dạng Markdown chuyên nghiệp với đầy đủ định danh người gửi, nhãn Agent và mốc thời gian UTC.
+  - **2. Bộ Điều Phối REST API Router (`backend/api/v1/chat.py`):**
+    - `GET /api/v1/chat/conversations`: Danh sách phiên chat có phân trang và lọc `include_archived`.
+    - `POST /api/v1/chat/conversations`: Tạo phiên trò chuyện mới.
+    - `GET /api/v1/chat/conversations/{id}`: Xem chi tiết phiên chat.
+    - `PATCH /api/v1/chat/conversations/{id}`: Cập nhật thông tin phiên chat (đổi tên, ghim, lưu trữ).
+    - `DELETE /api/v1/chat/conversations/{id}`: Xóa phiên chat.
+    - `GET /api/v1/chat/conversations/{id}/messages`: Lấy luồng tin nhắn thread.
+    - `POST /api/v1/chat/conversations/{id}/messages`: Gửi tin nhắn và nhận phản hồi đa persona.
+    - `GET /api/v1/chat/conversations/{id}/export`: Tải file Markdown hoặc nhận payload JSON.
+    - `POST /api/v1/chat/respond-approval`: Phê duyệt / từ chối đề xuất mở lệnh của Governor trực tiếp từ giao diện chat.
+    - `GET /api/v1/chat/market-context`: Lấy snapshot thị trường phục vụ chat context.
+    - `GET /api/v1/chat/personas`: Danh sách 5 AI Agent Personas với mô tả chi tiết, avatar và vai trò nghiệp vụ.
+  - **3. Đăng Ký Router & WebSocket (`backend/api/v1/__init__.py` & `backend/api/v1/websocket.py`):**
+    - Gắn `chat_router` vào FastAPI application tại tiền tố `/api/v1/chat` với thẻ `chat`.
+    - Kênh `agent:trader:dialogue` đã được đăng ký lắng nghe trong WebSocket `/api/v1/ws/market`.
+  - **4. Bộ Kiểm Thử Tích Hợp Độc Lập (`backend/tests/test_chat_service_sprint3.py`):**
+    - `test_conversation_lifecycle_crud`: Kiểm thử toàn bộ vòng đời CRUD phiên hội thoại (tạo mới, sắp xếp ưu tiên pinned, cập nhật, chi tiết, lọc archived, xóa CASCADE).
+    - `test_auto_title_conversation`: Kiểm thử trích xuất tiêu đề tự động và chống ghi đè tiêu đề người dùng.
+    - `test_multi_persona_routing_and_messaging`: Kiểm thử phân luồng thành công đến cả 5 Agent Personas (`GOVERNOR`, `TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`).
+    - `test_market_context_snapshot_and_injection`: Kiểm thử chụp snapshot thị trường M15 và tiêm vào phản hồi của Agent.
+    - `test_markdown_export`: Kiểm thử xuất bản tài liệu Markdown chuẩn mực.
+    - `test_chat_rest_api_endpoints`: Kiểm thử toàn diện 11 endpoint REST API qua `httpx.AsyncClient`.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Bộ kiểm thử Task 2 (`test_chat_service_sprint3.py`): **6/6 tests passed in 2.87s**.
+  - Toàn bộ backend test suite: **108/108 tests passed in 18.67s** (100% pass rate, tăng từ 102 lên 108 tests).
+  - Kiểm tra tính phân lập dữ liệu D18: `ChatConversation=0, AgentTraderDialogue=0` bản ghi test còn lại trong cơ sở dữ liệu sau khi chạy test suite.
+- **Trạng thái:** Hoàn thành xuất sắc Task 2. Sẵn sàng triển khai Task 3 (Dedicated Multi-Conversation Chat Studio Component Gemini Style trong Strategy & Analysis).
+
+---
+
 ## 2026-10-12 21:30 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 1 - Database Migration 0007, ORM Models & Infrastructure Setup (Chat Conversations, Multi-Session Schema & D18 Isolation)

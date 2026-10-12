@@ -558,6 +558,8 @@ class StrategyGovernor:
         message: str,
         session: AsyncSession,
         is_test: bool = False,
+        conversation_id: int | None = None,
+        client_msg_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Kênh đối thoại hai chiều Trader - Governor:
@@ -638,6 +640,9 @@ class StrategyGovernor:
         # 2. Lưu tin nhắn của Trader vào agent_trader_dialogue
         is_command = bool(risk_match or atr_match or rr_match or is_pause or is_resume or is_briefing_request)
         trader_msg = AgentTraderDialogue(
+            conversation_id=conversation_id,
+            client_msg_id=client_msg_id,
+            target_agent="GOVERNOR",
             sender="TRADER",
             message_type="COMMAND" if is_command else "TEXT",
             content=message_clean,
@@ -807,6 +812,8 @@ class StrategyGovernor:
 
         # 7. Ghi nhận phản hồi của Governor vào agent_trader_dialogue
         gov_msg = AgentTraderDialogue(
+            conversation_id=conversation_id,
+            target_agent="GOVERNOR",
             sender="GOVERNOR",
             message_type=msg_type,
             content=reply_text,
@@ -829,14 +836,17 @@ class StrategyGovernor:
                 "agent:trader:dialogue",
                 json.dumps({
                     "type": "agent.dialogue.message",
+                    "conversation_id": conversation_id,
                     "trader_message": {
                         "id": trader_msg.id,
+                        "conversation_id": conversation_id,
                         "sender": trader_msg.sender,
                         "content": trader_msg.content,
                         "timestamp": trader_msg.timestamp.isoformat(),
                     },
                     "governor_message": {
                         "id": gov_msg.id,
+                        "conversation_id": conversation_id,
                         "sender": gov_msg.sender,
                         "message_type": gov_msg.message_type,
                         "content": gov_msg.content,
