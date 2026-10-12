@@ -36,12 +36,14 @@ import GovernorDialogueConsole from './components/AIAnalysis/GovernorDialogueCon
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
 import { agentStore } from './stores/agentStore'
+import { chatStore } from './stores/chatStore'
 import { connectMarketStream } from './services/websocket'
 
 const activeTab = ref('cockpit')
 const rightPanelTab = ref('agents')
 const showKnowledgeModal = ref(false)
 const calendarInitialSubTab = ref('calendar')
+const strategyInitialSection = ref(null)
 const streamConnected = ref(false)
 const showVolume = ref(true)
 const now = ref(new Date())
@@ -86,6 +88,7 @@ onMounted(() => {
   marketStore.startPolling(2500)
   orderStore.refresh()
   agentStore.refreshAll()
+  chatStore.init()
   socket = connectMarketStream(
     (event) => {
       if (event.type === 'chart.update') {
@@ -105,7 +108,11 @@ onMounted(() => {
       if (event.type === 'circuit_breaker.update') orderStore.applyCircuitBreakerUpdate(event)
       if (event.type === 'governor.update') agentStore.applyGovernorUpdate(event)
       if (event.type === 'agent.dialogue.message') agentStore.applyDialogueMessage(event)
-      if (event.type === 'governor.approval_response') agentStore.refreshDialogueHistory()
+      if (event.type === 'governor.approval_response') {
+        agentStore.refreshDialogueHistory()
+        chatStore.handleIncomingSocketEvent(event)
+      }
+      if (event.type?.startsWith('chat.')) chatStore.handleIncomingSocketEvent(event)
       if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
     },
     (value) => {
@@ -459,6 +466,7 @@ onUnmounted(() => {
       :timeframe="marketStore.timeframe"
       :news="orderStore.news"
       :events="orderStore.events"
+      :initial-section="strategyInitialSection"
       @navigate-cockpit="activeTab = 'cockpit'"
     />
 

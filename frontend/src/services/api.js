@@ -26,6 +26,24 @@ async function put(path, body = {}) {
   return response.json()
 }
 
+async function patch(path, body = {}) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`API ${response.status}`)
+  return response.json()
+}
+
+async function del(path) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) throw new Error(`API ${response.status}`)
+  return response.json()
+}
+
 export const fetchHealth = () => fetch('/health').then((response) => response.json())
 export const fetchHistory = (symbol = 'XAUUSD', timeframe = 'M1') =>
   get(`/market/history?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=500`)
@@ -95,4 +113,22 @@ export const fetchReflexionFeedbackReport = (orderId) =>
 export const fetchKnowledgeStats = () => get('/knowledge/stats')
 export const searchKnowledge = (query, category = '', limit = 5) =>
   get(`/knowledge/search?query=${encodeURIComponent(query)}${category ? `&category=${encodeURIComponent(category)}` : ''}&limit=${limit}`)
-export const reindexKnowledge = () => post('/knowledge/reindex')
+export const reindexKnowledge = () => post('/knowledge/reindex')
+
+// Phase 03 Sprint 03: Multi-Conversation Chat & HITL Studio
+export const fetchConversations = (includeArchived = false, limit = 50, offset = 0) =>
+  get(`/chat/conversations?include_archived=${includeArchived}&limit=${limit}&offset=${offset}`)
+export const createConversation = (data = {}) => post('/chat/conversations', data)
+export const fetchConversation = (id) => get(`/chat/conversations/${id}`)
+export const updateConversation = (id, data = {}) => patch(`/chat/conversations/${id}`, data)
+export const deleteConversation = (id) => del(`/chat/conversations/${id}`)
+export const fetchConversationMessages = (id, limit = 100, offset = 0) =>
+  get(`/chat/conversations/${id}/messages?limit=${limit}&offset=${offset}`)
+export const sendConversationMessage = (id, data = {}) =>
+  post(`/chat/conversations/${id}/messages`, data)
+export const exportConversation = (id, format = 'markdown') =>
+  get(`/chat/conversations/${id}/export?format=${format}`)
+export const respondChatApproval = (dialogueId, action) =>
+  post('/chat/respond-approval', { dialogue_id: dialogueId, action })
+export const fetchChatMarketContext = () => get('/chat/market-context')
+export const fetchAgentPersonas = () => get('/chat/personas')

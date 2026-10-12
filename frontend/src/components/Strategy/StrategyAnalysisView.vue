@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Activity,
   AlertTriangle,
@@ -27,8 +27,11 @@ import {
   ShieldAlert,
   Sparkles,
   BookMarked,
+  MessageSquare,
 } from 'lucide-vue-next'
 import { agentStore } from '../../stores/agentStore'
+import { chatStore } from '../../stores/chatStore'
+import AIChatStudioView from '../AIAnalysis/AIChatStudioView.vue'
 
 const props = defineProps({
   candles: { type: Array, default: () => [] },
@@ -36,12 +39,17 @@ const props = defineProps({
   timeframe: { type: String, default: 'M1' },
   news: { type: Array, default: () => [] },
   events: { type: Array, default: () => [] },
+  initialSection: { type: String, default: null },
 })
 
 const emit = defineEmits(['navigate-cockpit'])
 
 // Active tab inside Strategy view
-const activeSection = ref('pipeline') // 'pipeline' | 'concepts' | 'sessions' | 'risk' | 'macro' | 'agents' | 'checklist'
+const activeSection = ref(props.initialSection || 'pipeline') // 'pipeline' | 'concepts' | 'sessions' | 'risk' | 'macro' | 'agents' | 'checklist' | 'chat-studio'
+
+watch(() => props.initialSection, (newSec) => {
+  if (newSec) activeSection.value = newSec
+})
 
 const agentSearchQuery = ref('')
 const agentSelectedCat = ref('')
@@ -199,6 +207,16 @@ const calculatedRiskMoney = computed(() => {
       >
         <Target :size="14" />
         <span>7. Checklist Vào lệnh ({{ completedChecks }}/{{ checklist.length }})</span>
+      </button>
+
+      <button
+        role="tab"
+        :class="['subnav-btn', 'subnav-studio-btn', { active: activeSection === 'chat-studio' }]"
+        @click="activeSection = 'chat-studio'"
+      >
+        <MessageSquare :size="14" />
+        <span>8. AI Chat Studio (Gemini Multi-Session)</span>
+        <span class="studio-live-badge">GEMINI</span>
       </button>
     </nav>
 
@@ -811,10 +829,50 @@ const calculatedRiskMoney = computed(() => {
         </div>
       </div>
     </section>
+
+    <!-- TAB 8: DEDICATED MULTI-CONVERSATION CHAT STUDIO (GEMINI STYLE) -->
+    <section v-if="activeSection === 'chat-studio'" class="section-pane studio-pane">
+      <AIChatStudioView
+        @navigate-cockpit="emit('navigate-cockpit')"
+      />
+    </section>
   </div>
 </template>
 
 <style scoped>
+.subnav-studio-btn {
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.08) 0%, rgba(138, 56, 253, 0.06) 100%) !important;
+  border-color: rgba(56, 139, 253, 0.3) !important;
+  color: #1f6feb !important;
+}
+
+.subnav-studio-btn:hover {
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.16) 0%, rgba(138, 56, 253, 0.12) 100%) !important;
+  color: #388bfd !important;
+}
+
+.subnav-studio-btn.active {
+  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%) !important;
+  color: #ffffff !important;
+  border-color: #1f6feb !important;
+  box-shadow: 0 2px 8px rgba(31, 111, 235, 0.35) !important;
+}
+
+.studio-live-badge {
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 1px 4px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.studio-pane {
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+}
 .strategy-view-container {
   display: flex;
   flex-direction: column;
