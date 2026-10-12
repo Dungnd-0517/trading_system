@@ -1,5 +1,60 @@
 # Backlog cập nhật
 
+## 2026-10-12 16:00 +07:00
+
+### [Update Phase 03 - Sprint 03]: Xây Dựng Hệ Thống Chat Real-Time Đồng Bộ Với Kênh Đối Thoại Hai Chiều Trong Task 5 (Global Pop-up Trong Toàn Bộ Giao Diện & Màn Hình Chat Gemini Studio Đa Hội Thoại Trong Strategy & Analysis)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Phase 03 - Sprint 03 theo tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) và các quyết định kiến trúc mới D25 (Multi-Conversation Session Model), D26 (Dual-Surface Real-time Synchronized Architecture), D27 (Agent Persona Delegation & Context Injection).
+  - Nâng cấp và mở rộng toàn diện kênh đối thoại hai chiều Trader &ndash; Governor đã thiết lập trong Task 5 (Phase 03 - Sprint 02) thành một **Hệ sinh thái Trò chuyện & Điều hành AI Real-time Hoàn chỉnh**:
+    1. **Pop-up Trong Toàn Bộ Giao Diện (Global Floating Pop-up Widget):** Túc trực cố định ở góc dưới màn hình xuyên suốt toàn bộ các màn hình nghiệp vụ (Trading Cockpit, Orders History, News & Events, Strategy & Analysis, Backtest Lab, Settings). Hỗ trợ thu gọn/mở rộng, huy hiệu thông báo chưa đọc (Unread badge), xem trước tin nhắn khẩn, gửi lệnh ghi đè tham số nhanh và xử lý phê duyệt lệnh (Interactive Approval Cards: APPROVE / REJECT) mà không cần rời màn hình hiện tại.
+    2. **Màn Hình Chat Chuyên Sâu (Dedicated Gemini Chat Studio):** Tích hợp thành một Tab riêng chuyên biệt nằm trong **Strategy & Analysis** với bố cục chia nhiều cuộc trò chuyện (Multi-Conversation Sessions) mô phỏng trải nghiệm người dùng hiện đại của LLM Gemini:
+       - Cột trái (Conversations Sidebar): Nút tạo cuộc trò chuyện mới (+ New Chat), thanh tìm kiếm lịch sử, phân nhóm thời gian trực quan (*Hôm nay*, *7 ngày trước*, *30 ngày trước*, *Cũ hơn*), cùng các menu thao tác ghim (Pin), đổi tên (Rename), lưu trữ (Archive) và xóa (Delete) cuộc trò chuyện.
+       - Khu vực trung tâm (Main Chat Canvas): Bộ chọn Agent tham vấn chuyên biệt (Strategy Governor, Technical RAG, News Event, Reflexion, hoặc Hội đồng Đa Agent), luồng tin nhắn định dạng Markdown phong phú, hỗ trợ Code block, bảng biểu số liệu tài chính, các thẻ duyệt lệnh tương tác và hiệu ứng AI Typing/Thinking animation.
+       - Khung soạn thảo (Composer): Textarea tự động co giãn chiều cao, phím tắt Enter/Shift+Enter, nút đính kèm snapshot ngữ cảnh thị trường M15, và các phím tắt lệnh nhanh (Quick Command Pills).
+    3. **Cơ Chế Đồng Bộ Real-time Tuyệt Đối (Two-Way Real-time State Synchronization):** Đảm bảo đồng bộ tức thời hai chiều giữa Global Pop-up và Màn hình Chat trong Strategy & Analysis. Mọi tin nhắn gửi hoặc nhận ở một bên lập tức xuất hiện bên còn lại thông qua Pinia Store tập trung (`chatStore.js`), WebSocket `/api/v1/ws/market` và Redis Pub/Sub `agent:trader:dialogue`.
+    4. **Mô Hình Dữ Liệu Đa Hội Thoại & Phân Lập D18:** Thiết lập Migration `0007_phase3_sprint3_chat.sql` với bảng `chat_conversations` và mở rộng `agent_trader_dialogue` liên kết `conversation_id`, bảo đảm 100% tuân thủ quy chuẩn phân lập dữ liệu kiểm thử D18.
+
+- **Kế hoạch Phân rã Kỹ thuật & Danh mục Tasks (Sprint 03 Breakdown):**
+  - **Task 1: Database Migration `0007`, ORM Models & Infrastructure Setup:**
+    - Tạo migration `backend/migrations/0007_phase3_sprint3_chat.sql` tạo bảng `chat_conversations` (`id`, `title`, `agent_target`, `is_pinned`, `is_archived`, `metadata`, `created_at`, `updated_at`, `is_test`).
+    - Nâng cấp bảng `agent_trader_dialogue`: Bổ sung `conversation_id BIGINT REFERENCES chat_conversations(id) ON DELETE CASCADE`, `client_msg_id VARCHAR(64)`, `target_agent VARCHAR(64)`.
+    - Tạo SQLAlchemy ORM model `ChatConversation` và mở rộng `AgentTraderDialogue` trong `backend/core/models.py`.
+    - Cập nhật fixture dọn dẹp kiểm thử D18 trong `backend/tests/conftest.py` tự động xóa các bản ghi test trong `chat_conversations`.
+  - **Task 2: Backend Chat Service, Multi-Session Management & REST API Router:**
+    - Xây dựng `backend/ai_engine/chat_service.py` quản lý vòng đời session (tạo mới, đổi tên tự động theo nội dung câu hỏi đầu tiên, ghim, xóa, lưu trữ).
+    - Định tuyến tin nhắn tới Agent mục tiêu (`GOVERNOR`, `TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`).
+    - Thẩm định câu lệnh ghi đè qua Hard Guardrails D21/D24 (dải rủi ro $[0.25\%, 1.50\%]$, Drawdown ngày $< 3.0\%$).
+    - Phát sóng sự kiện thời gian thực qua Redis Pub/Sub `agent:trader:dialogue` và WebSocket: `chat.message.new`, `chat.session.updated`, `governor.approval_response`.
+    - Đăng ký REST API router `/api/v1/chat`: `GET/POST /conversations`, `PATCH/DELETE /conversations/{id}`, `GET/POST /conversations/{id}/messages`.
+  - **Task 3: Dedicated Multi-Conversation Chat Studio (Gemini Layout) Trong Strategy & Analysis:**
+    - Xây dựng component `AIChatStudioView.vue` và tích hợp làm sub-tab chuyên biệt trong `StrategyAnalysisView.vue`.
+    - Sidebar bên trái phong cách Gemini: Quản lý danh sách conversation, phân nhóm theo thời gian (Today, Previous 7 Days, Older), đổi tên inline, ghim lên đầu, xóa cuộc trò chuyện.
+    - Không gian trò chuyện chính: Header chọn Agent persona, message stream hỗ trợ Markdown đầy đủ, thẻ phê duyệt lệnh tương tác (Approve/Reject), typing animation khi AI đang phân tích.
+    - Khung soạn thảo thông minh: Tự co giãn theo số dòng, phím tắt Enter/Shift+Enter, quick commands pills, nút đính kèm snapshot thị trường XAUUSD M15.
+  - **Task 4: Global Pop-up Chat Widget Xuyên Suốt Toàn Bộ Giao Diện:**
+    - Xây dựng component `GlobalChatWidget.vue` nhúng tại `App.vue`.
+    - Hiển thị nổi (Fixed bottom-right) trên mọi màn hình: Cockpit, Orders, News, Strategy, Backtest, Settings.
+    - Hai trạng thái: Thu gọn (Floating Action Button kèm hiệu ứng pulsing glow, unread badge, toast preview khẩn cấp) & Mở rộng (Mini-popup console kích thước $400\times 540\text{px}$).
+    - Hỗ trợ gửi lệnh override nhanh, xử lý interactive approval cards, nút chuyển nhanh sang Dedicated Studio toàn màn hình trong Strategy & Analysis.
+  - **Task 5: Động Cơ Đồng Bộ Real-time Hai Chiều (Unified Pinia State & Event Bus):**
+    - Tạo Pinia Store `frontend/src/stores/chatStore.js` đóng vai trò Single Source of Truth cho toàn bộ ứng dụng.
+    - Tích hợp WebSocket listener trong `services/websocket.js` và `App.vue`: Lắng nghe các sự kiện `chat.message.new`, `chat.session.updated`, `governor.approval_response`.
+    - Đồng bộ tức thì: Khi Trader gửi tin nhắn ở Global Pop-up, Màn hình Dedicated Chat Studio lập tức cập nhật cùng session và ngược lại với độ trễ $< 50\text{ms}$.
+  - **Task 6: Bộ Kiểm Thử Toàn Diện, Phân Lập D18 & Biên Dịch Hệ Thống (E2E Validation & Build):**
+    - Xây dựng bộ test `backend/tests/test_chat_system_sprint3.py`: Kiểm tra CRUD conversation, gửi nhận tin nhắn đa luồng, xử lý Hard Guardrails, tích hợp REST API.
+    - Kiểm tra dọn dẹp CSDL test sau khi chạy, bảo đảm 0 bản ghi rác D18.
+    - Kiểm tra biên dịch Frontend `npm run build` thành công 100%.
+
+- **Tiêu chuẩn Hoàn thành (Definition of Done - DoD):**
+  - Toàn bộ 6 Tasks được triển khai hoàn tất và tích hợp chặt chẽ vào hệ thống.
+  - 100% backend unit/integration tests vượt qua kiểm thử với kết quả Passed.
+  - Frontend Vue 3 biên dịch thành công (`npm run build`), không có lỗi console hay đứt gãy WebSocket.
+  - Cơ sở dữ liệu PostgreSQL bảo toàn nguyên vẹn dữ liệu thực tế, số lượng bản ghi test là 0 theo chuẩn D18.
+- **Trạng thái:** Đã xác lập kiến trúc chi tiết [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) và hoàn thiện Backlog Sprint 03. Sẵn sàng khởi động triển khai thực thi các Tasks.
+
+---
+
 ## 2026-10-12 01:30 +07:00
 
 ### [Update Phase 03 - Sprint 02]: Hoàn Thành Task 5 - Strategy Governor Agent & Human-in-the-Loop Cockpit Integration (Kênh Đối Thoại Hai Chiều Trader - Governor, Executive Briefings, Approval Requests & Cockpit Studio Vue 3)
