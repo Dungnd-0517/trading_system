@@ -1,5 +1,56 @@
 # Backlog cập nhật
 
+## 2026-10-12 21:30 +07:00
+
+### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 1 - Database Migration 0007, ORM Models & Infrastructure Setup (Chat Conversations, Multi-Session Schema & D18 Isolation)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 1 của Phase 03 - Sprint 03 theo tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) và Quyết định kiến trúc D25 (Multi-Conversation Session Model).
+  - Thiết lập nền tảng cơ sở dữ liệu và mô hình ORM phục vụ hệ thống Chat Real-time đa phiên hội thoại:
+    1. Bảng lưu trữ danh sách các cuộc trò chuyện (`chat_conversations`) hỗ trợ quản lý vòng đời session (tiêu đề, ghim, lưu trữ, metadata, agent mục tiêu).
+    2. Nâng cấp bảng `agent_trader_dialogue` liên kết với `chat_conversations` qua khóa ngoại `conversation_id` với hành vi xóa xếp tầng `ON DELETE CASCADE`.
+    3. Bổ sung các trường `client_msg_id` (chống gửi trùng lặp / idempotency) và `target_agent` (phân luồng đa persona: `GOVERNOR`, `TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`).
+    4. Đồng bộ file schema tổng hợp `backend/schema.sql` và thiết lập cơ chế dọn dẹp kiểm thử tự động D18.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Migration Cơ Sở Dữ Liệu (`backend/migrations/0007_phase3_sprint3_chat.sql`):**
+    - Tạo bảng `chat_conversations`:
+      - `id BIGSERIAL PRIMARY KEY`, `title VARCHAR(255) NOT NULL DEFAULT 'Cuộc trò chuyện mới'`, `agent_target VARCHAR(64) NOT NULL DEFAULT 'GOVERNOR'`.
+      - Các cờ trạng thái: `is_pinned BOOLEAN NOT NULL DEFAULT FALSE`, `is_archived BOOLEAN NOT NULL DEFAULT FALSE`.
+      - Thông tin mở rộng: `metadata JSONB NOT NULL DEFAULT '{}'::jsonb`.
+      - Mốc thời gian: `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`.
+      - Cờ phân lập kiểm thử: `is_test BOOLEAN NOT NULL DEFAULT FALSE`.
+      - Chỉ mục tối ưu: `idx_chat_conversations_updated_at`, `idx_chat_conversations_is_pinned`, `idx_chat_conversations_is_test`.
+    - Nâng cấp bảng `agent_trader_dialogue`:
+      - `conversation_id BIGINT REFERENCES chat_conversations(id) ON DELETE CASCADE`.
+      - `client_msg_id VARCHAR(64)`.
+      - `target_agent VARCHAR(64) NOT NULL DEFAULT 'GOVERNOR'`.
+      - Chỉ mục: `idx_agent_trader_dialogue_conv_id`, `idx_agent_trader_dialogue_client_msg_id`.
+  - **2. Đồng Bộ `backend/schema.sql`:**
+    - Bổ sung cấu trúc DDL chuẩn xác của `chat_conversations` và mở rộng `agent_trader_dialogue`.
+  - **3. Cập Nhật SQLAlchemy ORM Models (`backend/core/models.py`):**
+    - Khai báo model `ChatConversation` với đầy đủ Mapped columns chuẩn SQLAlchemy 2.0.
+    - Cập nhật model `AgentTraderDialogue`: bổ sung `conversation_id`, `client_msg_id`, `target_agent`.
+    - Thiết lập quan hệ hai chiều `relationship("AgentTraderDialogue", back_populates="conversation", cascade="all, delete-orphan")` và `conversation = relationship("ChatConversation", back_populates="dialogues")`.
+  - **4. Bảo Toàn Chuẩn Phân Lập Kiểm Thử D18 (`backend/tests/conftest.py`):**
+    - Cập nhật fixture dọn dẹp kiểm thử `_clean_test_data_async`: tự động xóa các bản ghi test trong `chat_conversations` và `agent_trader_dialogue`.
+    - Bảo đảm 0 bản ghi rác sau mọi lần chạy test.
+  - **5. Bộ Kiểm Thử Unit Test Độc Lập (`backend/tests/test_chat_models_sprint3.py`):**
+    - `test_chat_conversation_model_crud`: Kiểm tra tạo, đọc, sửa, ghim, lưu trữ và truy vấn conversation.
+    - `test_dialogue_conversation_relationship_and_linking`: Kiểm tra liên kết hai chiều và quan hệ ORM giữa conversation và các tin nhắn dialogue.
+    - `test_cascade_delete_dialogues_on_conversation_delete`: Kiểm tra xóa xếp tầng CASCADE tự động giải phóng toàn bộ tin nhắn thuộc về cuộc trò chuyện bị xóa.
+    - `test_dialogue_target_agent_and_client_msg_id_attributes`: Kiểm tra 5 Agent personas (`GOVERNOR`, `TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`) và client_msg_id.
+    - `test_chat_models_d18_cleanliness`: Kiểm tra trạng thái phân lập tuyệt đối D18.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Thực thi migration trên PostgreSQL container `trading_postgres` thành công 100%.
+  - Bộ kiểm thử Task 1 (`test_chat_models_sprint3.py`): **5/5 tests passed in 0.95s**.
+  - Toàn bộ backend test suite: **102/102 tests passed in 16.72s** (100% pass, tăng từ 97 lên 102 tests).
+  - Kiểm tra trực tiếp cơ sở dữ liệu `trading_postgres`: `chat_conversations` count = 0 và `agent_trader_dialogue` count = 0 cho các bản ghi test, bảo toàn tuyệt đối chuẩn D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 1. Sẵn sàng triển khai Task 2 (Backend Chat Service, Multi-Session Management & REST API Router).
+
+---
+
 ## 2026-10-12 16:00 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Xây Dựng Hệ Thống Chat Real-Time Đồng Bộ Với Kênh Đối Thoại Hai Chiều Trong Task 5 (Global Pop-up Trong Toàn Bộ Giao Diện & Màn Hình Chat Gemini Studio Đa Hội Thoại Trong Strategy & Analysis)

@@ -9,6 +9,7 @@ from core.database import engine, session_factory
 from core.models import (
     AgentDecisionLog,
     AgentTraderDialogue,
+    ChatConversation,
     EpisodicTradeMemory,
     SimulatedOrder,
     SimulationAccount,
@@ -31,9 +32,10 @@ async def _clean_test_data_async():
         pass
 
     async with session_factory() as session:
-        # 1. Xóa các bản ghi Agent Decision Logs & Trader Dialogue test
+        # 1. Xóa các bản ghi Agent Decision Logs, Trader Dialogue & Chat Conversation test
         await session.execute(delete(AgentDecisionLog).where(AgentDecisionLog.is_test.is_(True)))
         await session.execute(delete(AgentTraderDialogue).where(AgentTraderDialogue.is_test.is_(True)))
+        await session.execute(delete(ChatConversation).where(ChatConversation.is_test.is_(True)))
 
         # 2. Xóa các ký ức trade test và tri thức test
         await session.execute(delete(EpisodicTradeMemory).where(EpisodicTradeMemory.is_test.is_(True)))
