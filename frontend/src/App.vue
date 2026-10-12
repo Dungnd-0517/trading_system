@@ -119,7 +119,10 @@ onMounted(() => {
       if (event.type === 'signal.new') orderStore.applySignalUpdate(event)
       if (event.type === 'circuit_breaker.update') orderStore.applyCircuitBreakerUpdate(event)
       if (event.type === 'governor.update') agentStore.applyGovernorUpdate(event)
-      if (event.type === 'agent.dialogue.message') agentStore.applyDialogueMessage(event)
+      if (event.type === 'agent.dialogue.message') {
+        agentStore.applyDialogueMessage(event)
+        chatStore.handleIncomingSocketEvent(event)
+      }
       if (event.type === 'governor.approval_response') {
         agentStore.refreshDialogueHistory()
         chatStore.handleIncomingSocketEvent(event)

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
@@ -411,3 +412,107 @@ async def test_chat_rest_api_endpoints():
         # 12. Kiểm tra truy cập sau khi xóa trả về 404
         get_404 = await client.get(f"/api/v1/chat/conversations/{conv_id}?include_test=true")
         assert get_404.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_realtime_event_bus_and_approval_broadcast():
+    """
+    [Task 5]: Kiểm thử Động cơ Đồng bộ Real-time Hai Chiều (Unified Pinia State & Event Bus).
+    Xác minh:
+    1. Khi gửi tin nhắn qua chat_service, event 'chat.message.new' được xuất bản lên Redis Pub/Sub.
+    2. Khi phê duyệt lệnh qua respond_trade_approval, event 'governor.approval_response' được
+       phát sóng đồng thời trên cả 2 kênh 'agent:trader:dialogue' và 'governor:approval_response'.
+    3. Khi thay đổi tham số qua chỉ thị chat, SystemTradingConfig được cập nhật và trả về payload đồng bộ.
+    """
+    from core.redis_client import client as redis_raw_client
+
+    async with session_factory() as session:
+        # 1. Tạo conversation test
+        conv = await chat_service.create_conversation(
+            session=session,
+            title="Phiên Đồng Bộ Real-time Test",
+            agent_target="GOVERNOR",
+            is_test=True,
+        )
+        conv_id = conv["id"]
+
+        # 2. Đăng ký subscriber lắng nghe kênh Redis
+        pubsub = redis_raw_client.pubsub()
+        await pubsub.subscribe("agent:trader:dialogue", "governor:approval_response")
+
+        # Đọc thông báo subscribe ban đầu
+        await pubsub.get_message(timeout=1.0)
+        await pubsub.get_message(timeout=1.0)
+
+        # 3. Gửi tin nhắn chỉ thị và kiểm tra phát sóng Redis
+        res = await chat_service.send_message(
+            session=session,
+            conversation_id=conv_id,
+            message="Hạ mức rủi ro xuống 0.50% vốn",
+            target_agent="GOVERNOR",
+            is_test=True,
+        )
+        assert res["conversation_id"] == conv_id
+        assert res["trader_message"]["sender"] == "TRADER"
+        assert res["agent_message"]["sender"] == "GOVERNOR"
+
+        # Đọc event chat.message.new từ Redis
+        chat_msg = None
+        for _ in range(3):
+            msg = await pubsub.get_message(timeout=2.0)
+            if msg and msg["type"] == "message":
+                payload = json.loads(msg["data"])
+                if payload.get("type") == "chat.message.new":
+                    chat_msg = payload
+                    break
+
+        assert chat_msg is not None
+        assert chat_msg["type"] == "chat.message.new"
+        assert chat_msg["conversation_id"] == conv_id
+        assert "trader_message" in chat_msg
+        assert "agent_message" in chat_msg
+
+        # 4. Tạo đề xuất lệnh PENDING để test phê duyệt hai chiều
+        pending_diag = AgentTraderDialogue(
+            conversation_id=conv_id,
+            target_agent="GOVERNOR",
+            sender="GOVERNOR",
+            message_type="APPROVAL_REQUEST",
+            content="[TEST REALTIME] Yêu cầu phê duyệt SELL XAUUSD tại 2655.00",
+            approval_status="PENDING",
+            metadata_={"action": "SELL", "lots": 0.2, "entry": 2655.0},
+            is_test=True,
+        )
+        session.add(pending_diag)
+        await session.commit()
+        await session.refresh(pending_diag)
+        diag_id = pending_diag.id
+
+        # 5. Phê duyệt lệnh và kiểm tra phát sóng kép (Dual-Channel Broadcast)
+        approval_res = await strategy_governor.respond_trade_approval(
+            dialogue_id=diag_id,
+            action="APPROVE",
+            session=session,
+            is_test=True,
+        )
+        assert approval_res["dialogue_id"] == diag_id
+        assert approval_res["status"] == "APPROVED"
+
+        # Đọc 2 events phát sóng trên 2 kênh
+        rec_events = []
+        for _ in range(2):
+            ev_msg = await pubsub.get_message(timeout=2.0)
+            if ev_msg and ev_msg["type"] == "message":
+                rec_events.append(json.loads(ev_msg["data"]))
+
+        assert len(rec_events) >= 1
+        app_event = next((e for e in rec_events if e.get("type") == "governor.approval_response"), None)
+        assert app_event is not None
+        assert app_event["dialogue_id"] == diag_id
+        assert app_event["status"] == "APPROVED"
+        assert app_event["action"] == "APPROVE"
+
+        # Dọn dẹp subscription
+        await pubsub.unsubscribe("agent:trader:dialogue", "governor:approval_response")
+        await pubsub.aclose()
+

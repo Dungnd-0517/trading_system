@@ -1,5 +1,52 @@
 # Backlog cập nhật
 
+## 2026-10-13 01:30 +07:00
+
+### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 5 - Động Cơ Đồng Bộ Real-time Hai Chiều (Unified Pinia State & Event Bus)
+
+- **Bối cảnh & Mục tiêu:**
+  - Triển khai Task 5 của Phase 03 - Sprint 03 theo tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) và quyết định kiến trúc D26 (Dual-Surface Real-time Synchronized Architecture).
+  - Xây dựng động cơ đồng bộ thời gian thực hai chiều giữa **Global Pop-up Chat Widget** (`GlobalChatWidget.vue`) và **Dedicated Chat Studio** (`AIChatStudioView.vue`):
+    1. **Single Source of Truth:** Cả 2 bề mặt giao tiếp liên kết trực tiếp với reactive store tập trung `chatStore.js`. Bất kỳ thao tác gửi tin nhắn, tạo phiên, đổi tên, ghim, lưu trữ hay xóa phiên trên một bề mặt đều được phản ánh tức thì trên bề mặt còn lại mà không có độ trễ (Zero State Drift).
+    2. **Động cơ Event Bus Tách Rời (`eventBus.js`):** Xây dựng module pub/sub nhẹ nhàng (`on`, `off`, `emit`, `once`) để phân phối các sự kiện decoupled (`chat:scroll-bottom`, `chat:new-message`, `chat:approval-request`, `chat:approval-resolved`, `chat:param-overridden`, `chat:session-switched`).
+    3. **Phân biệt Trạng Thái Đọc Thông Minh (Smart Read/Unread Tracking):** Kiểm tra trạng thái hiển thị tích cực (`isConversationActive`). Nếu Trader đang trực tiếp mở và xem cuộc trò chuyện đó (dù ở Studio hay Pop-up), tin nhắn mới lập tức được coi là đã đọc và tự động cuộn xuống (`unread = false`). Nếu đang ở màn hình khác, tự động tăng `unreadCount` và kích hoạt Toast thông báo.
+    4. **Duyệt Lệnh Hai Chiều (Cross-Surface Approval Sync):** Khi Trader nhấn `[ PHÊ DUYỆT LỆNH ]` hoặc `[ TỪ CHỐI LỆNH ]` trên bất kỳ bề mặt nào, trạng thái Interactive Action Card được cập nhật lập tức trên cả 2 màn hình, đồng thời tự động kích hoạt `agentStore.refreshConsensus()`, `agentStore.refreshDialogueHistory()` và `orderStore.refresh()`.
+    5. **Khử Trùng Lặp & Tối Ưu Optimistic UI:** Khử trùng lặp tin nhắn thông minh dựa trên `client_msg_id` và `id`, thay thế trơn tru tin nhắn tạm thời mà không gây hiện tượng giật hay trùng lặp giao diện.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Module Event Bus Toàn Cục ([`frontend/src/services/eventBus.js`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/services/eventBus.js)):**
+    - Thiết kế kiến trúc EventBus với `Map` và `Set` listeners, hỗ trợ đầy đủ các phương thức `on(event, cb)`, `off(event, cb)`, `emit(event, payload)`, `once(event, cb)`, `clear()`.
+  - **2. Nâng Cấp Reactive Store Tập Trung ([`frontend/src/stores/chatStore.js`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/stores/chatStore.js)):**
+    - Bổ sung `isStudioActive`, `lastMessageTimestamp`, phương thức `isConversationActive(convId)`.
+    - Tích hợp `eventBus.emit('chat:scroll-bottom')` và `eventBus.emit('chat:message-sent')` trong `sendMessage`.
+    - Bổ sung phát hiện ghi đè rủi ro (`param-overridden`) để đồng bộ ngay lập tức sang `agentStore`.
+    - Nâng cấp `respondApproval`: cập nhật `approval_status` trên toàn bộ cached threads, phát sự kiện `chat:approval-resolved` và làm tươi trạng thái ở các store phụ thuộc.
+    - Cải tiến bộ giải mã socket `handleIncomingSocketEvent`:
+      - Xử lý `chat.message.new`: khử trùng lặp `client_msg_id`, cập nhật preview session, phân loại đọc/chưa đọc thông minh và hiển thị Toast.
+      - Xử lý `governor.approval_response`: cập nhật đồng loạt trạng thái thẻ trên cả 2 giao diện.
+      - Xử lý `agent.dialogue.message`: gắn kết tự động thông điệp điều hành vào cuộc trò chuyện.
+      - Xử lý `chat.session.created`, `chat.session.updated`, `chat.session.deleted`.
+  - **3. Tích Hợp Bề Mặt Global Chat Widget ([`frontend/src/components/AIAnalysis/GlobalChatWidget.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/GlobalChatWidget.vue)):**
+    - Lắng nghe sự kiện `chat:scroll-bottom` từ Event Bus để tự động cuộn mượt mà khi nhận tin nhắn hoặc khi mở widget.
+    - Dọn dẹp listener trong `onUnmounted`.
+  - **4. Tích Hợp Bề Mặt Dedicated Chat Studio ([`frontend/src/components/AIAnalysis/AIChatStudioView.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/AIChatStudioView.vue)):**
+    - Cập nhật cờ `chatStore.isStudioActive = true` trong `onMounted` và `false` trong `onUnmounted`.
+    - Tự động xóa `unreadCount = 0` và hủy Toast khi người dùng đang ở trong Studio.
+    - Lắng nghe sự kiện `chat:scroll-bottom` để tự động cuộn `messagesContainer` xuống tin nhắn mới nhất.
+  - **5. Mở Rộng WebSocket Gateway & Redis Pub/Sub Backend:**
+    - [`backend/api/v1/websocket.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/api/v1/websocket.py): Đăng ký thêm kênh `"governor:approval_response"` vào `_CHANNELS`.
+    - [`backend/ai_engine/strategy_governor.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/ai_engine/strategy_governor.py): Phát sóng sự kiện phê duyệt lệnh đồng thời trên cả 2 kênh `"governor:approval_response"` và `"agent:trader:dialogue"`.
+  - **6. Bộ Kiểm Thử Tích Hợp Real-time ([`backend/tests/test_chat_service_sprint3.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_chat_service_sprint3.py)):**
+    - Bổ sung test `test_realtime_event_bus_and_approval_broadcast`: Kiểm thử xuất bản Redis Pub/Sub `chat.message.new`, phát sóng kép `governor.approval_response`, và dọn dẹp phân lập test data D18.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Biên dịch Frontend (`npm run build`): **✓ 1613 modules transformed, built in 2.66s (Zero errors/warnings)**.
+  - Toàn bộ backend test suite: **109/109 tests passed in 16.25s (100% Pass Rate)**.
+  - Bảo toàn tuyệt đối chuẩn phân lập dữ liệu kiểm thử D18.
+- **Trạng thái:** Hoàn thành xuất sắc Task 5. Sẵn sàng triển khai Task 6 (Kiểm thử toàn diện E2E & nghiệm thu hoàn thiện Sprint 03).
+
+---
+
 ## 2026-10-13 01:14 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Tối Ưu Hóa Giao Diện - Làm Đẹp Hệ Thống Thanh Cuộn (Scrollbars) & Nâng Cấp AI Chat Studio Thành Tab Lớn Độc Lập

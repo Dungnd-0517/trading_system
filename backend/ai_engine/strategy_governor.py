@@ -922,16 +922,15 @@ class StrategyGovernor:
         await session.refresh(gov_confirm)
 
         try:
-            await redis_client.publish(
-                "governor:approval_response",
-                json.dumps({
-                    "type": "governor.approval_response",
-                    "dialogue_id": dialogue_id,
-                    "action": action_upper,
-                    "status": new_status,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }),
-            )
+            event_payload = json.dumps({
+                "type": "governor.approval_response",
+                "dialogue_id": dialogue_id,
+                "action": action_upper,
+                "status": new_status,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            await redis_client.publish("governor:approval_response", event_payload)
+            await redis_client.publish("agent:trader:dialogue", event_payload)
         except Exception as e:
             logger.warning("Failed to publish approval response: %s", e)
 

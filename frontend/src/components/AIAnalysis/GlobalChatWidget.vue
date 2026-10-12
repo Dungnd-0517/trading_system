@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Activity,
   AlertCircle,
@@ -27,6 +27,7 @@ import {
 } from 'lucide-vue-next'
 import { chatStore } from '../../stores/chatStore'
 import { agentStore } from '../../stores/agentStore'
+import { eventBus } from '../../services/eventBus'
 
 const emit = defineEmits(['open-studio'])
 
@@ -57,6 +58,20 @@ watch(
     }
   }
 )
+
+let unbindScroll = null
+
+onMounted(() => {
+  unbindScroll = eventBus.on('chat:scroll-bottom', () => {
+    if (chatStore.isWidgetOpen) {
+      nextTick(scrollToBottom)
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unbindScroll) unbindScroll()
+})
 
 watch(
   () => chatStore.isWidgetOpen,

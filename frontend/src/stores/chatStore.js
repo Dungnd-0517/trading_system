@@ -11,6 +11,9 @@ import {
   sendConversationMessage as sendConversationMessageApi,
   updateConversation as updateConversationApi,
 } from '../services/api'
+import { eventBus } from '../services/eventBus'
+import { agentStore } from './agentStore'
+import { orderStore } from './orderStore'
 
 export const chatStore = reactive({
   // Danh sách hội thoại & session hoạt động
@@ -21,7 +24,7 @@ export const chatStore = reactive({
   currentPersona: 'GOVERNOR',
   marketContext: null,
 
-  // Trạng thái giao diện
+  // Trạng thái giao diện & đồng bộ hai chiều (Dual-Surface)
   loadingConversations: false,
   loadingMessages: false,
   sendingMessage: false,
@@ -31,8 +34,17 @@ export const chatStore = reactive({
   showArchived: false,
   unreadCount: 0,
   isWidgetOpen: false,
+  isStudioActive: false, // true khi Dedicated Studio đang hiển thị
+  lastMessageTimestamp: 0,
   latestToast: null,
   _toastTimer: null,
+
+  // Kiểm tra Trader có đang tích cực xem cuộc trò chuyện này hay không
+  isConversationActive(conversationId) {
+    if (!conversationId) return false
+    if (this.activeConversationId !== conversationId) return false
+    return Boolean(this.isWidgetOpen || this.isStudioActive)
+  },
 
   showToast(payload) {
     if (this._toastTimer) clearTimeout(this._toastTimer)
@@ -53,6 +65,8 @@ export const chatStore = reactive({
     this.dismissToast()
     if (conversationId && conversationId !== this.activeConversationId) {
       this.selectConversation(conversationId)
+    } else {
+      eventBus.emit('chat:scroll-bottom', { conversationId: this.activeConversationId })
     }
   },
 
@@ -162,7 +176,15 @@ export const chatStore = reactive({
     if (conv && conv.agent_target) {
       this.currentPersona = conv.agent_target
     }
+
+    if (this.isConversationActive(conversationId)) {
+      this.unreadCount = 0
+      this.dismissToast()
+    }
+
+    eventBus.emit('chat:session-switched', { conversationId })
     await this.loadMessages(conversationId)
+    eventBus.emit('chat:scroll-bottom', { conversationId })
   },
 
   async loadMessages(conversationId) {
@@ -194,6 +216,7 @@ export const chatStore = reactive({
       this.activeConversationId = newConv.id
       this.currentPersona = target
       this.messagesMap[newConv.id] = []
+      eventBus.emit('chat:session-switched', { conversationId: newConv.id })
       return newConv
     } catch (err) {
       this.chatError = err.message || 'Không thể tạo cuộc trò chuyện mới'
@@ -327,6 +350,10 @@ export const chatStore = reactive({
     this.sendingMessage = true
     this.chatError = null
 
+    // Bắn sự kiện scroll bottom tức thì
+    eventBus.emit('chat:message-sent', { convId, clientMsgId, optimisticMsg })
+    eventBus.emit('chat:scroll-bottom', { convId })
+
     try {
       const res = await sendConversationMessageApi(convId, {
         message: cleanText,
@@ -346,7 +373,10 @@ export const chatStore = reactive({
 
       // Thêm phản hồi của Agent
       if (res.agent_message) {
-        thread.push(res.agent_message)
+        const agentExists = thread.some((m) => m.id === res.agent_message.id)
+        if (!agentExists) {
+          thread.push(res.agent_message)
+        }
       }
 
       // Cập nhật lại thông tin session trong danh sách (tiêu đề tự động, mốc thời gian, last message)
@@ -366,6 +396,15 @@ export const chatStore = reactive({
         }
       }
 
+      // Nếu chỉ thị làm thay đổi tham số Governor, đồng bộ ngay với agentStore
+      if (res.agent_message?.metadata?.guardrail_passed || res.agent_message?.metadata?.actions_taken) {
+        eventBus.emit('chat:param-overridden', res)
+        agentStore.refreshConsensus()
+      }
+
+      // Bắn sự kiện scroll bottom sau khi nhận phản hồi
+      eventBus.emit('chat:scroll-bottom', { convId })
+
       return res
     } catch (err) {
       // Đánh dấu lỗi trên tin nhắn tạm thời
@@ -382,25 +421,47 @@ export const chatStore = reactive({
     this.respondingApproval = true
     try {
       const res = await respondChatApprovalApi(dialogueId, action)
-      // Cập nhật trạng thái hiển thị trong thread hiện tại
-      if (this.activeConversationId && this.messagesMap[this.activeConversationId]) {
-        const msg = this.messagesMap[this.activeConversationId].find((m) => m.id === dialogueId)
+      const newStatus = res.new_status || (action === 'APPROVE' ? 'APPROVED' : 'REJECTED')
+
+      // Cập nhật trạng thái hiển thị trong toàn bộ các thread cache
+      for (const cId of Object.keys(this.messagesMap)) {
+        const msg = this.messagesMap[cId]?.find((m) => m.id === dialogueId)
         if (msg) {
-          msg.approval_status = res.new_status || (action === 'APPROVE' ? 'APPROVED' : 'REJECTED')
+          msg.approval_status = newStatus
         }
         // Thêm tin nhắn xác nhận của Governor vào thread
-        if (res.message) {
-          this.messagesMap[this.activeConversationId].push({
-            id: res.confirmation_message_id || Date.now(),
-            conversation_id: this.activeConversationId,
-            sender: 'GOVERNOR',
-            target_agent: 'GOVERNOR',
-            message_type: 'TEXT',
-            content: res.message,
-            timestamp: new Date().toISOString(),
-          })
+        if (msg && res.message && this.messagesMap[cId]) {
+          const confirmExists = this.messagesMap[cId].some(
+            (m) => m.id === res.confirmation_message_id
+          )
+          if (!confirmExists) {
+            this.messagesMap[cId].push({
+              id: res.confirmation_message_id || Date.now(),
+              conversation_id: Number(cId),
+              sender: 'GOVERNOR',
+              target_agent: 'GOVERNOR',
+              message_type: 'TEXT',
+              content: res.message,
+              timestamp: new Date().toISOString(),
+            })
+          }
         }
       }
+
+      // Bắn sự kiện đồng bộ toàn hệ thống
+      eventBus.emit('chat:approval-resolved', {
+        dialogueId,
+        action,
+        status: newStatus,
+        message: res.message,
+      })
+
+      // Làm tươi trạng thái ở các store phụ thuộc
+      agentStore.refreshConsensus()
+      agentStore.refreshDialogueHistory()
+      orderStore.refresh()
+
+      eventBus.emit('chat:scroll-bottom', { convId: this.activeConversationId })
       return res
     } catch (err) {
       this.chatError = err.message || 'Lỗi xử lý phản hồi phê duyệt'
@@ -432,24 +493,44 @@ export const chatStore = reactive({
     }
   },
 
-  // Xử lý sự kiện WebSocket Real-time
+  // Xử lý sự kiện WebSocket Real-time tập trung (Unified Socket Dispatcher)
   handleIncomingSocketEvent(event) {
     if (!event || !event.type) return
 
-    // 1. Tin nhắn mới được phát sóng
+    // 1. Tin nhắn mới được phát sóng qua Redis Pub/Sub & WebSocket
     if (event.type === 'chat.message.new') {
       const convId = event.conversation_id
       if (!convId) return
 
-      // Cập nhật messagesMap nếu cuộc trò chuyện đang được mở
+      this.lastMessageTimestamp = Date.now()
+
+      // Cập nhật messagesMap nếu cuộc trò chuyện đang được mở hoặc nạp sẵn
       if (this.messagesMap[convId]) {
         const thread = this.messagesMap[convId]
-        if (event.trader_message && !thread.some((m) => m.id === event.trader_message.id)) {
-          thread.push(event.trader_message)
+
+        if (event.trader_message) {
+          // Khử trùng lặp hoặc thay thế optimistic message
+          const optIdx = thread.findIndex(
+            (m) =>
+              (event.trader_message.client_msg_id && m.client_msg_id === event.trader_message.client_msg_id) ||
+              m.id === event.trader_message.id
+          )
+          if (optIdx !== -1) {
+            thread.splice(optIdx, 1, event.trader_message)
+          } else {
+            thread.push(event.trader_message)
+          }
         }
-        if (event.agent_message && !thread.some((m) => m.id === event.agent_message.id)) {
-          thread.push(event.agent_message)
+
+        if (event.agent_message) {
+          const agentExists = thread.some((m) => m.id === event.agent_message.id)
+          if (!agentExists) {
+            thread.push(event.agent_message)
+          }
         }
+      } else if (this.activeConversationId === convId) {
+        // Nạp tự động nếu là active conversation chưa có thread
+        this.loadMessages(convId)
       }
 
       // Cập nhật preview và unread count
@@ -460,34 +541,66 @@ export const chatStore = reactive({
         this.conversations[convIdx].message_count = (this.conversations[convIdx].message_count || 0) + 1
       }
 
-      // Nếu widget đóng hoặc không đang xem cuộc trò chuyện này, tăng unread count và kích hoạt Toast
-      if (!this.isWidgetOpen || this.activeConversationId !== convId) {
+      // Xử lý Smart Read / Unread Status
+      const isViewingCurrent = this.isConversationActive(convId)
+      if (isViewingCurrent) {
+        // Đang xem trực tiếp: Đánh dấu đã đọc và cuộn mượt
+        this.dismissToast()
+        eventBus.emit('chat:scroll-bottom', { convId })
+      } else {
+        // Đang ở màn hình khác: Tăng unreadCount và kích hoạt Toast
         this.unreadCount += 1
         const agentMsg = event.agent_message
         if (agentMsg) {
           const isApproval = agentMsg.message_type === 'APPROVAL_REQUEST'
           this.showToast({
             title: isApproval ? '⚠️ YÊU CẦU PHÊ DUYỆT LỆNH' : `🤖 ${agentMsg.sender || 'AI Agent'} Phản Hồi`,
-            content: agentMsg.content ? (agentMsg.content.length > 90 ? agentMsg.content.substring(0, 87) + '...' : agentMsg.content) : '',
+            content: agentMsg.content ? (agentMsg.content.length > 95 ? agentMsg.content.substring(0, 92) + '...' : agentMsg.content) : '',
             sender: agentMsg.sender || 'GOVERNOR',
             isApproval,
             conversationId: convId,
           })
+          if (isApproval) {
+            eventBus.emit('chat:approval-request', agentMsg)
+          }
         }
       }
+
+      eventBus.emit('chat:new-message', {
+        convId,
+        trader_message: event.trader_message,
+        agent_message: event.agent_message,
+      })
     }
 
     // 2. Phản hồi phê duyệt lệnh được cập nhật
     if (event.type === 'governor.approval_response' && event.dialogue_id) {
-      if (this.activeConversationId && this.messagesMap[this.activeConversationId]) {
-        const msg = this.messagesMap[this.activeConversationId].find((m) => m.id === event.dialogue_id)
+      for (const cId of Object.keys(this.messagesMap)) {
+        const msg = this.messagesMap[cId]?.find((m) => m.id === event.dialogue_id)
         if (msg) {
           msg.approval_status = event.status
         }
       }
+      agentStore.refreshConsensus()
+      agentStore.refreshDialogueHistory()
+      orderStore.refresh()
+      eventBus.emit('chat:approval-resolved', event)
+      eventBus.emit('chat:scroll-bottom', { convId: this.activeConversationId })
     }
 
-    // 3. Phiên trò chuyện được cập nhật
+    // 3. Thông điệp đối thoại chung từ Governor (Executive Briefing, v.v.)
+    if (event.type === 'agent.dialogue.message') {
+      const convId = event.conversation_id || this.activeConversationId
+      if (convId && this.messagesMap[convId]) {
+        const msg = event.dialogue || event.governor_message
+        if (msg && !this.messagesMap[convId].some((m) => m.id === msg.id)) {
+          this.messagesMap[convId].push(msg)
+          eventBus.emit('chat:scroll-bottom', { convId })
+        }
+      }
+    }
+
+    // 4. Phiên trò chuyện được cập nhật
     if (event.type === 'chat.session.updated' && event.conversation) {
       const convIdx = this.conversations.findIndex((c) => c.id === event.conversation.id)
       if (convIdx !== -1) {
@@ -495,14 +608,14 @@ export const chatStore = reactive({
       }
     }
 
-    // 3. Phiên trò chuyện được tạo mới
+    // 5. Phiên trò chuyện được tạo mới
     if (event.type === 'chat.session.created' && event.conversation) {
       if (!this.conversations.some((c) => c.id === event.conversation.id)) {
         this.conversations.unshift(event.conversation)
       }
     }
 
-    // 4. Phiên trò chuyện bị xóa
+    // 6. Phiên trò chuyện bị xóa
     if (event.type === 'chat.session.deleted' && event.conversation_id) {
       this.conversations = this.conversations.filter((c) => c.id !== event.conversation_id)
       delete this.messagesMap[event.conversation_id]
@@ -512,3 +625,4 @@ export const chatStore = reactive({
     }
   },
 })
+

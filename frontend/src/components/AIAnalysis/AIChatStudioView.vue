@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Activity,
   AlertCircle,
@@ -52,6 +52,7 @@ import {
 import { chatStore } from '../../stores/chatStore'
 import { agentStore } from '../../stores/agentStore'
 import { marketStore } from '../../stores/marketStore'
+import { eventBus } from '../../services/eventBus'
 
 const emit = defineEmits(['navigate-cockpit', 'navigate-tab'])
 
@@ -164,13 +165,27 @@ const groupedConversations = computed(() => {
   return groups
 })
 
+let unbindScroll = null
+
 onMounted(async () => {
+  chatStore.isStudioActive = true
+  chatStore.unreadCount = 0
+  chatStore.dismissToast()
   if (!chatStore.conversations.length) {
     await chatStore.init()
   }
   scrollToBottom()
+  unbindScroll = eventBus.on('chat:scroll-bottom', () => {
+    nextTick(scrollToBottom)
+  })
   // Tự động đóng dropdown khi click ra ngoài
   window.addEventListener('click', closeAllDropdowns)
+})
+
+onUnmounted(() => {
+  chatStore.isStudioActive = false
+  if (unbindScroll) unbindScroll()
+  window.removeEventListener('click', closeAllDropdowns)
 })
 
 watch(
