@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Settings2,
   ShieldAlert,
+  Sparkles,
   Zap,
 } from 'lucide-vue-next'
 import TradingViewChart from './components/Chart/TradingViewChart.vue'
@@ -53,6 +54,11 @@ let clockTimer
 let sourceTimer
 let agentTimer
 let socket
+
+function openStrategyView() {
+  activeTab.value = 'strategy'
+  strategyInitialSection.value = 'pipeline'
+}
 
 function openFullChatStudio() {
   activeTab.value = 'strategy'
@@ -192,12 +198,24 @@ onUnmounted(() => {
 
         <button
           role="tab"
-          :aria-selected="activeTab === 'strategy'"
-          :class="['nav-tab', { active: activeTab === 'strategy' }]"
-          @click="activeTab = 'strategy'"
+          :aria-selected="activeTab === 'strategy' && strategyInitialSection !== 'chat-studio'"
+          :class="['nav-tab', { active: activeTab === 'strategy' && strategyInitialSection !== 'chat-studio' }]"
+          @click="openStrategyView"
         >
           <BrainCircuit :size="14" />
           <span>Strategy &amp; Analysis</span>
+        </button>
+
+        <button
+          role="tab"
+          :aria-selected="activeTab === 'strategy' && strategyInitialSection === 'chat-studio'"
+          :class="['nav-tab', 'nav-tab-ai', { active: activeTab === 'strategy' && strategyInitialSection === 'chat-studio' }]"
+          @click="openFullChatStudio"
+        >
+          <Sparkles :size="14" />
+          <span>AI Chat Studio</span>
+          <span v-if="chatStore.unreadCount > 0" class="nav-badge ai-badge unread">{{ chatStore.unreadCount }}</span>
+          <span v-else class="nav-badge ai-badge">GEMINI</span>
         </button>
 
         <button
@@ -342,6 +360,8 @@ onUnmounted(() => {
               ? 'VIEW: ORDERS HISTORY'
               : activeTab === 'news'
               ? 'VIEW: NEWS & EVENTS'
+              : activeTab === 'strategy' && strategyInitialSection === 'chat-studio'
+              ? 'VIEW: AI CHAT STUDIO (GEMINI)'
               : activeTab === 'strategy'
               ? 'VIEW: STRATEGY & ANALYSIS'
               : activeTab === 'backtest'
@@ -464,7 +484,7 @@ onUnmounted(() => {
       @refresh="orderStore.refresh"
     />
 
-    <!-- VIEW 4: STRATEGY & ANALYSIS -->
+    <!-- VIEW 4: STRATEGY & ANALYSIS / AI CHAT STUDIO -->
     <StrategyAnalysisView
       v-else-if="activeTab === 'strategy'"
       :candles="marketStore.candles"
@@ -473,6 +493,7 @@ onUnmounted(() => {
       :news="orderStore.news"
       :events="orderStore.events"
       :initial-section="strategyInitialSection"
+      @update:initial-section="(sec) => strategyInitialSection = sec"
       @navigate-cockpit="activeTab = 'cockpit'"
     />
 

@@ -899,8 +899,8 @@ function renderMarkdown(content) {
 .chat-studio-container {
   display: flex;
   width: 100%;
-  height: calc(100vh - 160px);
-  min-height: 640px;
+  height: calc(100vh - 210px);
+  min-height: 620px;
   background: #090d16;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
@@ -1028,6 +1028,29 @@ function renderMarkdown(content) {
   flex: 1;
   overflow-y: auto;
   padding: 10px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.conversations-scrollable::-webkit-scrollbar {
+  width: 5px;
+}
+
+.conversations-scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.conversations-scrollable::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.conversations-scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.conversations-scrollable::-webkit-scrollbar-button {
+  display: none !important;
 }
 
 .sidebar-loading,
@@ -1383,6 +1406,29 @@ function renderMarkdown(content) {
   padding: 24px;
   display: flex;
   flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.messages-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+.messages-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.messages-viewport::-webkit-scrollbar-button {
+  display: none !important;
 }
 
 /* Welcome Hero (Gemini) */
@@ -1773,7 +1819,15 @@ function renderMarkdown(content) {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.composer-pills-bar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .pill-chip {

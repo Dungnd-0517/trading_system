@@ -161,3 +161,150 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
   background: #dc2626 !important;
   animation: pulse 1s infinite;
 }
+
+/* ==================================================== */
+/* MODERN SLEEK SCROLLBAR SYSTEM (NO NATIVE ARROWS)     */
+/* ==================================================== */
+/* 1. Global Light / App Defaults */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd7cc transparent;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd7cc;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #95a896;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Kills ugly native Windows arrow buttons on all scrollbars */
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 2. Dark Surfaces Scrollbar (AI Chat Studio, Mini Console, Dark Panels) */
+.chat-studio-container,
+.chat-studio-container *,
+.mini-popup-console,
+.mini-popup-console *,
+.dark-scrollbar,
+.dark-scrollbar * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.chat-studio-container ::-webkit-scrollbar,
+.mini-popup-console ::-webkit-scrollbar,
+.dark-scrollbar::-webkit-scrollbar,
+.dark-scrollbar *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.chat-studio-container ::-webkit-scrollbar-track,
+.mini-popup-console ::-webkit-scrollbar-track,
+.dark-scrollbar::-webkit-scrollbar-track,
+.dark-scrollbar *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-studio-container ::-webkit-scrollbar-thumb,
+.mini-popup-console ::-webkit-scrollbar-thumb,
+.dark-scrollbar::-webkit-scrollbar-thumb,
+.dark-scrollbar *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+
+.chat-studio-container ::-webkit-scrollbar-thumb:hover,
+.mini-popup-console ::-webkit-scrollbar-thumb:hover,
+.dark-scrollbar::-webkit-scrollbar-thumb:hover,
+.dark-scrollbar *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.chat-studio-container ::-webkit-scrollbar-button,
+.mini-popup-console ::-webkit-scrollbar-button,
+.dark-scrollbar ::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 3. Utility: Hidden Scrollbars for Horizontal Chips Strips */
+.no-scrollbar,
+.mini-quick-commands,
+.composer-pills-bar {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.mini-quick-commands::-webkit-scrollbar,
+.composer-pills-bar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 4. Top Navigation AI Studio Styling */
+.nav-tab.nav-tab-ai {
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.08) 0%, rgba(138, 56, 253, 0.05) 100%);
+  border-color: rgba(56, 139, 253, 0.25);
+  color: #1f6feb;
+}
+
+.nav-tab.nav-tab-ai:hover {
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.15) 0%, rgba(138, 56, 253, 0.12) 100%);
+  color: #0969da;
+}
+
+.nav-tab.nav-tab-ai.active {
+  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
+  color: #ffffff;
+  border-color: #1f6feb;
+  box-shadow: 0 1px 4px rgba(31, 111, 235, 0.3);
+}
+
+.nav-tab.nav-tab-ai.active .nav-badge.ai-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.nav-badge.ai-badge {
+  background: rgba(56, 139, 253, 0.15);
+  color: #1f6feb;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.nav-badge.ai-badge.unread {
+  background: #f85149;
+  color: #ffffff;
+  animation: pulse 1.5s infinite;
+}

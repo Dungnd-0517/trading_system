@@ -137,6 +137,12 @@ function renderSimpleMarkdown(content) {
     .replace(/\n\n/g, '<div class="mini-gap"></div>')
     .replace(/\n/g, '<br/>')
 }
+
+function handleQuickCommandsWheel(e) {
+  if (e.deltaY !== 0) {
+    e.currentTarget.scrollLeft += e.deltaY
+  }
+}
 </script>
 
 <template>
@@ -301,7 +307,7 @@ function renderSimpleMarkdown(content) {
         </div>
 
         <!-- Quick Commands Strip -->
-        <div class="mini-quick-commands">
+        <div class="mini-quick-commands" @wheel.passive="handleQuickCommandsWheel">
           <button
             v-for="(cmd, i) in quickCommands"
             :key="i"
@@ -599,6 +605,29 @@ function renderSimpleMarkdown(content) {
   flex: 1;
   overflow-y: auto;
   padding: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.mini-messages-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.mini-messages-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mini-messages-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.mini-messages-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.mini-messages-body::-webkit-scrollbar-button {
+  display: none !important;
 }
 
 .mini-empty-state {
@@ -798,9 +827,18 @@ function renderSimpleMarkdown(content) {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 6px 14px;
+  overflow-y: hidden;
+  padding: 8px 14px;
   background: #0b0f19;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.mini-quick-commands::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .mini-cmd-chip {

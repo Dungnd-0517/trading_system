@@ -1,5 +1,51 @@
 # Backlog cập nhật
 
+## 2026-10-13 01:14 +07:00
+
+### [Update Phase 03 - Sprint 03]: Tối Ưu Hóa Giao Diện - Làm Đẹp Hệ Thống Thanh Cuộn (Scrollbars) & Nâng Cấp AI Chat Studio Thành Tab Lớn Độc Lập
+
+- **Bối cảnh & Yêu cầu:**
+  - Khắc phục triệt để thanh cuộn Windows mặc định (thanh xám to, có nút mũi tên hai đầu `::-webkit-scrollbar-button`) làm mất tính thẩm mỹ trên giao diện tối và giao diện chung:
+    1. Thanh cuộn ngang dưới danh mục subnav trong Strategy & Analysis (`.strategy-subnav`).
+    2. Thanh cuộn ngang trên dải phím tắt chỉ thị nhanh (`.mini-quick-commands`) trong popup `GlobalChatWidget.vue`.
+    3. Thanh cuộn dọc trên khung danh sách tin nhắn (`.messages-viewport`) và toàn bộ trang `AIChatStudioView.vue`.
+  - Phân tách cấu trúc rõ ràng: Đưa **AI Chat Studio** thành **Tab Lớn (Major Tab)** độc lập và bình đẳng, phân biệt hoàn toàn với tab **Chiến Lược Giao Dịch & Khung Phân Tích Kỹ Thuật**:
+    1. Trước đây, `8. AI Chat Studio` bị nhét chung vào thanh subnav nhỏ phía dưới Hero Header ("Chiến Lược Giao Dịch & Khung Phân Tích Kỹ Thuật"), vừa làm tràn chiều ngang gây hiện tượng thanh cuộn ngang xấu, vừa chiếm mất 50% diện tích chiều dọc của màn hình chat.
+    2. Nâng cấp thành bộ chuyển đổi Segmented Control cấp cao (Major Tabs Bar): Tab 1 chuyên biệt cho SMC Strategy & Analysis (giữ nguyên Hero Header và 7 subtabs SMC), Tab 2 chuyên biệt cho AI Chat Studio (chiếm trọn 100% diện tích làm việc toàn màn hình, không bị chèn ép).
+    3. Tích hợp trực tiếp lên thanh điều hướng chính `App.vue` (`.main-nav`) để Trader truy cập nhanh một chạm từ mọi nơi.
+
+- **Tiến trình cập nhật & Hoàn thành:**
+  - **1. Chuẩn Hóa Hệ Thống Thanh Cuộn Toàn Cục ([`frontend/src/style.css`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/style.css)):**
+    - Loại bỏ vĩnh viễn nút mũi tên Windows: `::-webkit-scrollbar-button { display: none !important; }`.
+    - Thanh cuộn sáng cho toàn ứng dụng: WebKit và Firefox (`scrollbar-width: thin; scrollbar-color: #cbd7cc transparent;`), thumb bo tròn thanh mảnh 7px, track trong suốt.
+    - Thanh cuộn tối chuyên biệt cho phân hệ AI (`.chat-studio-container`, `.mini-popup-console`): thumb màu slate bán trong suốt (`rgba(255, 255, 255, 0.16)` / hover `rgba(255, 255, 255, 0.32)`), viền bo tròn 999px.
+    - Tiện ích ẩn thanh cuộn nhưng vẫn cuộn mượt mà: `.no-scrollbar`, `.mini-quick-commands`, `.composer-pills-bar` (`scrollbar-width: none; &::-webkit-scrollbar { display: none !important; }`).
+  - **2. Tinh Chỉnh Cuộn Trong Global Chat Widget ([`frontend/src/components/AIAnalysis/GlobalChatWidget.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/GlobalChatWidget.vue)):**
+    - Ẩn hoàn toàn thanh cuộn xám xấu xí trên dải phím lệnh nhanh `.mini-quick-commands`.
+    - Bổ sung hàm lắng nghe sự kiện chuột `handleQuickCommandsWheel` (`@wheel.passive`), cho phép lăn con trỏ chuột theo chiều dọc để cuộn mượt mà theo chiều ngang.
+    - Tinh chỉnh `.mini-messages-body` với thanh cuộn dark mỏng 5px bo góc hiện đại.
+  - **3. Tinh Chỉnh Cuộn & Chiều Cao Trong AI Chat Studio ([`frontend/src/components/AIAnalysis/AIChatStudioView.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/AIChatStudioView.vue)):**
+    - Tối ưu thanh cuộn mượt mà cho `.conversations-scrollable` (5px) và `.messages-viewport` (6px).
+    - Ẩn thanh cuộn trên dải Quick Prompts `.composer-pills-bar`.
+    - Tối ưu chiều cao container `height: calc(100vh - 210px); min-height: 620px;` giúp giao diện vừa vặn hoàn hảo trong khung nhìn, loại bỏ thanh cuộn dọc thừa ngoài trang.
+  - **4. Tái Cấu Trúc Major Tab Trong Chiến Lược ([`frontend/src/components/Strategy/StrategyAnalysisView.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Strategy/StrategyAnalysisView.vue)):**
+    - Bổ sung thanh điều hướng Major Tabs Bar cao cấp ở đầu view với 2 khối lớn:
+      - **Tab Lớn 1: 📐 Chiến Lược Giao Dịch & Khung Phân Tích Kỹ Thuật:** Icon `Layers`, badge `7 CHUYÊN MỤC SMC`, render đầy đủ Hero Header và 7 module SMC (Quy trình, Khái niệm, Kill Zones, Quản trị rủi ro, Tin tức vĩ mô, TradingAgents, Checklist). Đã lược bỏ nút thứ 8 khỏi subnav nhỏ, giúp 7 nút hiển thị thoáng đãng và không bị tràn ngang.
+      - **Tab Lớn 2: ✨ AI Chat Studio (Gemini Multi-Session):** Icon `Sparkles` phát sáng, badge `GEMINI MULTI-SESSION`, badge số tin chưa đọc và đèn tín hiệu `● LIVE`. Render trực tiếp component `AIChatStudioView` toàn màn hình không bị Hero Header che chắn.
+    - Quản lý trạng thái `majorTab` ('strategy' vs 'chat-studio') và đồng bộ 2 chiều với prop `initialSection` thông qua `@update:initial-section`.
+  - **5. Nâng Cấp Thanh Điều Hướng Cấp Gốc ([`frontend/src/App.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/App.vue)):**
+    - Bổ sung tab độc lập `AI Chat Studio` ngay cạnh `Strategy & Analysis` trên thanh topbar với badge `GEMINI` / badge số tin chưa đọc.
+    - Cập nhật hiển thị chỉ báo chế độ xem: `VIEW: AI CHAT STUDIO (GEMINI)` khi ở trong studio và `VIEW: STRATEGY & ANALYSIS` khi ở trong chiến lược.
+    - Đồng bộ mượt mà sự kiện chuyển tab từ widget nổi toàn cục (`openFullChatStudio`).
+
+- **Kiểm thử & Nghiệm thu:**
+  - Biên dịch Frontend (`npm run build`): **✓ 1612 modules transformed, built in 2.53s (Zero errors/warnings)**.
+  - Toàn bộ backend test suite: **108/108 tests passed in 16.00s (100% Pass Rate)**.
+  - Toàn bộ 3 lỗi scrollbar và bố cục tab phản ánh trong screenshot đã được xử lý triệt để.
+- **Trạng thái:** Hoàn thành xuất sắc. Sẵn sàng cho các task tiếp theo của Sprint 03.
+
+---
+
 ## 2026-10-13 00:54 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 4 - Global Pop-up Chat Widget Xuyên Suốt Toàn Giao Diện
