@@ -186,8 +186,12 @@ CREATE INDEX IF NOT EXISTS idx_strategy_signals_is_test ON strategy_signals(is_t
 CREATE TABLE IF NOT EXISTS trading_knowledge (
     id BIGSERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
+    school_of_thought VARCHAR(64) NOT NULL DEFAULT 'GENERAL',
     category VARCHAR(64) NOT NULL,
     content TEXT NOT NULL,
+    source_type VARCHAR(64) NOT NULL DEFAULT 'SYSTEM_CORE',
+    verified_by_trader BOOLEAN NOT NULL DEFAULT TRUE,
+    confidence_score NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     embedding vector(1536),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -195,6 +199,9 @@ CREATE TABLE IF NOT EXISTS trading_knowledge (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trading_knowledge_category ON trading_knowledge(category);
+CREATE INDEX IF NOT EXISTS idx_trading_knowledge_school ON trading_knowledge(school_of_thought);
+CREATE INDEX IF NOT EXISTS idx_trading_knowledge_source_type ON trading_knowledge(source_type);
+CREATE INDEX IF NOT EXISTS idx_trading_knowledge_metadata ON trading_knowledge USING gin (metadata);
 CREATE INDEX IF NOT EXISTS idx_trading_knowledge_embedding ON trading_knowledge USING hnsw (embedding vector_cosine_ops);
 
 CREATE TABLE IF NOT EXISTS episodic_trade_memory (
@@ -216,3 +223,39 @@ CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_outcome ON episodic_trade_m
 CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_mistake ON episodic_trade_memory(mistake_category);
 CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_is_test ON episodic_trade_memory(is_test);
 CREATE INDEX IF NOT EXISTS idx_episodic_trade_memory_embedding ON episodic_trade_memory USING hnsw (embedding vector_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS agent_decision_logs (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    market_regime VARCHAR(64) NOT NULL,
+    suggested_bias VARCHAR(32) NOT NULL,
+    consensus_score NUMERIC(4, 2) NOT NULL,
+    technical_confidence NUMERIC(4, 2) NOT NULL,
+    macro_sentiment_score NUMERIC(4, 2) NOT NULL,
+    active_circuit_breaker BOOLEAN NOT NULL DEFAULT FALSE,
+    applied_risk_pct NUMERIC(4, 2) NOT NULL,
+    applied_sl_mult NUMERIC(4, 2) NOT NULL,
+    applied_min_rr NUMERIC(4, 2) NOT NULL,
+    trading_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+    halt_reason TEXT,
+    rationale_summary TEXT NOT NULL,
+    agent_votes JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_test BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_decision_logs_timestamp ON agent_decision_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_decision_logs_is_test ON agent_decision_logs(is_test);
+
+CREATE TABLE IF NOT EXISTS agent_trader_dialogue (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sender VARCHAR(32) NOT NULL,
+    message_type VARCHAR(32) NOT NULL,
+    content TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    approval_status VARCHAR(32),
+    is_test BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_timestamp ON agent_trader_dialogue(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_is_test ON agent_trader_dialogue(is_test);

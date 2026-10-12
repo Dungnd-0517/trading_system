@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 import json
 import logging
+import re
 from typing import Any, Optional
 
 import numpy as np
@@ -10,10 +11,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_engine.news_agent import news_event_agent
 from ai_engine.news_guard import news_circuit_breaker
 from ai_engine.reflexion_service import reflexion_service
+from ai_engine.technical_agent import technical_rag_agent
 from core.database import session_factory
 from core.models import (
+    AgentDecisionLog,
+    AgentTraderDialogue,
     EpisodicTradeMemory,
     FinancialNews,
     MarketCandle,
@@ -49,6 +54,27 @@ class ConsensusReport(BaseModel):
     current_daily_drawdown_pct: float
     active_params: AgentParamAdjustment
     rationale: str
+
+
+class ExecutiveBriefingResponse(BaseModel):
+    dialogue_id: Optional[int] = None
+    timestamp: str
+    headline: str
+    macro_summary: str
+    technical_summary: str
+    reflexion_summary: str
+    risk_mandate_summary: str
+    active_params: AgentParamAdjustment
+    briefing_text: str
+
+
+class TraderDialogueResponse(BaseModel):
+    trader_message_id: int
+    governor_message_id: int
+    response: str
+    actions_taken: dict[str, Any]
+    guardrail_passed: bool
+    active_params: AgentParamAdjustment
 
 
 def validate_and_apply_hard_guardrails(
@@ -191,7 +217,10 @@ class StrategyGovernor:
         return recent_losses, mistakes
 
     async def synthesize_consensus(
-        self, session: AsyncSession, include_test: bool = False
+        self,
+        session: AsyncSession,
+        include_test: bool = False,
+        is_test: bool = False,
     ) -> ConsensusReport:
         """
         Tổng hợp đồng thuận (Consensus) từ 3 Agent và áp dụng Hard Guardrails:
@@ -201,29 +230,26 @@ class StrategyGovernor:
         """
         now = datetime.now(timezone.utc)
 
-        # 1. Thu thập dữ liệu News Agent
-        is_news_halt, news_reason, _ = await news_circuit_breaker.is_circuit_active(
-            session, now
+        # 1. Thu thập dữ liệu News Agent từ NewsEventAgent
+        macro_report = await news_event_agent.generate_macro_report(
+            session=session, target_time=now, broadcast=False
         )
+        is_news_halt = macro_report.active_circuit_breaker
+        news_reason = macro_report.recommendation_for_governor.reason
+        sentiment_score = macro_report.macro_sentiment_score
 
-        news_stmt = (
-            select(func.avg(FinancialNews.sentiment_score))
-            .where(FinancialNews.published_at >= now - timedelta(hours=3))
-        )
-        avg_sentiment = (await session.execute(news_stmt)).scalar()
-        sentiment_score = float(avg_sentiment) if avg_sentiment is not None else 0.0
-
-        # 2. Thu thập dữ liệu Technical Agent
+        # 2. Thu thập dữ liệu Technical Agent từ TechnicalRagAgent
+        tech_report = await technical_rag_agent.generate_technical_analysis(session=session)
         regime, current_atr = await self.evaluate_market_regime(session)
 
         # 3. Thu thập dữ liệu Reflexion Agent
         recent_losses, mistake_patterns = await self.review_recent_reflexions(
-            session, include_test=include_test
+            session, include_test=include_test or is_test
         )
 
         # 4. Tính toán Daily Drawdown
         daily_dd = await self.calculate_daily_drawdown(
-            session, include_test=include_test
+            session, include_test=include_test or is_test
         )
 
         # 5. Logic đề xuất thích ứng của Governor
@@ -234,6 +260,8 @@ class StrategyGovernor:
         halt_reason = None
         bias = "NEUTRAL"
         confidence = 0.80
+        if tech_report and tech_report.confidence_score:
+            confidence = round((confidence + tech_report.confidence_score) / 2, 2)
         reasons: list[str] = []
 
         # Tác động từ News
@@ -306,6 +334,40 @@ class StrategyGovernor:
             rationale=rationale_str,
         )
 
+        # 6b. Ghi nhận AgentDecisionLog vào PostgreSQL
+        decision_log = AgentDecisionLog(
+            market_regime=regime,
+            suggested_bias=bias,
+            consensus_score=Decimal(f"{confidence:.2f}"),
+            technical_confidence=Decimal(f"{(tech_report.confidence_score if tech_report else 0.80):.2f}"),
+            macro_sentiment_score=Decimal(f"{sentiment_score:.2f}"),
+            active_circuit_breaker=is_news_halt,
+            applied_risk_pct=Decimal(f"{validated_params.risk_per_trade_percent:.2f}"),
+            applied_sl_mult=Decimal(f"{validated_params.atr_sl_multiplier:.2f}"),
+            applied_min_rr=Decimal(f"{validated_params.min_risk_reward_ratio:.2f}"),
+            trading_allowed=validated_params.trading_allowed,
+            halt_reason=validated_params.halt_reason,
+            rationale_summary=rationale_str,
+            agent_votes={
+                "news": {
+                    "sentiment": sentiment_score,
+                    "circuit_breaker": is_news_halt,
+                    "bias": macro_report.macro_bias if macro_report else "NEUTRAL",
+                },
+                "technical": {
+                    "regime": regime,
+                    "atr": current_atr,
+                    "confidence": tech_report.confidence_score if tech_report else 0.80,
+                },
+                "reflexion": {
+                    "recent_losses": recent_losses,
+                    "mistakes": mistake_patterns,
+                },
+            },
+            is_test=include_test or is_test,
+        )
+        session.add(decision_log)
+
         # 7. Đồng bộ hóa 2 tầng: PostgreSQL (system_trading_config) & Redis Cache
         await self._persist_and_sync_cache(session, validated_params)
         return report
@@ -368,6 +430,536 @@ class StrategyGovernor:
                 }
 
         return AgentParamAdjustment().model_dump()
+
+    async def generate_executive_briefing(
+        self, session: AsyncSession, include_test: bool = False, is_test: bool = False
+    ) -> dict[str, Any]:
+        """
+        Xuất bản bản tin điều hành tóm tắt vĩ mô, cấu trúc kỹ thuật, bài học reflexion và rủi ro.
+        Lưu vào bảng agent_trader_dialogue và trả về cấu trúc chi tiết.
+        """
+        now = datetime.now(timezone.utc)
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        # 1. Thu thập dữ liệu News Agent
+        macro_report = await news_event_agent.generate_macro_report(
+            session=session, target_time=now, broadcast=False
+        )
+        cb_status = "ĐANG KÍCH HOẠT (HALT_ACTIVE)" if macro_report.active_circuit_breaker else "BÌNH THƯỜNG (NORMAL)"
+        sentiment_score = macro_report.macro_sentiment_score
+        macro_bias = macro_report.macro_bias
+        cb_reason = (
+            macro_report.recommendation_for_governor.reason
+            if macro_report.active_circuit_breaker
+            else "Không có sự kiện 3 sao trong phạm vi 30 phút."
+        )
+
+        # 2. Thu thập dữ liệu Technical Agent
+        tech_report = await technical_rag_agent.generate_technical_analysis(session=session)
+        regime, current_atr = await self.evaluate_market_regime(session)
+        tech_bias = tech_report.structural_bias if tech_report else "NEUTRAL"
+        tech_conf = int((tech_report.confidence_score if tech_report else 0.80) * 100)
+
+        # 3. Thu thập dữ liệu Reflexion
+        recent_losses, mistake_patterns = await self.review_recent_reflexions(
+            session, include_test=include_test or is_test
+        )
+        mistake_str = ", ".join(set(mistake_patterns)) if mistake_patterns else "Không có mẫu hình lỗi lặp lại gần đây"
+
+        # 4. Sụt giảm và Tham số vận hành hiện tại
+        daily_dd = await self.calculate_daily_drawdown(
+            session, include_test=include_test or is_test
+        )
+        params = await self.get_current_runtime_params()
+        allowed_str = (
+            "CHO PHÉP MỞ LỆNH"
+            if params.get("trading_allowed", True)
+            else f"TẠM KHÓA GIAO DỊCH ({params.get('halt_reason', 'N/A')})"
+        )
+
+        # 5. Xây dựng nội dung bản tin (Briefing Text Markdown)
+        briefing_text = (
+            f"🏛️ **BẢN TIN ĐIỀU HÀNH CHIẾN LƯỢC (EXECUTIVE BRIEFING)**\n"
+            f"⏱️ *Thời gian phát hành:* {now_str} | *Chỉ huy:* Strategy Governor (CRO)\n\n"
+            f"**1. Bối cảnh Vĩ mô & Sự kiện (News & Event Agent):**\n"
+            f"- Điểm cảm xúc vĩ mô: **{sentiment_score:+.2f}** ({macro_bias})\n"
+            f"- Trạng thái Circuit Breaker: **{cb_status}**\n"
+            f"- Chi tiết: {cb_reason}\n\n"
+            f"**2. Cấu trúc Kỹ thuật Đa Trường phái (Technical RAG Agent):**\n"
+            f"- Trạng thái biến động (Regime): **{regime}** (ATR M15: {current_atr:.1f} pts)\n"
+            f"- Thiên hướng kỹ thuật: **{tech_bias}** (Độ tin cậy: {tech_conf}%)\n"
+            f"- Hợp lưu: Wyckoff, ICT, CMT, SMC & Traps đang duy trì cấu trúc nhất quán.\n\n"
+            f"**3. Phản tư & Phòng ngừa Sai lầm (Reflexion Agent):**\n"
+            f"- Tỷ lệ lệnh thua gần đây: **{recent_losses}/10 lệnh**\n"
+            f"- Nhóm sai lầm cảnh báo: **{mistake_str}**\n\n"
+            f"**4. Chỉ thị Quản trị Rủi ro Hiện hành (Governor Mandate):**\n"
+            f"- Trạng thái: **{allowed_str}**\n"
+            f"- Rủi ro áp dụng: **{params.get('risk_per_trade_percent', 1.0):.2f}%** / lệnh (Biên an toàn [0.25%, 1.50%])\n"
+            f"- ATR SL Multiplier: **{params.get('atr_sl_multiplier', 1.5):.2f}x**\n"
+            f"- Tỷ lệ R:R tối thiểu: **1:{params.get('min_risk_reward_ratio', 1.5):.2f}**\n"
+            f"- Sụt giảm trong ngày (Drawdown): **{daily_dd:.2f}%** / tối đa 3.00%"
+        )
+
+        headline = f"Executive Briefing {now_str}: {regime} | Risk {params.get('risk_per_trade_percent', 1.0):.2f}% | DD {daily_dd:.2f}%"
+
+        # 6. Ghi bản ghi vào agent_trader_dialogue
+        dialogue = AgentTraderDialogue(
+            sender="GOVERNOR",
+            message_type="BRIEFING",
+            content=briefing_text,
+            metadata_={
+                "headline": headline,
+                "macro_score": sentiment_score,
+                "market_regime": regime,
+                "atr": current_atr,
+                "recent_losses": recent_losses,
+                "daily_drawdown_pct": daily_dd,
+                "active_params": params,
+            },
+            approval_status=None,
+            is_test=include_test or is_test,
+        )
+        session.add(dialogue)
+        await session.commit()
+        await session.refresh(dialogue)
+
+        # Phát sóng Redis event
+        try:
+            await redis_client.publish(
+                "agent:trader:dialogue",
+                json.dumps({
+                    "type": "agent.dialogue.message",
+                    "dialogue": {
+                        "id": dialogue.id,
+                        "sender": dialogue.sender,
+                        "message_type": dialogue.message_type,
+                        "content": dialogue.content,
+                        "timestamp": dialogue.timestamp.isoformat(),
+                    },
+                }),
+            )
+        except Exception as e:
+            logger.warning("Failed to publish briefing to Redis: %s", e)
+
+        return {
+            "dialogue_id": dialogue.id,
+            "timestamp": now.isoformat(),
+            "headline": headline,
+            "macro_summary": f"Điểm cảm xúc: {sentiment_score:+.2f} ({macro_bias}), Circuit Breaker: {cb_status}",
+            "technical_summary": f"Regime: {regime}, ATR: {current_atr:.1f} pts, Bias: {tech_bias} ({tech_conf}%)",
+            "reflexion_summary": f"Lỗ gần đây: {recent_losses}/10, Cảnh báo: {mistake_str}",
+            "risk_mandate_summary": f"Trạng thái: {allowed_str}, Risk: {params.get('risk_per_trade_percent')}%, SL: {params.get('atr_sl_multiplier')}x, DD: {daily_dd:.2f}%",
+            "active_params": params,
+            "briefing_text": briefing_text,
+        }
+
+    async def process_trader_dialogue(
+        self,
+        message: str,
+        session: AsyncSession,
+        is_test: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Kênh đối thoại hai chiều Trader - Governor:
+        - Nhận thông điệp / câu lệnh từ Trader.
+        - Trích xuất ý định (Intent Parsing) cho các thao tác ghi đè (rủi ro, sl, dừng/mở giao dịch, briefing).
+        - Thẩm định qua Bộ Rào chắn Cứng (Hard Guardrails D21/D24).
+        - Từ chối dứt khoát và giải thích nguyên tắc bảo toàn vốn nếu vi phạm.
+        - Ghi nhật ký vào agent_trader_dialogue và đồng bộ Single Source of Truth.
+        """
+        message_clean = message.strip()
+        lower_msg = message_clean.lower()
+
+        # 1. Intent Parsing
+        # Nhận diện lệnh Briefing
+        is_briefing_request = any(
+            k in lower_msg
+            for k in [
+                "báo cáo điều hành",
+                "executive briefing",
+                "tóm tắt tình hình",
+                "báo cáo thị trường",
+                "tình hình hôm nay",
+                "báo cáo tổng quan",
+                "briefing",
+            ]
+        )
+
+        # Nhận diện lệnh Rủi ro (Risk %)
+        # Ví dụ: "Hạ mức rủi ro xuống 0.5%", "set risk to 0.75%", "rủi ro 5%", "risk 1.2%"
+        risk_match = re.search(
+            r"(?:hạ|giảm|tăng|đặt|set|mức|chỉnh)?\s*(?:rủi\s*ro|risk)[\s\wàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ:=]*?([0-9]+(?:\.[0-9]+)?)\s*%",
+            lower_msg,
+        )
+        if not risk_match:
+            risk_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*%\s*(?:rủi\s*ro|risk)", lower_msg)
+        if not risk_match:
+            risk_match = re.search(r"(?:rủi\s*ro|risk)[\s:=]+([0-9]+(?:\.[0-9]+)?)", lower_msg)
+
+        # Nhận diện lệnh ATR SL Multiplier
+        # Ví dụ: "Nới SL lên 2.2x ATR", "Nới SL lên 2.0", "sl 2.5x", "atr 2.0"
+        atr_match = re.search(
+            r"(?:nới|hạ|đặt|tăng|giảm|set)?\s*(?:sl|atr|stop\s*loss|cắt\s*lỗ)[\s\wàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ:=]*?([0-9]+(?:\.[0-9]+)?)\s*(?:x|lần)?(?:\s*atr)?",
+            lower_msg,
+        )
+
+        # Nhận diện lệnh Min Risk:Reward
+        rr_match = re.search(
+            r"(?:tỷ\s*lệ|min)?\s*(?:rr|r:r|risk\s*reward)[\s\wàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ:=]*?([0-9]+(?:\.[0-9]+)?)",
+            lower_msg,
+        )
+
+        # Nhận diện lệnh Tạm dừng / Tiếp tục
+        is_pause = any(
+            k in lower_msg
+            for k in [
+                "tạm dừng",
+                "dừng giao dịch",
+                "ngừng giao dịch",
+                "khóa lệnh",
+                "pause",
+                "halt",
+                "ngắt giao dịch",
+            ]
+        )
+        is_resume = any(
+            k in lower_msg
+            for k in [
+                "tiếp tục",
+                "mở lại giao dịch",
+                "bật giao dịch",
+                "kích hoạt lại",
+                "resume",
+                "unpause",
+                "mở khóa",
+            ]
+        )
+
+        # 2. Lưu tin nhắn của Trader vào agent_trader_dialogue
+        is_command = bool(risk_match or atr_match or rr_match or is_pause or is_resume or is_briefing_request)
+        trader_msg = AgentTraderDialogue(
+            sender="TRADER",
+            message_type="COMMAND" if is_command else "TEXT",
+            content=message_clean,
+            metadata_={
+                "parsed_intent": {
+                    "is_command": is_command,
+                    "risk": float(risk_match.group(1)) if risk_match else None,
+                    "atr": float(atr_match.group(1)) if atr_match else None,
+                    "rr": float(rr_match.group(1)) if rr_match else None,
+                    "pause": is_pause,
+                    "resume": is_resume,
+                    "briefing": is_briefing_request,
+                }
+            },
+            approval_status=None,
+            is_test=is_test,
+        )
+        session.add(trader_msg)
+        await session.commit()
+        await session.refresh(trader_msg)
+
+        # 3. Đọc dữ liệu hệ thống hiện tại
+        current_params = await self.get_current_runtime_params()
+        daily_dd = await self.calculate_daily_drawdown(session, include_test=is_test)
+
+        guardrail_passed = True
+        rejection_reasons: list[str] = []
+        actions_taken: dict[str, Any] = {}
+        proposed = dict(current_params)
+
+        # 4. Xử lý kịch bản Briefing nếu người dùng yêu cầu
+        if is_briefing_request and not (risk_match or atr_match or rr_match or is_pause or is_resume):
+            briefing_res = await self.generate_executive_briefing(session, is_test=is_test)
+            gov_msg = AgentTraderDialogue(
+                sender="GOVERNOR",
+                message_type="BRIEFING",
+                content=briefing_res["briefing_text"],
+                metadata_={
+                    "linked_dialogue_id": trader_msg.id,
+                    "guardrail_passed": True,
+                    "is_briefing": True,
+                    "daily_drawdown_pct": daily_dd,
+                },
+                approval_status=None,
+                is_test=is_test,
+            )
+            session.add(gov_msg)
+            await session.commit()
+            await session.refresh(gov_msg)
+
+            return {
+                "trader_message_id": trader_msg.id,
+                "governor_message_id": gov_msg.id,
+                "response": briefing_res["briefing_text"],
+                "actions_taken": {"generated_briefing": True},
+                "guardrail_passed": True,
+                "active_params": current_params,
+            }
+
+        # 5. Thẩm định Hard Guardrails đối với từng chỉ thị ghi đè
+        if risk_match:
+            req_risk = float(risk_match.group(1))
+            if req_risk < 0.25 or req_risk > 1.50:
+                guardrail_passed = False
+                rejection_reasons.append(
+                    f"Từ chối yêu cầu đặt mức rủi ro {req_risk:.2f}%. Theo Bộ Rào chắn Cứng (Hard Guardrails D21/D24) "
+                    f"và Quy chế Bảo toàn Vốn (Capital Preservation Mandate), biên độ an toàn bắt buộc là [0.25%, 1.50%]. "
+                    f"Yêu cầu vượt ngưỡng tối đa bị hủy bỏ để phòng ngừa rủi ro cháy tài khoản."
+                )
+            else:
+                proposed["risk_per_trade_percent"] = req_risk
+                actions_taken["risk_per_trade_percent"] = req_risk
+
+        if atr_match:
+            req_atr = float(atr_match.group(1))
+            if req_atr < 1.00 or req_atr > 3.00:
+                guardrail_passed = False
+                rejection_reasons.append(
+                    f"Từ chối điều chỉnh ATR SL Multiplier {req_atr:.2f}x. Dải an toàn cho phép là [1.00x, 3.00x] ATR "
+                    f"để cân bằng giữa việc chống quét râu nến và bảo toàn khoảng cách dừng lỗ hợp lý."
+                )
+            else:
+                proposed["atr_sl_multiplier"] = req_atr
+                actions_taken["atr_sl_multiplier"] = req_atr
+
+        if rr_match:
+            req_rr = float(rr_match.group(1))
+            if req_rr < 1.20 or req_rr > 4.00:
+                guardrail_passed = False
+                rejection_reasons.append(
+                    f"Từ chối điều chỉnh Min Risk:Reward {req_rr:.2f}. Dải cho phép là [1.20, 4.00] để bảo đảm kỳ vọng toán học dương."
+                )
+            else:
+                proposed["min_risk_reward_ratio"] = req_rr
+                actions_taken["min_risk_reward_ratio"] = req_rr
+
+        if is_pause:
+            proposed["trading_allowed"] = False
+            proposed["halt_reason"] = "TRADER_OVERRIDE: Tạm dừng giao dịch theo chỉ thị của Trader."
+            actions_taken["trading_allowed"] = False
+            actions_taken["halt_reason"] = proposed["halt_reason"]
+
+        if is_resume:
+            if daily_dd >= 3.00:
+                guardrail_passed = False
+                rejection_reasons.append(
+                    f"Từ chối mở lại quyền giao dịch. Sụt giảm tài khoản trong ngày ({daily_dd:.2f}%) đã chạm ngưỡng tối đa 3.00% "
+                    f"(Max Daily Drawdown Breaker). Hệ thống bị khóa cứng tuyệt đối cho đến ngày tiếp theo để bảo toàn vốn."
+                )
+            else:
+                proposed["trading_allowed"] = True
+                proposed["halt_reason"] = None
+                actions_taken["trading_allowed"] = True
+
+        # 6. Ra quyết định & Phản hồi
+        active_params_dict = current_params
+        if not guardrail_passed:
+            reply_text = (
+                "🛡️ **THÔNG BÁO TỪ BỘ RÀO CHẮN CỨNG (HARD GUARDRAILS):**\n"
+                + "\n".join(f"• {r}" for r in rejection_reasons)
+                + f"\n\n*Hệ thống bảo lưu nguyên vẹn bộ tham số hiện tại (Rủi ro: {current_params.get('risk_per_trade_percent')}%, Drawdown: {daily_dd:.2f}%).* "
+            )
+            msg_type = "TEXT"
+        elif actions_taken:
+            proposed["updated_by_agent"] = "TRADER_DIALOGUE_OVERRIDE"
+            validated_params, was_hard_breached = validate_and_apply_hard_guardrails(
+                proposed, current_daily_drawdown=daily_dd
+            )
+            if was_hard_breached:
+                guardrail_passed = False
+                reply_text = (
+                    f"⚠️ Cảnh báo: Can thiệp bị chặn lại do Drawdown ngày đã đạt {daily_dd:.2f}% (ngưỡng 3.00%). "
+                    f"Quyền giao dịch vẫn bị khóa cứng."
+                )
+                msg_type = "TEXT"
+            else:
+                await self._persist_and_sync_cache(session, validated_params)
+                active_params_dict = validated_params.model_dump()
+                actions_desc = []
+                if "risk_per_trade_percent" in actions_taken:
+                    actions_desc.append(f"Rủi ro / lệnh: **{actions_taken['risk_per_trade_percent']}%**")
+                if "atr_sl_multiplier" in actions_taken:
+                    actions_desc.append(f"ATR SL Multiplier: **{actions_taken['atr_sl_multiplier']}x**")
+                if "min_risk_reward_ratio" in actions_taken:
+                    actions_desc.append(f"Min R:R: **1:{actions_taken['min_risk_reward_ratio']}**")
+                if "trading_allowed" in actions_taken:
+                    state_str = "MỞ LẠI GIAO DỊCH" if actions_taken["trading_allowed"] else "TẠM DỪNG GIAO DỊCH"
+                    actions_desc.append(f"Trạng thái: **{state_str}**")
+
+                reply_text = (
+                    f"✅ **CHỈ THỊ CỦA TRADER ĐÃ ĐƯỢC THI HÀNH THÀNH CÔNG:**\n"
+                    f"Governor đã kiểm tra rào chắn an toàn và đồng bộ các thay đổi:\n"
+                    + "\n".join(f"• {d}" for d in actions_desc)
+                    + f"\n\n*Đã cập nhật Single Source of Truth trong PostgreSQL và đồng bộ tức thời sang Redis Cache.*"
+                )
+                msg_type = "OVERRIDE_CONFIRM"
+        else:
+            # Đối thoại thông thường không có câu lệnh
+            reply_text = (
+                f"Strategy Governor (CRO) đã tiếp nhận thông điệp từ Trader: *\"{message_clean}\"*.\n"
+                f"Hệ thống hiện duy trì tham số: Rủi ro **{current_params.get('risk_per_trade_percent', 1.0):.2f}%**, "
+                f"ATR SL **{current_params.get('atr_sl_multiplier', 1.5):.2f}x**, "
+                f"Drawdown ngày **{daily_dd:.2f}%**, Trạng thái: **{'HOẠT ĐỘNG' if current_params.get('trading_allowed', True) else 'TẠM KHÓA'}**.\n"
+                f"Trader có thể ra lệnh ghi đè (VD: *\"Hạ rủi ro xuống 0.5%\"*, *\"Tạm dừng giao dịch\"*) hoặc yêu cầu *\"Báo cáo điều hành\"* bất kỳ lúc nào."
+            )
+            msg_type = "TEXT"
+
+        # 7. Ghi nhận phản hồi của Governor vào agent_trader_dialogue
+        gov_msg = AgentTraderDialogue(
+            sender="GOVERNOR",
+            message_type=msg_type,
+            content=reply_text,
+            metadata_={
+                "linked_dialogue_id": trader_msg.id,
+                "guardrail_passed": guardrail_passed,
+                "actions_taken": actions_taken,
+                "daily_drawdown_pct": daily_dd,
+            },
+            approval_status=None,
+            is_test=is_test,
+        )
+        session.add(gov_msg)
+        await session.commit()
+        await session.refresh(gov_msg)
+
+        # 8. Phát sóng Redis event
+        try:
+            await redis_client.publish(
+                "agent:trader:dialogue",
+                json.dumps({
+                    "type": "agent.dialogue.message",
+                    "trader_message": {
+                        "id": trader_msg.id,
+                        "sender": trader_msg.sender,
+                        "content": trader_msg.content,
+                        "timestamp": trader_msg.timestamp.isoformat(),
+                    },
+                    "governor_message": {
+                        "id": gov_msg.id,
+                        "sender": gov_msg.sender,
+                        "message_type": gov_msg.message_type,
+                        "content": gov_msg.content,
+                        "guardrail_passed": guardrail_passed,
+                        "actions_taken": actions_taken,
+                        "timestamp": gov_msg.timestamp.isoformat(),
+                    },
+                }),
+            )
+        except Exception as e:
+            logger.warning("Failed to publish dialogue event: %s", e)
+
+        return {
+            "trader_message_id": trader_msg.id,
+            "governor_message_id": gov_msg.id,
+            "response": reply_text,
+            "actions_taken": actions_taken,
+            "guardrail_passed": guardrail_passed,
+            "active_params": active_params_dict,
+        }
+
+    async def respond_trade_approval(
+        self,
+        dialogue_id: int,
+        action: str,
+        session: AsyncSession,
+        is_test: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Xử lý phản hồi phê duyệt / từ chối đề xuất mở lệnh từ Trader.
+        Cập nhật trạng thái approval_status và tạo bản ghi phản hồi.
+        """
+        action_upper = action.strip().upper()
+        if action_upper not in ["APPROVE", "REJECT"]:
+            raise ValueError(
+                f"Hành động phê duyệt không hợp lệ: '{action}'. Bắt buộc phải là 'APPROVE' hoặc 'REJECT'."
+            )
+
+        dialogue = await session.get(AgentTraderDialogue, dialogue_id)
+        if not dialogue:
+            raise ValueError(f"Không tìm thấy bản ghi đối thoại ID #{dialogue_id}")
+
+        new_status = "APPROVED" if action_upper == "APPROVE" else "REJECTED"
+        dialogue.approval_status = new_status
+
+        if action_upper == "APPROVE":
+            reply_text = (
+                f"✅ **YÊU CẦU MỞ LỆNH #{dialogue_id} ĐÃ ĐƯỢC CHỦ THỂ PHÊ DUYỆT (APPROVED).**\n"
+                f"Strategy Governor đã chuyển tiếp lệnh vào Auto Execution Engine để thực thi trên thị trường."
+            )
+        else:
+            reply_text = (
+                f"🛑 **YÊU CẦU MỞ LỆNH #{dialogue_id} ĐÃ BỊ TỪ CHỐI (REJECTED).**\n"
+                f"Strategy Governor đã hủy bỏ thiết lập lệnh theo quyết định của Chủ thể."
+            )
+
+        gov_confirm = AgentTraderDialogue(
+            sender="GOVERNOR",
+            message_type="TEXT",
+            content=reply_text,
+            metadata_={
+                "linked_dialogue_id": dialogue_id,
+                "action": action_upper,
+                "previous_status": "PENDING",
+                "new_status": new_status,
+            },
+            approval_status=None,
+            is_test=dialogue.is_test or is_test,
+        )
+        session.add(gov_confirm)
+        await session.commit()
+        await session.refresh(dialogue)
+        await session.refresh(gov_confirm)
+
+        try:
+            await redis_client.publish(
+                "governor:approval_response",
+                json.dumps({
+                    "type": "governor.approval_response",
+                    "dialogue_id": dialogue_id,
+                    "action": action_upper,
+                    "status": new_status,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }),
+            )
+        except Exception as e:
+            logger.warning("Failed to publish approval response: %s", e)
+
+        return {
+            "dialogue_id": dialogue_id,
+            "status": new_status,
+            "message": reply_text,
+            "confirmation_message_id": gov_confirm.id,
+        }
+
+    async def get_dialogue_history(
+        self,
+        session: AsyncSession,
+        limit: int = 50,
+        include_test: bool = False,
+    ) -> list[dict[str, Any]]:
+        """
+        Truy vấn lịch sử đối thoại giữa Trader và Governor.
+        """
+        stmt = select(AgentTraderDialogue)
+        if not include_test:
+            stmt = stmt.where(AgentTraderDialogue.is_test.is_(False))
+        stmt = stmt.order_by(AgentTraderDialogue.timestamp.desc()).limit(limit)
+
+        records = (await session.execute(stmt)).scalars().all()
+        reversed_records = list(reversed(records))
+        return [
+            {
+                "id": r.id,
+                "timestamp": r.timestamp.isoformat(),
+                "sender": r.sender,
+                "message_type": r.message_type,
+                "content": r.content,
+                "metadata": r.metadata_,
+                "approval_status": r.approval_status,
+            }
+            for r in reversed_records
+        ]
 
 
 class GovernorWorker:

@@ -271,12 +271,27 @@ class TradingKnowledge(Base):
     __tablename__ = "trading_knowledge"
     __table_args__ = (
         Index("idx_trading_knowledge_category", "category"),
+        Index("idx_trading_knowledge_school", "school_of_thought"),
+        Index("idx_trading_knowledge_source_type", "source_type"),
+        Index("idx_trading_knowledge_metadata", "metadata", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    school_of_thought: Mapped[str] = mapped_column(
+        String(64), default="GENERAL", server_default=text("'GENERAL'"), nullable=False
+    )
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str] = mapped_column(
+        String(64), default="SYSTEM_CORE", server_default=text("'SYSTEM_CORE'"), nullable=False
+    )
+    verified_by_trader: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    confidence_score: Mapped[Decimal] = mapped_column(
+        Numeric(4, 2), default=Decimal("1.00"), server_default=text("1.00"), nullable=False
+    )
     metadata_: Mapped[dict[str, object]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
     )
@@ -309,4 +324,51 @@ class EpisodicTradeMemory(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AgentDecisionLog(Base):
+    __tablename__ = "agent_decision_logs"
+    __table_args__ = (
+        Index("idx_agent_decision_logs_timestamp", "timestamp"),
+        Index("idx_agent_decision_logs_is_test", "is_test"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    market_regime: Mapped[str] = mapped_column(String(64), nullable=False)
+    suggested_bias: Mapped[str] = mapped_column(String(32), nullable=False)
+    consensus_score: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    technical_confidence: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    macro_sentiment_score: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    active_circuit_breaker: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    applied_risk_pct: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    applied_sl_mult: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    applied_min_rr: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    trading_allowed: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    halt_reason: Mapped[str | None] = mapped_column(Text)
+    rationale_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_votes: Mapped[dict[str, object]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
+
+class AgentTraderDialogue(Base):
+    __tablename__ = "agent_trader_dialogue"
+    __table_args__ = (
+        Index("idx_agent_trader_dialogue_timestamp", "timestamp"),
+        Index("idx_agent_trader_dialogue_is_test", "is_test"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sender: Mapped[str] = mapped_column(String(32), nullable=False)  # 'TRADER', 'GOVERNOR'
+    message_type: Mapped[str] = mapped_column(String(32), nullable=False)  # 'TEXT', 'COMMAND', 'BRIEFING', 'APPROVAL_REQUEST', 'OVERRIDE_CONFIRM'
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict[str, object]] = mapped_column(
+        "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    approval_status: Mapped[str | None] = mapped_column(String(32))  # 'PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
 
