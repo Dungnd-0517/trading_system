@@ -271,40 +271,4 @@ button:focus-visible { outline: 2px solid #c68133; outline-offset: 2px; }
   height: 0 !important;
 }
 
-/* 4. Top Navigation AI Studio Styling */
-.nav-tab.nav-tab-ai {
-  background: linear-gradient(135deg, rgba(56, 139, 253, 0.08) 0%, rgba(138, 56, 253, 0.05) 100%);
-  border-color: rgba(56, 139, 253, 0.25);
-  color: #1f6feb;
-}
-
-.nav-tab.nav-tab-ai:hover {
-  background: linear-gradient(135deg, rgba(56, 139, 253, 0.15) 0%, rgba(138, 56, 253, 0.12) 100%);
-  color: #0969da;
-}
-
-.nav-tab.nav-tab-ai.active {
-  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
-  color: #ffffff;
-  border-color: #1f6feb;
-  box-shadow: 0 1px 4px rgba(31, 111, 235, 0.3);
-}
-
-.nav-tab.nav-tab-ai.active .nav-badge.ai-badge {
-  background: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
-}
-
-.nav-badge.ai-badge {
-  background: rgba(56, 139, 253, 0.15);
-  color: #1f6feb;
-  font-size: 8.5px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-}
-
-.nav-badge.ai-badge.unread {
-  background: #f85149;
-  color: #ffffff;
-  animation: pulse 1.5s infinite;
-}
+

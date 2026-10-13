@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Settings2,
   ShieldAlert,
-  Sparkles,
   Zap,
 } from 'lucide-vue-next'
 import TradingViewChart from './components/Chart/TradingViewChart.vue'
@@ -201,24 +200,12 @@ onUnmounted(() => {
 
         <button
           role="tab"
-          :aria-selected="activeTab === 'strategy' && strategyInitialSection !== 'chat-studio'"
-          :class="['nav-tab', { active: activeTab === 'strategy' && strategyInitialSection !== 'chat-studio' }]"
+          :aria-selected="activeTab === 'strategy'"
+          :class="['nav-tab', { active: activeTab === 'strategy' }]"
           @click="openStrategyView"
         >
           <BrainCircuit :size="14" />
           <span>Strategy &amp; Analysis</span>
-        </button>
-
-        <button
-          role="tab"
-          :aria-selected="activeTab === 'strategy' && strategyInitialSection === 'chat-studio'"
-          :class="['nav-tab', 'nav-tab-ai', { active: activeTab === 'strategy' && strategyInitialSection === 'chat-studio' }]"
-          @click="openFullChatStudio"
-        >
-          <Sparkles :size="14" />
-          <span>AI Chat Studio</span>
-          <span v-if="chatStore.unreadCount > 0" class="nav-badge ai-badge unread">{{ chatStore.unreadCount }}</span>
-          <span v-else class="nav-badge ai-badge">GEMINI</span>
         </button>
 
         <button
