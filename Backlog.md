@@ -1,5 +1,44 @@
 # Backlog cập nhật
 
+## 2026-10-13 16:15 +07:00
+
+### [Update Phase 03 - Sprint 03]: Cá Nhân Hóa Định Danh Các AI Agent (Sentinel, Vector, Scribe, Arbiter, Council) & Xuất Bản Hồ Sơ Hệ Thống `Agents_Profile.md`
+
+- **Bối cảnh & Yêu cầu:**
+  - Nhằm cá nhân hóa trải nghiệm người dùng, phân định trực quan và chuyên biệt hóa sâu sắc vai trò của từng AI Agent trong hệ sinh thái giao dịch Vàng XAU/USD (Fieldnote Markets):
+    1. **Sentinel (News & Event Agent):** Người gác cổng vĩ mô, phân tích điểm cảm xúc thị trường (Macro Sentiment Score $[-1.00, +1.00]$), tương quan DXY và kích hoạt cơ chế ngắt mạch khẩn cấp (Circuit Breaker 3 sao). Trọng số biểu quyết: 35%.
+    2. **Vector (Technical RAG Agent):** Viện trưởng viện chiến lược kỹ thuật đa trường phái (Wyckoff Spring/Upthrust, SMC Liquidity Sweeps, Order Block, Inducement Traps, CMT Patterns) kết hợp truy vấn tri thức vector PostgreSQL pgvector. Trọng số biểu quyết: 40%.
+    3. **Scribe (Reflexion Agent):** Người ghi chép sử ký giao dịch, đúc kết bài học Post-Mortem, theo dõi taxonomy sai lầm lặp lại (`SL_TOO_TIGHT`, `EARLY_ENTRY`, `CHASE_PRICE`) và tự động thích ứng nới rộng hệ số SL ATR Multiplier. Trọng số biểu quyết: 25%.
+    4. **Arbiter (Strategy Governor Agent):** Trọng tài tối cao kiêm Giám đốc Quản trị Rủi ro (Chief Risk Officer - CRO), người nắm giữ quyền phủ quyết tối thượng, thực thi nghiêm ngặt Hard Guardrails D21/D24 (Risk $[0.25\%, 1.50\%]$, Drawdown $< 3.0\%$) và điều hành kênh phê duyệt Interactive Approval Cards.
+    5. **Council (Multi-Agent Consensus Council):** Hội đồng đồng thuận toàn diện kết tinh trí tuệ đa tác tử (Vector 40%, Sentinel 35%, Scribe 25%) do Arbiter thẩm định và ban hành nghị quyết chiến lược.
+  - Xây dựng tài liệu hồ sơ hệ thống toàn diện [`Agents_Profile.md`](file:///c:/Users/nguye/OneDrive/Desktop/xau/Agents_Profile.md) lưu trữ toàn bộ đặc tả năng lực, System Prompts, Persona Voice/Tone, ma trận phối hợp và hợp đồng I/O Data Contracts.
+  - Cập nhật tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md) với Quyết định Kiến trúc mới **D28** (Agent Persona Identity Personalization) và cập nhật Definition of Done (DoD).
+
+- **Tiến trình triển khai & Hoàn thành:**
+  - **1. Xuất Bản Tài Liệu Hồ Sơ Hệ Thống ([`Agents_Profile.md`](file:///c:/Users/nguye/OneDrive/Desktop/xau/Agents_Profile.md)):**
+    - Hoàn thành tài liệu kiến trúc sống (Living Document) gồm 6 chương: Tổng quan kiến trúc đa agent, Bảng danh mục nhận diện, Hồ sơ chi tiết từng Agent (Sentinel, Vector, Scribe, Arbiter, Council), Ma trận phối hợp & Luồng xử lý tín hiệu (Trade Signal Lifecycle), Ánh xạ Codebase/Files, Quy tắc bảo toàn kiến trúc & Chuẩn phân lập D18.
+  - **2. Cập Nhật Tài Liệu Kiến Trúc ([`Architecture_phase_03_sprint_03.md`](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md)):**
+    - Bổ sung Quyết định Kiến trúc **D28** trong Decision Log D25–D28.
+    - Cập nhật mục 4.2 và bổ sung tiểu mục **4.3. Cá Nhân Hóa Định Danh Agent (Sentinel, Vector, Scribe, Arbiter)**.
+    - Bổ sung tiêu chí DoD cho Persona Personalization và liên kết trực tiếp tới `Agents_Profile.md`.
+  - **3. Nâng Cấp Backend Persona Service & API Router:**
+    - [`backend/api/v1/chat.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/api/v1/chat.py): Cập nhật endpoint `GET /api/v1/chat/personas` trả về định danh cá nhân hóa đầy đủ (Arbiter CRO, Vector RAG Specialist, Sentinel News Watchdog, Scribe Reflexion Coach, Council Consensus).
+    - [`backend/ai_engine/chat_service.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/ai_engine/chat_service.py): Cập nhật tiêu đề phản hồi Markdown đa agent mang định danh Sentinel, Vector, Scribe, Council, bảo toàn 100% test assertions.
+    - [`backend/ai_engine/strategy_governor.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/ai_engine/strategy_governor.py): Tích hợp định danh Arbiter, Sentinel, Vector, Scribe vào Executive Briefing.
+  - **4. Đồng Bộ Hóa Giao Diện Chat Studio ([`frontend/src/components/AIAnalysis/AIChatStudioView.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/AIChatStudioView.vue)):**
+    - Cập nhật bộ chọn Agent Persona Switcher Dropdown với tên gọi độc bản: Arbiter, Vector, Sentinel, Scribe, Council.
+    - Cập nhật dải Quick Prompts Pills và Welcome Screen Canvas phản ánh rõ nét định danh các tác tử.
+  - **5. Tinh Chỉnh Thanh Điều Hướng App.vue ([`frontend/src/App.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/App.vue)):**
+    - Loại bỏ nút thừa AI Chat Studio trên thanh topbar giúp tối ưu hóa diện tích hiển thị, thông thoáng thanh trạng thái Balance/Equity và đồng hồ thời gian.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Biên dịch Frontend (`npm run build`): **✓ 1613 modules transformed, built in 3.70s (Zero errors/warnings)**.
+  - Toàn bộ backend test suite (Docker Compose): **109/109 tests passed in 21.71s (100% Pass Rate)**.
+  - Bảo toàn tuyệt đối chuẩn phân lập dữ liệu kiểm thử D18 và Hard Guardrails D21/D24.
+- **Trạng thái:** Hoàn thành xuất sắc toàn diện.
+
+---
+
 ## 2026-10-13 01:30 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Hoàn Thành Task 5 - Động Cơ Đồng Bộ Real-time Hai Chiều (Unified Pinia State & Event Bus)

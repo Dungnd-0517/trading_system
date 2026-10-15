@@ -5,24 +5,27 @@
 > **Trạng thái:** ARCHITECTURE SPECIFICATION & SPRINT BACKLOG PLAN  
 > **Tài liệu nền:** [Architecture.md](Architecture.md), [technical_system.md](technical_system.md)  
 > **Tài liệu Sprint trước:** [Architecture_phase_03_sprint_01.md](Architecture_phase_03_sprint_01.md), [Architecture_phase_03_sprint_02.md](Architecture_phase_03_sprint_02.md), [Backlog.md](Backlog.md)  
+> **Hồ sơ Cá nhân hóa Agent:** [Agents_Profile.md](Agents_Profile.md) (Sentinel, Vector, Scribe, Arbiter, Council)  
 > **Framework tham chiếu:** Tauric Research TradingAgents (`https://github.com/tauricresearch/tradingagents`), Google Gemini Web UI Architecture, Vue 3 Pinia State Management, Redis Pub/Sub, PostgreSQL pgvector.  
 > **Phạm vi (Scope):** Xây dựng hệ thống chat thời gian thực toàn diện, đồng bộ hóa 100% với kênh đối thoại hai chiều Trader - Governor (đã kiến tạo trong Task 5 của Sprint 02):  
 > 1. **Global Pop-up Chat Widget (Xuyên suốt toàn bộ giao diện):** Widget nổi (floating/dockable) hiện diện liên tục trên mọi màn hình (Trading Cockpit, Orders History, News & Events, Strategy & Analysis, Backtest Lab, Settings), hỗ trợ gửi lệnh override nhanh, xử lý Interactive Approval Cards (Duyệt/Từ chối lệnh), xem Briefing vĩ mô và nhận diện thông báo chưa đọc (Unread badge).  
-> 2. **Dedicated Chat Studio Screen (Tab riêng nằm trong Strategy & Analysis):** Không gian hội thoại chuyên sâu với bố cục chia nhiều cuộc trò chuyện (Multi-Conversation Sessions) mô phỏng trải nghiệm người dùng hiện đại của LLM Gemini (Sidebar phân nhóm thời gian, New Chat, Rename, Pin, Delete, Search, Message Thread Markdown phong phú, chọn Agent tham vấn chuyên biệt).  
+> 2. **Dedicated Chat Studio Screen (Tab riêng nằm trong Strategy & Analysis):** Không gian hội thoại chuyên sâu với bố cục chia nhiều cuộc trò chuyện (Multi-Conversation Sessions) mô phỏng trải nghiệm người dùng hiện đại của LLM Gemini (Sidebar phân nhóm thời gian, New Chat, Rename, Pin, Delete, Search, Message Thread Markdown phong phú, chọn Agent tham vấn chuyên biệt: Sentinel, Vector, Scribe, Arbiter, Council).  
 > 3. **Real-time Two-Way Synchronization Engine:** Cơ chế đồng bộ phản ứng tức thời hai chiều giữa Pop-up Widget và Màn hình Chat Studio thông qua Pinia Store tập trung (`chatStore.js`), WebSocket stream và Redis Pub/Sub, bảo đảm tính nhất quán dữ liệu Single Source of Truth.  
 > 4. **Multi-Session Data & Schema Layer:** Migration `0007_phase3_sprint3_chat.sql` bổ sung bảng `chat_conversations`, mở rộng `agent_trader_dialogue` với `conversation_id`, và bảo toàn nghiêm ngặt chuẩn phân lập kiểm thử D18.  
+> 5. **Cá nhân hóa Định danh Agent (Persona Identity Personalization - D28):** Quy chuẩn hóa tên gọi độc bản: Sentinel (News), Vector (Technical), Scribe (Reflexion), Arbiter (Governor) kèm hồ sơ hệ thống toàn diện tại [Agents_Profile.md](Agents_Profile.md).  
 > **Ngoài phạm vi (Out of Scope):** Thực hiện lệnh tiền thật trên tài khoản MT5 Live (thuộc Phase 04); Huấn luyện lại weights mô hình nền tảng LLM từ đầu.  
-> **Ngày lập:** 2026-10-12  
+> **Ngày lập:** 2026-10-12 (Cập nhật Persona: 2026-10-13)  
 
 ---
 
 ## MỤC LỤC
 1. [Mục tiêu và Định hướng Trọng tâm Sprint 03](#1-mục-tiêu-và-định-hướng-trọng-tâm-sprint-03)
-2. [Quyết định Kiến trúc Mới (Decision Log D25–D27)](#2-quyết-định-kiến-trúc-mới-decision-log-d25d27)
+2. [Quyết định Kiến trúc Mới (Decision Log D25–D28)](#2-quyết-định-kiến-trúc-mới-decision-log-d25d28)
 3. [Kiến trúc Tổng thể Hệ thống Chat & Sơ đồ Luồng Dữ liệu](#3-kiến-trúc-tổng-thể-hệ-thống-chat--sơ-đồ-luồng-dữ-liệu)
-4. [Thiết kế Chi tiết 2 Phân hệ Giao diện (Dual-Surface UI)](#4-thiết-kế-chi-tiết-2-phân-hệ-giao-diện-dual-surface-ui)
+4. [Thiết kế Chi tiết 2 Phân hệ Giao diện (Dual-Surface UI) & Hệ Thống Persona](#4-thiết-kế-chi-tiết-2-phân-hệ-giao-diện-dual-surface-ui)
    - [4.1. Global Pop-up Chat Widget](#41-global-pop-up-chat-widget-xuyên-suốt-toàn-bộ-giao-diện)
    - [4.2. Dedicated Multi-Conversation Chat Studio (Gemini Layout)](#42-dedicated-multi-conversation-chat-studio-gemini-layout-trong-strategy--analysis)
+   - [4.3. Cá Nhân Hóa Định Danh Agent (Sentinel, Vector, Scribe, Arbiter)](#43-cá-nhân-hóa-định-danh-agent-sentinel-vector-scribe-arbiter)
 5. [Động cơ Đồng bộ Real-Time Hai Chiều (Unified Reactive State & Event Bus)](#5-động-cơ-đồng-bộ-real-time-hai-chiều-unified-reactive-state--event-bus)
 6. [Mô hình Dữ liệu & Schema Bổ sung (`0007_phase3_sprint3_chat.sql`)](#6-mô-hình-dữ-liệu--schema-bổ-sung-0007_phase3_sprint3_chatsql)
 7. [Hợp đồng Giao tiếp: REST API & WebSocket Protocol](#7-hợp-đồng-giao-tiếp-rest-api--websocket-protocol)
@@ -49,13 +52,14 @@ Mặc dù kênh đối thoại đã hoạt động hoàn hảo ở tầng Backen
 
 ---
 
-## 2. QUYẾT ĐỊNH KIẾN TRÚC MỚI (DECISION LOG D25–D27)
+## 2. QUYẾT ĐỊNH KIẾN TRÚC MỚI (DECISION LOG D25–D28)
 
 | ID | Quyết định Kiến trúc | Trạng thái | Tác động Kỹ thuật & Lý do Thiết kế |
 | :--- | :--- | :---: | :--- |
 | **D25** | **Quản lý Đa Phiên Hội Thoại (Multi-Conversation Session Model) & Mở rộng Schema** | `ACCEPTED` | Xây dựng bảng `chat_conversations` quản lý vòng đời session (tiêu đề, thời gian cập nhật, ghim, lưu trữ, agent mục tiêu). Bảng `agent_trader_dialogue` được bổ sung khóa ngoại `conversation_id REFERENCES chat_conversations(id) ON DELETE CASCADE`. Cho phép Trader duy trì nhiều ngữ cảnh đàm thoại độc lập, không bị phân mảnh hay lẫn lộn thông điệp. |
 | **D26** | **Mô hình Giao diện Đồng Bộ Hai Bề Mặt (Dual-Surface Synchronized UI: Global Pop-up + Gemini Studio)** | `ACCEPTED` | Triển khai 2 bề mặt hiển thị độc lập về mặt visual nhưng liên kết chặt chẽ về mặt reactive state: (1) Global Floating Pop-up Widget túc trực tại góc dưới màn hình mọi views; (2) Dedicated Chat Studio toàn màn hình dạng Gemini Layout tại tab Strategy & Analysis. Cả hai cùng kết nối vào một Pinia Store (`chatStore`), chia sẻ cùng một luồng WebSocket stream và Redis Pub/Sub, cập nhật tức thì zero-lag. |
 | **D27** | **Định tuyến Agent Tham Vấn & Tiêm Ngữ Cảnh Thị Trường Động (Agent Delegation & Market Context Injection)** | `ACCEPTED` | Cho phép Trader lựa chọn đối thoại trực tiếp với Governor (Chỉ huy & CRO) hoặc tham vấn chuyên sâu từng Agent (`TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`). Tích hợp nút "Attach Market Context" tự động tiêm snapshot giá XAUUSD, nến M15, tin tức nóng và tham số rủi ro vào prompt gửi đi. |
+| **D28** | **Cá nhân hóa Định danh Đa Agent (Agent Persona Identity Personalization: Sentinel, Vector, Scribe, Arbiter)** | `ACCEPTED` | Cá nhân hóa tên gọi độc bản cho 4 Agent chính: **Sentinel** (News & Event Agent), **Vector** (Technical RAG Agent), **Scribe** (Reflexion Agent), **Arbiter** (Strategy Governor & CRO), cùng **Council** (Multi-Agent Consensus). Toàn bộ hồ sơ năng lực, hệ thống luật, thẩm quyền và dữ liệu I/O được quy chuẩn hóa trong [Agents_Profile.md](Agents_Profile.md), đồng bộ hóa metadata hiển thị trên REST API `/api/v1/chat/personas` và UI Chat Studio. |
 
 ---
 
@@ -146,11 +150,11 @@ Nằm tại Tab **Strategy & Analysis** dưới dạng một Sub-tab chuyên bi�
   - **Header Khu Vực:**
     - Tiêu đề cuộc trò chuyện hiện tại (có thể bấm vào để chỉnh sửa trực tiếp).
     - Bộ chọn Agent tham vấn (Agent Persona Switcher):
-      - `👑 Strategy Governor (CRO & Tổng chỉ huy)`
-      - `📐 Technical RAG Analyst (Hợp lưu đa trường phái Wyckoff, ICT, CMT, SMC)`
-      - `📰 News & Macro Analyst (Phân tích vĩ mô & Circuit Breaker)`
-      - `🧠 Reflexion Coach (Học tập lệnh đóng & Taxonomy lỗi)`
-      - `🏛 Full Council (Hội đồng Đa Agent đồng thuận)`
+      - `👑 Arbiter (Strategy Governor & CRO - Trọng tài tối cao)`
+      - `📐 Vector (Technical RAG Specialist - Wyckoff, SMC, ICT)`
+      - `📰 Sentinel (News & Macro Watchdog - Circuit Breaker)`
+      - `🧠 Scribe (Reflexion Learning Coach - Post-Mortem & Error Taxonomy)`
+      - `🏛 Council (Multi-Agent Consensus Council - Đồng thuận toàn diện)`
     - Huy hiệu trạng thái kết nối real-time (`● LIVE STREAMING`).
   - **Khu Vực Tin Nhắn (Message Stream):**
     - Trình bày dạng đối thoại hiện đại: Avatar nhận diện, nhãn tên, mốc thời gian chi tiết.
@@ -166,11 +170,26 @@ Nằm tại Tab **Strategy & Analysis** dưới dạng một Sub-tab chuyên bi�
     - Phím tắt tiện lợi: `Enter` để gửi tin nhắn; `Shift + Enter` để xuống dòng mới.
     - Nút đính kèm ngữ cảnh nhanh: `[ ⚡ Đính kèm Snapshot Thị trường M15 ]` (tự động đính kèm giá hiện tại, trạng thái nến, chỉ số ATR và xu hướng kỹ thuật vào prompt).
     - Hàng phím tắt gợi ý (Quick Prompts Pills):
-      - `"Bản tin điều hành mới nhất"`
+      - `"Bản tin điều hành mới nhất từ Arbiter"`
       - `"Hạ rủi ro xuống 0.5%"`
       - `"Nới khoảng cách SL lên 2.0x ATR"`
-      - `"Đánh giá cấu trúc M15 theo Wyckoff & ICT"`
+      - `"Vector: Đánh giá cấu trúc M15 theo Wyckoff & ICT"`
+      - `"Sentinel: Tình hình tin tức vĩ mô hôm nay"`
+      - `"Scribe: Xem lại các bài học kiểm điểm gần nhất"`
       - `"Tạm dừng giao dịch khẩn cấp"`
+
+### 4.3. Cá Nhân Hóa Định Danh Agent (Sentinel, Vector, Scribe, Arbiter)
+Nhằm tăng tính trực quan, phân định rành mạch trách nhiệm chuyên môn và nâng tầm trải nghiệm giao tiếp người-máy (HITL), toàn bộ các tác tử AI trong hệ thống được cá nhân hóa định danh theo chuẩn [Agents_Profile.md](Agents_Profile.md):
+
+| Tên Cá Nhân Hóa | Định Danh Hệ Thống | Chức Danh Nghiệp Vụ | Huy Hiệu & Màu Sắc | Trọng Số Biểu Quyết |
+| :--- | :---: | :--- | :---: | :---: |
+| **Sentinel** | `NEWS` | Người Gác Cổng Vĩ Mô & Giám Sát Tin Tức Khẩn | 📰 `badge-purple` | 35% |
+| **Vector** | `TECHNICAL` | Viện Trưởng Viện Kỹ Thuật Đa Trường Phái & Vector RAG | 📐 `badge-blue` | 40% |
+| **Scribe** | `REFLEXION` | Người Ghi Sử Ký Giao Dịch & Huấn Luyện Viên Phản Tư | 🧠 `badge-green` | 25% |
+| **Arbiter** | `GOVERNOR` | Trọng Tài Tối Cao & Giám Đốc Quản Trị Rủi Ro (CRO) | 🛡️ `badge-gold` | 100% (Quyền phủ quyết) |
+| **Council** | `COUNCIL` | Hội Đồng Đa Agent Đồng Thuận Toàn Diện | 🏛️ `badge-amber` | 100% (Tổng hợp) |
+
+Hồ sơ hệ thống chi tiết bao gồm System Prompts, Quy tắc ứng xử (Persona Tone), Ràng buộc bảo vệ vốn và Hợp đồng I/O được quy định đầy đủ tại [Agents_Profile.md](Agents_Profile.md).
 
 ---
 
@@ -334,4 +353,5 @@ Kế hoạch thực hiện Phase 03 - Sprint 03 được phân rã thành 6 Task
 - [ ] Hai bề mặt giao tiếp đồng bộ thời gian thực 100% qua WebSocket và Pinia Store.
 - [ ] Toàn bộ backend test suite đạt kết quả **Passed 100%**.
 - [ ] Frontend biên dịch thành công (`npm run build`) không có cảnh báo hay lỗi cú pháp.
+- [ ] Cá nhân hóa định danh các AI Agent (Sentinel, Vector, Scribe, Arbiter) và hoàn thiện hồ sơ hệ thống [Agents_Profile.md](Agents_Profile.md).
 - [ ] Tiến độ được ghi nhận đầy đủ, minh bạch vào [Backlog.md](Backlog.md).

@@ -87,43 +87,43 @@ const personaColors = {
 const quickPrompts = [
   {
     icon: '👑',
-    title: 'Bản tin điều hành',
-    desc: 'Yêu cầu Governor xuất bản Executive Briefing',
-    text: 'Xuất bản bản tin điều hành mới nhất từ Chief Risk Officer',
+    title: 'Bản tin điều hành (Arbiter)',
+    desc: 'Yêu cầu Arbiter xuất bản Executive Briefing CRO',
+    text: 'Xuất bản bản tin điều hành mới nhất từ Chief Risk Officer (Arbiter)',
     persona: 'GOVERNOR',
   },
   {
     icon: '📉',
-    title: 'Hạ rủi ro 0.5%',
+    title: 'Hạ rủi ro 0.5% (Arbiter)',
     desc: 'Điều chỉnh tham số bảo toàn vốn theo quy tắc D21',
     text: 'Hạ mức rủi ro xuống 0.5% vốn và nâng SL lên 2.0x ATR',
     persona: 'GOVERNOR',
   },
   {
     icon: '📐',
-    title: 'Phân tích Wyckoff & SMC',
+    title: 'Phân tích Wyckoff & SMC (Vector)',
     desc: 'Hợp lưu Spring M15, Liquidity Sweep & Discount POI',
     text: 'Đánh giá cấu trúc M15 hiện tại theo trường phái Wyckoff và SMC Order Block',
     persona: 'TECHNICAL',
   },
   {
     icon: '📰',
-    title: 'Bối cảnh Vĩ mô & DXY',
+    title: 'Bối cảnh Vĩ mô & DXY (Sentinel)',
     desc: 'Đo lường điểm cảm xúc và trạng thái Circuit Breaker',
     text: 'Tóm tắt tình hình tin tức vĩ mô hôm nay, tương quan DXY và trạng thái Circuit Breaker',
     persona: 'NEWS',
   },
   {
     icon: '🧠',
-    title: 'Kinh nghiệm & Sai lầm',
+    title: 'Kinh nghiệm & Sai lầm (Scribe)',
     desc: 'Hồi tưởng bài học Post-Mortem và Taxonomy lỗi',
     text: 'Tổng kết tỷ lệ thắng và phân loại các sai lầm lặp lại gần nhất',
     persona: 'REFLEXION',
   },
   {
     icon: '🏛',
-    title: 'Hội đồng Đồng thuận',
-    desc: 'Nghị quyết đa agent tổng hợp ý kiến Technical, News & Reflexion',
+    title: 'Hội đồng Đồng thuận (Council)',
+    desc: 'Nghị quyết đa agent tổng hợp ý kiến Vector, Sentinel & Scribe',
     text: 'Hội đồng đa agent hãy họp thảo luận và ban hành nghị quyết đồng thuận chiến lược',
     persona: 'COUNCIL',
   },
@@ -673,11 +673,11 @@ function renderMarkdown(content) {
               class="persona-select"
               @change="chatStore.setPersonaForActive($event.target.value)"
             >
-              <option value="GOVERNOR">👑 Strategy Governor (CRO)</option>
-              <option value="TECHNICAL">📐 Technical RAG Specialist (SMC/Wyckoff)</option>
-              <option value="NEWS">📰 News &amp; Macro Agent (Circuit Breaker)</option>
-              <option value="REFLEXION">🧠 Reflexion Learning Coach</option>
-              <option value="COUNCIL">🏛 Multi-Agent Consensus Council</option>
+              <option value="GOVERNOR">👑 Arbiter &middot; Strategy Governor (CRO)</option>
+              <option value="TECHNICAL">📐 Vector &middot; Technical RAG Specialist</option>
+              <option value="NEWS">📰 Sentinel &middot; News &amp; Macro Watchdog</option>
+              <option value="REFLEXION">🧠 Scribe &middot; Reflexion Learning Coach</option>
+              <option value="COUNCIL">🏛 Council &middot; Multi-Agent Consensus</option>
             </select>
           </div>
 
@@ -719,8 +719,8 @@ function renderMarkdown(content) {
             </div>
             <h2>Xin chào Trader, tôi là Hội đồng Trợ lý Giao dịch AI</h2>
             <p class="welcome-desc">
-              Hệ thống tích hợp 5 AI Agent chuyên biệt: Thẩm định rủi ro đa tầng (CRO), Phân tích kỹ thuật hợp lưu (Wyckoff/ICT/SMC),
-              Giám sát tin tức vĩ mô khẩn và Đúc rút kinh nghiệm thực nghiệm.
+              Hệ thống tích hợp 4 AI Agent chuyên biệt: Arbiter (CRO &amp; Rủi ro), Vector (Kỹ thuật hợp lưu),
+              Sentinel (Vĩ mô &amp; Circuit Breaker), Scribe (Sử ký &amp; Bài học) cùng Council (Hội đồng đồng thuận).
             </p>
           </div>
 

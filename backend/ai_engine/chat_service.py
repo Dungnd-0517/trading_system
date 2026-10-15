@@ -447,7 +447,7 @@ class ChatService:
 
             reply_text = (
                 f"{context_md}"
-                f"📐 **BÁO CÁO PHÂN TÍCH KỸ THUẬT HỢP LƯU (TECHNICAL RAG SPECIALIST):**\n"
+                f"📐 **BÁO CÁO PHÂN TÍCH KỸ THUẬT HỢP LƯU (VECTOR - TECHNICAL RAG SPECIALIST):**\n"
                 f"• Trạng thái thị trường (Regime): **{regime}**\n"
                 f"• Thiên hướng dòng lệnh: **{bias}** (Độ tin cậy: **{conf}%**)\n"
                 f"• Phân tích đa trường phái: {reasons}"
@@ -476,7 +476,7 @@ class ChatService:
             await session.refresh(agent_dialogue)
 
         elif agent_dest == "NEWS":
-            # Tham vấn News & Event Agent (Vĩ mô & Circuit Breaker)
+            # Tham vấn News & Event Agent (Sentinel - Vĩ mô & Circuit Breaker)
             trader_dialogue = AgentTraderDialogue(
                 conversation_id=conversation_id,
                 client_msg_id=client_msg_id,
@@ -505,11 +505,11 @@ class ChatService:
             rec_reason = macro_report.recommendation_for_governor.reason if macro_report.recommendation_for_governor else "Vận hành ổn định"
             reply_text = (
                 f"{context_md}"
-                f"📰 **BÁO CÁO BỐI CẢNH VĨ MÔ & TIN TỨC (NEWS & MACRO AGENT):**\n"
+                f"📰 **BÁO CÁO BỐI CẢNH VĨ MÔ & TIN TỨC (SENTINEL - NEWS & MACRO AGENT):**\n"
                 f"• Điểm cảm xúc Vàng: **{macro_report.macro_sentiment_score:+.2f}** ({macro_report.macro_bias})\n"
                 f"• Tương quan USD / DXY: **{macro_report.dxy_correlation_bias}**\n"
                 f"• Cơ chế ngắt mạch Circuit Breaker: **{cb_str}**\n"
-                f"• Khuyến nghị CRO: **{rec_action}** ({rec_reason})"
+                f"• Khuyến nghị CRO (Arbiter): **{rec_action}** ({rec_reason})"
                 f"{alerts_str}\n\n"
                 f"*Dữ liệu được cập nhật theo thời gian thực từ ForexFactory và Kitco News.*"
             )
@@ -533,7 +533,7 @@ class ChatService:
             await session.refresh(agent_dialogue)
 
         elif agent_dest == "REFLEXION":
-            # Tham vấn Reflexion Agent (Ký ức kiểm điểm & Taxonomy lỗi)
+            # Tham vấn Reflexion Agent (Scribe - Ký ức kiểm điểm & Taxonomy lỗi)
             trader_dialogue = AgentTraderDialogue(
                 conversation_id=conversation_id,
                 client_msg_id=client_msg_id,
@@ -560,7 +560,7 @@ class ChatService:
 
             reply_text = (
                 f"{context_md}"
-                f"🧠 **BÁO CÁO TIẾN HÓA & HỌC TẬP THỰC NGHIỆM (REFLEXION COACH):**\n"
+                f"🧠 **BÁO CÁO TIẾN HÓA & HỌC TẬP THỰC NGHIỆM (SCRIBE - REFLEXION COACH):**\n"
                 f"• Tỷ lệ thắng toàn chu kỳ: **{winrate:.1f}%** (10 lệnh gần nhất: **{recent_wr:.1f}%**)\n"
                 f"• Thống kê tần suất sai lầm (Error Taxonomy):\n{mistake_str}\n\n"
                 f"💡 **Bài học rút ra từ Post-Mortem:**\n"
@@ -608,12 +608,12 @@ class ChatService:
 
             reply_text = (
                 f"{context_md}"
-                f"🏛️ **NGHỊ QUYẾT HỘI ĐỒNG ĐA AGENT (MULTI-AGENT CONSENSUS COUNCIL):**\n"
+                f"🏛️ **NGHỊ QUYẾT HỘI ĐỒNG ĐA AGENT (COUNCIL - MULTI-AGENT CONSENSUS COUNCIL):**\n"
                 f"• Trạng thái đồng thuận: **{consensus_report.suggested_bias}** (Điểm an toàn: **{consensus_report.confidence_score:.2f}/1.00**)\n"
-                f"• Cấu trúc Kỹ thuật (40%): **{consensus_report.market_regime}**\n"
-                f"• Trọng số Vĩ mô (35%): Sentiment **{consensus_report.news_sentiment_score:+.2f}**, Circuit Breaker: **{'HALTED' if consensus_report.has_active_news_halt else 'NORMAL'}**\n"
-                f"• Kinh nghiệm Reflexion (25%): **{consensus_report.recent_loss_count}** lệnh thua gần đây\n"
-                f"• Quyết nghị Rủi ro CRO: Risk **{consensus_report.active_params.risk_per_trade_percent:.2f}%**, SL **{consensus_report.active_params.atr_sl_multiplier:.2f}x ATR**\n"
+                f"• Vector (Kỹ thuật 40%): **{consensus_report.market_regime}**\n"
+                f"• Sentinel (Vĩ mô 35%): Sentiment **{consensus_report.news_sentiment_score:+.2f}**, Circuit Breaker: **{'HALTED' if consensus_report.has_active_news_halt else 'NORMAL'}**\n"
+                f"• Scribe (Phản tư 25%): **{consensus_report.recent_loss_count}** lệnh thua gần đây\n"
+                f"• Quyết nghị Rủi ro Arbiter (CRO): Risk **{consensus_report.active_params.risk_per_trade_percent:.2f}%**, SL **{consensus_report.active_params.atr_sl_multiplier:.2f}x ATR**\n"
                 f"• Lý giải đồng thuận: *{consensus_report.rationale}*"
             )
 
