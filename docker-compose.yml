@@ -87,9 +87,11 @@ services:
     container_name: trading_mt5_bridge
     restart: unless-stopped
     environment:
-      MT5_LOGIN: ${MT5_DEMO_LOGIN:-}
-      MT5_PASSWORD: ${MT5_DEMO_PASSWORD:-}
-      MT5_SERVER: ${MT5_DEMO_SERVER:-}
+      MT5_LOGIN: ${MT5_DEMO_LOGIN:-5057446983}
+      MT5_PASSWORD: ${MT5_DEMO_PASSWORD:-FxN@6nZf}
+      MT5_SERVER: ${MT5_DEMO_SERVER:-MetaQuotes-Demo}
+      MT5_HOST: ${MT5_HOST:-localhost}
+      MT5_PORT: ${MT5_PORT:-18812}
     ports:
       - "5001:5001"
     networks: [trading-net]
