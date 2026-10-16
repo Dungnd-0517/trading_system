@@ -274,6 +274,7 @@ class TradingKnowledge(Base):
         Index("idx_trading_knowledge_school", "school_of_thought"),
         Index("idx_trading_knowledge_source_type", "source_type"),
         Index("idx_trading_knowledge_metadata", "metadata", postgresql_using="gin"),
+        Index("idx_trading_knowledge_is_test", "is_test"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -286,6 +287,8 @@ class TradingKnowledge(Base):
     source_type: Mapped[str] = mapped_column(
         String(64), default="SYSTEM_CORE", server_default=text("'SYSTEM_CORE'"), nullable=False
     )
+    source_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     verified_by_trader: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
@@ -300,6 +303,38 @@ class TradingKnowledge(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
+
+class StandardizedTradingStrategy(Base):
+    __tablename__ = "standardized_trading_strategies"
+    __table_args__ = (
+        Index("idx_std_strategies_school", "school_of_thought"),
+        Index("idx_std_strategies_is_test", "is_test"),
+        Index("idx_std_strategies_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    school_of_thought: Mapped[str] = mapped_column(String(64), nullable=False)
+    timeframe_focus: Mapped[str] = mapped_column(String(32), default="M15", server_default=text("'M15'"), nullable=False)
+    target_risk_reward: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("2.00"), server_default=text("2.00"), nullable=False)
+    philosophy: Mapped[str] = mapped_column(Text, nullable=False)
+    setup_checklist: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False)
+    entry_rules: Mapped[str] = mapped_column(Text, nullable=False)
+    stop_loss_rules: Mapped[str] = mapped_column(Text, nullable=False)
+    take_profit_rules: Mapped[str] = mapped_column(Text, nullable=False)
+    invalidation_conditions: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_guardrails: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False)
+    source_documents: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False)
+    system_file_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
 
 class EpisodicTradeMemory(Base):

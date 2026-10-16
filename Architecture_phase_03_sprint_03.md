@@ -52,7 +52,7 @@ Mặc dù kênh đối thoại đã hoạt động hoàn hảo ở tầng Backen
 
 ---
 
-## 2. QUYẾT ĐỊNH KIẾN TRÚC MỚI (DECISION LOG D25–D28)
+## 2. QUYẾT ĐỊNH KIẾN TRÚC MỚI (DECISION LOG D25–D29)
 
 | ID | Quyết định Kiến trúc | Trạng thái | Tác động Kỹ thuật & Lý do Thiết kế |
 | :--- | :--- | :---: | :--- |
@@ -60,6 +60,7 @@ Mặc dù kênh đối thoại đã hoạt động hoàn hảo ở tầng Backen
 | **D26** | **Mô hình Giao diện Đồng Bộ Hai Bề Mặt (Dual-Surface Synchronized UI: Global Pop-up + Gemini Studio)** | `ACCEPTED` | Triển khai 2 bề mặt hiển thị độc lập về mặt visual nhưng liên kết chặt chẽ về mặt reactive state: (1) Global Floating Pop-up Widget túc trực tại góc dưới màn hình mọi views; (2) Dedicated Chat Studio toàn màn hình dạng Gemini Layout tại tab Strategy & Analysis. Cả hai cùng kết nối vào một Pinia Store (`chatStore`), chia sẻ cùng một luồng WebSocket stream và Redis Pub/Sub, cập nhật tức thì zero-lag. |
 | **D27** | **Định tuyến Agent Tham Vấn & Tiêm Ngữ Cảnh Thị Trường Động (Agent Delegation & Market Context Injection)** | `ACCEPTED` | Cho phép Trader lựa chọn đối thoại trực tiếp với Governor (Chỉ huy & CRO) hoặc tham vấn chuyên sâu từng Agent (`TECHNICAL`, `NEWS`, `REFLEXION`, `COUNCIL`). Tích hợp nút "Attach Market Context" tự động tiêm snapshot giá XAUUSD, nến M15, tin tức nóng và tham số rủi ro vào prompt gửi đi. |
 | **D28** | **Cá nhân hóa Định danh Đa Agent (Agent Persona Identity Personalization: Sentinel, Vector, Scribe, Arbiter)** | `ACCEPTED` | Cá nhân hóa tên gọi độc bản cho 4 Agent chính: **Sentinel** (News & Event Agent), **Vector** (Technical RAG Agent), **Scribe** (Reflexion Agent), **Arbiter** (Strategy Governor & CRO), cùng **Council** (Multi-Agent Consensus). Toàn bộ hồ sơ năng lực, hệ thống luật, thẩm quyền và dữ liệu I/O được quy chuẩn hóa trong [Agents_Profile.md](Agents_Profile.md), đồng bộ hóa metadata hiển thị trên REST API `/api/v1/chat/personas` và UI Chat Studio. |
+| **D29** | **Hệ Thống Nạp Tri Thức Đa Nguồn & Tự Động Sinh Cấu Trúc Giao Dịch Tiêu Chuẩn (Standardized Trading Frameworks & Ingestion Engine)** | `ACCEPTED` | Tiếp nhận PDF, Markdown, Web URL. Agent [VECTOR] đọc, phân loại trường phái, vector hóa 1536 chiều vào pgvector. Tự động sinh Cấu trúc Giao dịch Tiêu chuẩn cho từng phương pháp và lưu trữ song song thành File Hệ Thống (`.json` & `.md`) tại `backend/knowledge_base/standardized_strategies/` và bảng CSDL `standardized_trading_strategies`. Tích hợp trực tiếp vào chân trang tab "Chiến lược giao dịch & khung phân tích kỹ thuật" menu Strategy & Analysis. |
 
 ---
 

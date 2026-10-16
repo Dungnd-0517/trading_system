@@ -131,4 +131,26 @@ export const exportConversation = (id, format = 'markdown') =>
 export const respondChatApproval = (dialogueId, action) =>
   post('/chat/respond-approval', { dialogue_id: dialogueId, action })
 export const fetchChatMarketContext = () => get('/chat/market-context')
-export const fetchAgentPersonas = () => get('/chat/personas')
+export const fetchAgentPersonas = () => get('/chat/personas')
+
+// Phase 03 Sprint 03: Knowledge Ingestion & Standardized Strategies (Agent [VECTOR])
+export async function uploadKnowledgeFile(formData) {
+  const response = await fetch(`${baseUrl}/knowledge/upload-file`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `API ${response.status}`)
+  }
+  return response.json()
+}
+
+export const ingestKnowledgeUrl = (data) => post('/knowledge/ingest-url', data)
+export const ingestKnowledgeMarkdown = (data) => post('/knowledge/ingest-markdown', data)
+export const fetchStandardizedStrategies = (school = '') =>
+  get(`/knowledge/standardized-strategies${school ? `?school=${encodeURIComponent(school)}` : ''}`)
+export const fetchStandardizedStrategyDetail = (slug) =>
+  get(`/knowledge/standardized-strategies/${encodeURIComponent(slug)}`)
+export const fetchKnowledgeDocuments = () => get('/knowledge/documents')
+export const seedStandardizedStrategies = () => post('/knowledge/seed-strategies')

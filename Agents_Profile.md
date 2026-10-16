@@ -125,15 +125,35 @@ Hệ thống giao dịch XAUUSD ứng dụng mô hình **Đa Tác Tử Cộng H�
    - **Inducement & Traps:** Phát hiện bẫy thanh khoản của Smart Money để tránh bị dính SL sớm.
 3. **Truy vấn Tri thức Vector (RAG pgvector Integration):**
    - Truy vấn tương đồng Cosine trên embeddings tri thức giao dịch để tìm ra các trường hợp điển hình đã được kiểm chứng.
+4. **Cập Nhật & Nạp Tri Thức Đa Nguồn (Multi-Modal Knowledge Ingestion Engine - Sprint 03):**
+   - Đọc, giải mã và bóc tách nội dung từ 3 nguồn: **File PDF** (`.pdf`), **File Markdown** (`.md`), và **Link Tài Liệu / Web URL**.
+   - Tự động nhận diện trường phái học thuật, danh mục chuyên sâu và nhãn tags truy vấn.
+   - Vector hóa 1536 chiều bằng `EmbeddingService` và lưu trữ vào PostgreSQL pgvector.
+5. **Tự Động Sinh & Xuất Bản Cấu Trúc Giao Dịch Tiêu Chuẩn (Standardized Trading Frameworks):**
+   - Sau mỗi nguồn tri thức được cập nhật, tự động tổng hợp **Cấu Trúc Giao Dịch Tiêu Chuẩn** cho từng phương pháp:
+     - Triết lý & cơ chế thanh khoản tổ chức (Institutional Order Flow).
+     - Chuỗi khung thời gian chuẩn hóa: HTF (D1/H4) &rarr; ITF (H1) &rarr; LTF (M15).
+     - Checklist điều kiện tiên quyết (Setup Checklist) 5-7 bước nghiêm ngặt.
+     - Quy tắc Entry Zone, Điểm cắt lỗ SL (đệm 1.5x - 2.0x ATR), Chốt lời TP1 / TP2 (R:R &ge; 1:2.0).
+     - Điều kiện hủy bỏ (Invalidation) và Rào chắn bảo vệ vốn (Hard Guardrails D21/D24).
+   - Xuất bản đồng thời thành **2 file hệ thống**: file JSON (`.json`) và file Markdown (`.md`) tại `backend/knowledge_base/standardized_strategies/` song song bảng CSDL `standardized_trading_strategies`.
+   - Kết nối trực tiếp tri thức chuẩn hóa vào động cơ sinh tín hiệu kỹ thuật để cải thiện thực chất hiệu suất giao dịch (Winrate, Profit Factor, R:R).
 
 #### Giao diện Dữ liệu (I/O Contracts):
-- **Đầu vào (Inputs):** `MarketCandle[M1, M5, M15, H1]`, Vector Knowledge Store.
-- **Đầu ra (Outputs):** `TechnicalAnalysisReport`
-  - `market_regime: MarketRegime`
-  - `technical_bias: str` (`BUY` | `SELL` | `HOLD`)
-  - `confidence_pct: float` ([0.0, 100.0])
-  - `suggested_setup: TradeSetupConfluence` (Entry, Stop Loss, Take Profit, R:R)
-  - `rag_sources: list[dict]` (Trích dẫn sách CMT, ICT Mentorship, SMC Playbook)
+- **Đầu vào (Inputs):**
+  - Dữ liệu nến thị trường `MarketCandle[M1, M5, M15, H1]`.
+  - Tài liệu tri thức mới: File PDF, File Markdown, Web Document URL, Direct Markdown Input.
+  - Vector Knowledge Store & Standardized Strategies Store.
+- **Đầu ra (Outputs):**
+  - `KnowledgeIngestionResult`: School, Confidence, Chunks Vector, Generated Standardized Strategy DTO.
+  - `StandardizedStrategyDTO`: Slug, Checklist, Rules, JSON File Path, Markdown File Path.
+  - `TechnicalAnalysisReport`:
+    - `market_regime: MarketRegime`
+    - `technical_bias: str` (`BUY` | `SELL` | `HOLD`)
+    - `confidence_pct: float` ([0.0, 100.0])
+    - `suggested_setup: TradeSetupConfluence` (Entry, Stop Loss, Take Profit, Planned R:R)
+    - `standardized_strategy: dict` (Liên kết phương pháp chuẩn hóa tương ứng)
+    - `rag_sources: list[dict]` (Trích dẫn sách CMT, ICT Mentorship, SMC Playbook, Wyckoff Schematics)
 
 ---
 

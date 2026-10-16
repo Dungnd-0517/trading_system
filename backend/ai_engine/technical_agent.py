@@ -9,8 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_engine.embeddings import embedding_service
-from core.database import session_factory
-from core.models import MarketCandle, TradingKnowledge
+from core.models import MarketCandle, StandardizedTradingStrategy, TradingKnowledge
 
 logger = logging.getLogger(__name__)
 
@@ -552,6 +551,32 @@ class TechnicalRagAgent:
             f"Khung M15: Nến hấp thụ Pinbar với độ biến động ATR = {atr_val:.2f}.",
             f"Khuyến nghị setup {setup_suggestion.action} với R:R dự kiến {setup_suggestion.planned_risk_reward:.1f}.",
         ]
+
+        # Kiểm tra và liên kết Cấu trúc Giao dịch Tiêu chuẩn nếu có
+        try:
+            strat_stmt = (
+                select(StandardizedTradingStrategy)
+                .where(
+                    StandardizedTradingStrategy.school_of_thought == primary_school,
+                    StandardizedTradingStrategy.is_active.is_(True),
+                    StandardizedTradingStrategy.is_test.is_(False),
+                )
+                .limit(1)
+            )
+            matched_strat = (await session.execute(strat_stmt)).scalar_one_or_none()
+            if matched_strat:
+                notes.append(
+                    f"Cấu trúc giao dịch chuẩn hóa: {matched_strat.name} (R:R chuẩn {float(matched_strat.target_risk_reward):.1f})."
+                )
+                cross_school["standardized_strategy"] = {
+                    "slug": matched_strat.slug,
+                    "name": matched_strat.name,
+                    "target_rr": float(matched_strat.target_risk_reward),
+                    "checklist_count": len(matched_strat.setup_checklist or []),
+                    "timeframe": matched_strat.timeframe_focus,
+                }
+        except Exception as exc:
+            logger.debug("Không thể tải cấu trúc giao dịch tiêu chuẩn: %s", exc)
 
         return TechnicalAnalysisReport(
             agent="TECHNICAL_RAG_AGENT",

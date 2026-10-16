@@ -16,6 +16,7 @@ from core.models import (
     StrategySignal,
     SystemTradingConfig,
     TradingKnowledge,
+    StandardizedTradingStrategy,
 )
 from core.redis_client import redis_client
 from simulation.paper_worker import paper_worker
@@ -45,6 +46,14 @@ async def _clean_test_data_async():
                 | (TradingKnowledge.source_type == "TEST")
                 | (TradingKnowledge.school_of_thought == "TEST")
                 | (TradingKnowledge.title.like("TEST %"))
+                | (TradingKnowledge.is_test.is_(True))
+            )
+        )
+        await session.execute(
+            delete(StandardizedTradingStrategy).where(
+                (StandardizedTradingStrategy.is_test.is_(True))
+                | (StandardizedTradingStrategy.slug.like("test_%"))
+                | (StandardizedTradingStrategy.name.like("TEST %"))
             )
         )
 

@@ -1,0 +1,65 @@
+{
+  "slug": "ict_ict_silver_bullet_london_kill_zone",
+  "name": "Chiến lược ICT ICT Silver Bullet & London Kill Zone",
+  "school_of_thought": "ICT",
+  "timeframe_focus": "M15",
+  "target_risk_reward": 2.0,
+  "philosophy": "Khai thác thuật toán phân phối giá liên ngân hàng (IPDA), chu kỳ Power of 3 (AMD: Accumulation - Manipulation - Distribution) và mô hình Silver Bullet tại các khung giờ vàng (Kill Zones).",
+  "setup_checklist": [
+    {
+      "id": "s1",
+      "label": "Thời điểm giao dịch nằm trong Kill Zone (London: 14:00-17:00 ICT hoặc NY AM: 19:00-22:00 ICT)",
+      "required": true
+    },
+    {
+      "id": "s2",
+      "label": "Giá quét thanh khoản cũ (Buyside/Sellside Liquidity Pool hoặc Judas Swing)",
+      "required": true
+    },
+    {
+      "id": "s3",
+      "label": "Xuất hiện sóng dịch chuyển mạnh mẽ (Displacement) tạo sự phá vỡ cấu trúc Market Structure Shift (MSS)",
+      "required": true
+    },
+    {
+      "id": "s4",
+      "label": "Để lại khoảng trống giá mất cân bằng Fair Value Gap (FVG) hợp lệ (biên độ ≥ 0.3x ATR)",
+      "required": true
+    },
+    {
+      "id": "s5",
+      "label": "Giá hồi quy về vùng FVG (Consequent Encroachment 50% hoặc Optimal Trade Entry 62-79% Fib)",
+      "required": true
+    },
+    {
+      "id": "s6",
+      "label": "R:R tối thiểu đạt ≥ 1:2.0 đến vùng thanh khoản đối ứng tiếp theo",
+      "required": true
+    }
+  ],
+  "entry_rules": "Đặt Limit Entry tại ngưỡng trên của Bullish FVG (hoặc ngưỡng dưới của Bearish FVG) khi giá chạm vùng hồi quy.",
+  "stop_loss_rules": "Đặt SL vượt qua đỉnh/đáy nến displacement hình thành FVG kèm đệm 1.5x ATR.",
+  "take_profit_rules": "TP1 tại 1:2.0R (chốt 50% và khóa hòa vốn); TP2 tại vùng đỉnh/đáy cũ (Old Highs/Old Lows EQH/EQL).",
+  "invalidation_conditions": "Cây nến M15 đóng cửa xuyên thủng hoàn toàn FVG (Full Inversion Gap).",
+  "risk_guardrails": {
+    "max_risk_per_trade_pct": 1.0,
+    "min_risk_per_trade_pct": 0.25,
+    "recommended_risk_pct": 0.5,
+    "min_risk_reward": 1.5,
+    "target_risk_reward": 2.0,
+    "max_daily_drawdown_limit_pct": 3.0,
+    "circuit_breaker_buffer_mins": 30
+  },
+  "source_documents": [
+    {
+      "source_type": "SYSTEM_CORE",
+      "source_name": "ict_silver_bullet.md",
+      "ingested_at": "2026-10-16T04:35:58.832342+00:00"
+    }
+  ],
+  "system_file_path": null,
+  "json_content": null,
+  "markdown_content": null,
+  "created_at": null,
+  "updated_at": null
+}

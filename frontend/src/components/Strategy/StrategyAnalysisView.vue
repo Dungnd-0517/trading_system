@@ -32,6 +32,7 @@ import {
 import { agentStore } from '../../stores/agentStore'
 import { chatStore } from '../../stores/chatStore'
 import AIChatStudioView from '../AIAnalysis/AIChatStudioView.vue'
+import KnowledgeManagementSection from './KnowledgeManagementSection.vue'
 
 const props = defineProps({
   candles: { type: Array, default: () => [] },
@@ -281,6 +282,15 @@ const calculatedRiskMoney = computed(() => {
       >
         <Target :size="14" />
         <span>7. Checklist Vào lệnh ({{ completedChecks }}/{{ checklist.length }})</span>
+      </button>
+
+      <button
+        role="tab"
+        :class="['subnav-btn', 'subnav-vector-btn', { active: activeSection === 'vector-knowledge' }]"
+        @click="selectSMCSubtab('vector-knowledge')"
+      >
+        <Sparkles :size="14" class="text-gold" />
+        <span>8. Tri Thức &amp; Chuẩn Hóa [VECTOR]</span>
       </button>
     </nav>
 
@@ -893,6 +903,17 @@ const calculatedRiskMoney = computed(() => {
         </div>
       </div>
     </section>
+
+    <!-- TAB 8: VECTOR KNOWLEDGE & STANDARDIZED STRATEGIES -->
+    <section v-if="activeSection === 'vector-knowledge'" class="section-pane">
+      <KnowledgeManagementSection />
+    </section>
+
+    <!-- ======================================================= -->
+    <!-- SECTION DƯỚI CÙNG CỦA TAB CHIẾN LƯỢC & PHÂN TÍCH KỸ THUẬT -->
+    <!-- HỆ THỐNG CẬP NHẬT & LƯU TRỮ KIẾN THỨC [VECTOR]         -->
+    <!-- ======================================================= -->
+    <KnowledgeManagementSection v-if="activeSection !== 'vector-knowledge'" />
     </template>
 
     <!-- ======================================================= -->
@@ -1245,6 +1266,25 @@ h1 {
   color: #ffffff;
   border-color: #225c43;
   box-shadow: 0 1px 3px rgba(34, 92, 67, 0.2);
+}
+
+.subnav-btn.subnav-vector-btn {
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.06);
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.subnav-btn.subnav-vector-btn:hover {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1e40af;
+}
+
+.subnav-btn.subnav-vector-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
 }
 
 /* Section Panes */

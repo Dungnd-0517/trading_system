@@ -1,5 +1,66 @@
 # Backlog cập nhật
 
+## 2026-10-16 02:00 +07:00
+
+### [Update Phase 03 - Sprint 03]: Hệ Thống Cập Nhật & Lưu Trữ Kiến Thức Đa Nguồn (PDF, Markdown, Link Web), Agent [VECTOR] Chuẩn Hóa Cấu Trúc Giao Dịch & Tích Hợp Chân Trang Tab Chiến Lược
+
+- **Bối cảnh & Yêu cầu:**
+  - Nâng cấp năng lực tiếp nhận tri thức đa nguồn cho hệ thống giao dịch XAU/USD (Fieldnote Markets):
+    1. **Tiếp nhận tài liệu đa định dạng:** Hỗ trợ tải lên file PDF (`.pdf`), Markdown (`.md`, `.txt`), và cào dữ liệu từ đường dẫn link tài liệu (Web URLs) hoặc soạn thảo Markdown trực tiếp.
+    2. **Agent LLM [VECTOR] (Technical RAG Specialist):** Đóng vai trò hạt nhân đọc hiểu, bóc tách cấu trúc, tự động phân loại trường phái học thuật (Wyckoff, SMC, ICT, CMT, Price Action, Candlestick, Risk Management), tính toán điểm tin cậy và vector hóa 1536 chiều bằng `EmbeddingService` vào PostgreSQL pgvector.
+    3. **Cải thiện thực chất hiệu suất giao dịch:** Toàn bộ tri thức kỹ thuật được kết nối trực tiếp vào động cơ phân tích hợp lưu `TechnicalRagAgent.generate_technical_analysis()` và Strategy Governor để đối chiếu checklist trước khi ra quyết định giao dịch.
+    4. **Tự động sinh Cấu trúc Giao dịch Tiêu chuẩn (Standardized Trading Framework):** Sau mỗi tài liệu được nạp, tự động mô hình hóa thành cấu trúc giao dịch tiêu chuẩn khép kín (Checklist điều kiện tiên quyết, Vùng Entry, Stop Loss đệm 1.5x - 2.0x ATR, Take Profit 1:2.0R - 1:3.0R, Rào chắn bảo vệ vốn Hard Guardrails D21/D24).
+    5. **Lưu trữ file hệ thống song song:** Xuất bản đồng thời thành **2 file hệ thống** (`.json` và `.md`) tại `backend/knowledge_base/standardized_strategies/` song song bảng CSDL `standardized_trading_strategies`.
+    6. **Giao diện người dùng:** Bổ sung phân khu chuyên biệt tại vị trí **dưới cùng của trang (Bottom of Page)** trong tab *"Chiến lược giao dịch & khung phân tích kỹ thuật"* của menu Strategy & Analysis, đồng thời bổ sung phím tắt điều hướng nhanh số 8 trong thanh subnav.
+  - Cập nhật tài liệu kiến trúc [Architecture_phase_03_sprint_03.md](Architecture_phase_03_sprint_03.md) với Quyết định Kiến trúc mới **D29** (Standardized Trading Frameworks & Ingestion Engine) và cập nhật hồ sơ [Agents_Profile.md](Agents_Profile.md) của Agent Vector.
+
+- **Tiến trình triển khai & Sản phẩm bàn giao:**
+  - **1. Migration CSDL & ORM Models (`0008_phase3_sprint3_knowledge_strategies.sql`):**
+    - [`backend/migrations/0008_phase3_sprint3_knowledge_strategies.sql`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/migrations/0008_phase3_sprint3_knowledge_strategies.sql): Tạo bảng `standardized_trading_strategies`, mở rộng `trading_knowledge` với `source_file`, `source_url`, `is_test` và các chỉ mục HNSW/B-tree tối ưu.
+    - [`backend/core/models.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/core/models.py): Khai báo model ORM `StandardizedTradingStrategy` và cập nhật `TradingKnowledge`.
+    - [`backend/requirements.txt`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/requirements.txt): Bổ sung thư viện `pypdf>=5.0` xử lý bóc tách tài liệu PDF.
+  - **2. Động Cơ Xử Lý Tri Thức & Chuẩn Hóa Chiến Lược (`knowledge_ingestor.py`):**
+    - [`backend/ai_engine/knowledge_ingestor.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/ai_engine/knowledge_ingestor.py):
+      - `extract_text_from_pdf()`: Trích xuất nội dung văn bản từ file PDF (kèm cơ chế trích xuất metadata fallback).
+      - `fetch_url_content()`: Tải và lọc HTML sạch bằng HTTPX không đồng bộ.
+      - `chunk_text()`: Cắt nhỏ văn bản theo tiêu đề H2/H3 hoặc đoạn văn ngữ nghĩa.
+      - `synthesize_standardized_strategy()`: Tự động tổng hợp Checklist, Entry, ATR SL, TP1/TP2, Invalidation và Hard Guardrails theo từng trường phái.
+      - `save_strategy_to_system_files()`: Lưu trữ thành file `.json` và `.md` tại thư mục `backend/knowledge_base/standardized_strategies/`.
+      - `seed_baseline_standardized_strategies()`: Khởi tạo 5 cấu trúc nền tảng (SMC, Wyckoff, ICT, CMT, Price Action).
+  - **3. Nâng Cấp Technical RAG Agent & REST API:**
+    - [`backend/ai_engine/technical_agent.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/ai_engine/technical_agent.py): Tích hợp đối chiếu Cấu trúc Giao dịch Tiêu chuẩn vào `generate_technical_analysis()`.
+    - [`backend/api/v1/knowledge.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/api/v1/knowledge.py): Xuất bản các API RESTful:
+      - `POST /api/v1/knowledge/upload-file`: Tải lên PDF, Markdown, Text.
+      - `POST /api/v1/knowledge/ingest-url`: Nạp tài liệu từ đường link web.
+      - `POST /api/v1/knowledge/ingest-markdown`: Soạn thảo và nạp trực tiếp Markdown.
+      - `GET /api/v1/knowledge/standardized-strategies`: Liệt kê các cấu trúc giao dịch tiêu chuẩn.
+      - `GET /api/v1/knowledge/standardized-strategies/{slug}`: Xem chi tiết cấu trúc kèm nội dung file hệ thống.
+      - `GET /api/v1/knowledge/standardized-strategies/{slug}/markdown`: Tải raw Markdown file.
+      - `GET /api/v1/knowledge/documents`: Bảng danh mục tài liệu và vector chunks.
+      - `POST /api/v1/knowledge/seed-strategies`: Seed 5 chiến lược chuẩn hóa mặc định.
+  - **4. Giao Diện Người Dùng Frontend (Vue 3 Pinia):**
+    - [`frontend/src/services/api.js`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/services/api.js): Bổ sung các hàm gọi API upload file (FormData multipart), ingest URL, ingest Markdown, fetch/download strategies.
+    - [`frontend/src/stores/agentStore.js`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/stores/agentStore.js): Quản trị trạng thái tập trung `standardizedStrategies`, `knowledgeDocuments`, `ingestingKnowledge`, `ingestionResult`.
+    - [`frontend/src/components/Strategy/KnowledgeManagementSection.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Strategy/KnowledgeManagementSection.vue): Component giao diện chuẩn mực cao cấp:
+      - Header nhận diện Persona Agent [VECTOR] với viền pulsing neon blue và bộ đếm chỉ số.
+      - 3 Tab nạp tri thức: Upload File PDF/MD (kèm Drag & Drop), Nhập Link URL, Soạn thảo Markdown (kèm 3 mẫu nhanh).
+      - Thẻ thông báo kết quả phân tích tức thời (Độ tin cậy %, Trường phái nhận diện, Chunks tạo mới, Chiến lược tiêu chuẩn sinh ra).
+      - Kho Cấu trúc Giao dịch Tiêu chuẩn dạng Grid Cards: Bộ lọc trường phái, Timeframe stack, Target R:R, nút xem JSON, Markdown, tải file.
+      - Modal / Drawer hiển thị chi tiết toàn diện quy trình, checklist tương tác, viewer JSON/Markdown và nút copy/download.
+      - Bảng thống kê các tài liệu và chunks vector pgvector đã nạp kèm nút Reindex.
+    - [`frontend/src/components/Strategy/StrategyAnalysisView.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Strategy/StrategyAnalysisView.vue): Nhúng section vào vị trí dưới cùng của tab "Chiến lược giao dịch & khung phân tích kỹ thuật", đồng thời bổ sung subnav button 8 để điều hướng nhanh.
+  - **5. Kiểm Thử Toàn Diện & Chuẩn Phân Lập D18:**
+    - [`backend/tests/test_knowledge_ingestion_sprint3.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_knowledge_ingestion_sprint3.py): 6 bài kiểm thử tự động bao phủ trích xuất PDF, nạp Markdown, API upload multipart, API ingest URL/Markdown, API list/detail, và xác thực dọn dẹp D18 sạch 100%.
+    - [`backend/tests/conftest.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/conftest.py): Tự động quét và xóa sạch các bản ghi test trong `standardized_trading_strategies` và `trading_knowledge`.
+
+- **Kiểm thử & Nghiệm thu:**
+  - Backend Test Suite: **115/115 tests passed in 19.04s (100% Pass Rate)**.
+  - Frontend Build (`npm run build`): **✓ 1615 modules transformed, built in 20.71s (Zero errors)**.
+  - Bảo toàn tuyệt đối chuẩn phân lập dữ liệu kiểm thử D18 và Hard Guardrails D21/D24.
+- **Trạng thái:** Hoàn thành xuất sắc toàn diện.
+
+---
+
 ## 2026-10-13 16:15 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Cá Nhân Hóa Định Danh Các AI Agent (Sentinel, Vector, Scribe, Arbiter, Council) & Xuất Bản Hồ Sơ Hệ Thống `Agents_Profile.md`

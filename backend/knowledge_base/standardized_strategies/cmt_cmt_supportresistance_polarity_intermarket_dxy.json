@@ -1,0 +1,60 @@
+{
+  "slug": "cmt_cmt_supportresistance_polarity_intermarket_dxy",
+  "name": "Chiến lược CMT CMT Support/Resistance Polarity & Intermarket DXY",
+  "school_of_thought": "CMT",
+  "timeframe_focus": "H4 / M15",
+  "target_risk_reward": 2.0,
+  "philosophy": "Dựa trên giáo trình Chartered Market Technician (CMT): Nguyên lý phân cực Hỗ trợ - Kháng cự (Support/Resistance Polarity), xác nhận xu hướng bằng Lý thuyết Dow và phân tích liên thị trường (DXY & Lãi suất thực).",
+  "setup_checklist": [
+    {
+      "id": "s1",
+      "label": "Khung lớn H4 xác nhận xu hướng tăng theo Lý thuyết Dow (Higher Highs / Higher Lows)",
+      "required": true
+    },
+    {
+      "id": "s2",
+      "label": "Chỉ số Dollar Index (DXY) phân kỳ nghịch hướng xác nhận đà tăng của Vàng XAUUSD",
+      "required": true
+    },
+    {
+      "id": "s3",
+      "label": "Giá hồi về kiểm tra ngưỡng Phân Cực (Polarity Level: Kháng cự cũ chuyển thành Hỗ trợ mới)",
+      "required": true
+    },
+    {
+      "id": "s4",
+      "label": "Tín hiệu đảo chiều xác nhận tại M15 (Nến Pinbar / Bullish Engulfing)",
+      "required": true
+    },
+    {
+      "id": "s5",
+      "label": "R:R đạt chuẩn tối thiểu ≥ 1:1.8",
+      "required": true
+    }
+  ],
+  "entry_rules": "Vào lệnh tại mức giá đóng cửa của nến xác nhận M15 khi kiểm tra thành công ngưỡng Polarity.",
+  "stop_loss_rules": "Đặt SL dưới đáy vùng hỗ trợ phân cực 1.5x ATR M15.",
+  "take_profit_rules": "TP1 tại đỉnh gần nhất của sóng H4; TP2 theo tỷ lệ mở rộng Fibonacci 1.618.",
+  "invalidation_conditions": "Giá phá vỡ hỗ trợ phân cực và đóng nến H1 phía dưới.",
+  "risk_guardrails": {
+    "max_risk_per_trade_pct": 1.0,
+    "min_risk_per_trade_pct": 0.25,
+    "recommended_risk_pct": 0.5,
+    "min_risk_reward": 1.5,
+    "target_risk_reward": 2.0,
+    "max_daily_drawdown_limit_pct": 3.0,
+    "circuit_breaker_buffer_mins": 30
+  },
+  "source_documents": [
+    {
+      "source_type": "SYSTEM_CORE",
+      "source_name": "cmt_polarity_rules.md",
+      "ingested_at": "2026-10-16T04:35:58.860479+00:00"
+    }
+  ],
+  "system_file_path": null,
+  "json_content": null,
+  "markdown_content": null,
+  "created_at": null,
+  "updated_at": null
+}
