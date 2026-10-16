@@ -1,5 +1,48 @@
 # Backlog cập nhật
 
+## 2026-10-16 19:50 +07:00
+
+### [Update Phase 03 - Sprint 03]: Triển Khai Thực Tế Tích Hợp MT5, Pipeline Seeding Nến Lịch Sử Từ 01-01-2026 Và Tối Ưu Hiển Thị 500 Nến Gần Nhất
+
+- **Bối cảnh & Yêu cầu:**
+  - Triển khai thực tế giải pháp MT5 vào hệ thống và kiểm thử kết nối.
+  - Khi MT5 kết nối thành công và chạy ổn định, thay thế toàn bộ dữ liệu nến cũ trong CSDL bằng dữ liệu mới từ MT5.
+  - Mốc thời gian lấy dữ liệu nến bắt đầu từ ngày **01-01-2026** cho tất cả các khung thời gian (M1, M5, M15, H1, H4, D1).
+  - Biểu đồ loading vẫn duy trì hiển thị **500 nến gần nhất** như cũ, đảm bảo tốc độ phản hồi sub-second và tính mượt mà của giao diện Cockpit.
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Nâng Cấp MT5 Microservice Bridge (`mt5-bridge/server.py`):**
+     - Bổ sung endpoint `GET /candles/{symbol}`: Trích xuất lịch sử nến từ MT5 bắt đầu từ `from_date` (mặc định 2026-01-01) thông qua `copy_rates_from` với khối lượng nến linh hoạt.
+     - Bổ sung endpoint `GET /candles/{symbol}/latest`: Lấy nhanh 500 nến gần nhất phục vụ nạp tức thời biểu đồ.
+     - Bổ sung endpoint `POST /reconnect`: Hỗ trợ tái kết nối linh hoạt tới MT5 server.
+  2. **Mở Rộng Backend Client MT5Feed (`backend/data_ingestion/mt5_feed.py`):**
+     - Triển khai các phương thức `get_candles()`, `get_latest_candles(count=500)`, `health()`, `reconnect()`, `is_connected()`.
+     - Xử lý timeout và quản lý lỗi kết nối linh hoạt, bảo đảm không gây nghẽn luồng xử lý chính.
+  3. **Module Quản Lý Nạp Lịch Sử Nến MT5 (`backend/data_ingestion/mt5_history_seeder.py`):**
+     - `delete_old_candles()`: Tự động thanh lọc các nến cũ trước mốc `2026-01-01` của symbol XAUUSD.
+     - `upsert_candles_batch()`: Nạp nến theo từng chunk 500 nến, gán nhãn xuất xứ `data_source = 'mt5'`.
+     - `seed_mt5_candles_for_timeframe()`: Nạp độc lập cho từng khung thời gian M1, M5, M15, H1, H4, D1.
+     - `seed_all_mt5_history()`: Điều phối toàn bộ quy trình purge nến cũ và nạp mới toàn diện từ 01-01-2026.
+     - `check_needs_mt5_reseed()`: Tự động kiểm tra tính đầy đủ của dữ liệu sau mốc 01-01-2026.
+  4. **Ưu Tiên Nguồn Dữ Liệu Trong ChartStreamer & CandleGapHealer:**
+     - [`backend/data_ingestion/chart_streamer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/chart_streamer.py): Tích hợp `seed_history_if_needed()`, ưu tiên tuyệt đối nạp từ MT5 khi bridge kết nối được, duy trì fallback an toàn về Binance nếu MT5 chưa sẵn sàng.
+     - [`backend/data_ingestion/candle_healer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/candle_healer.py): Tích hợp cơ chế vá lỗ hổng dữ liệu nến (gap healing) ưu tiên nguồn MT5 với tag `data_source = 'mt5'`.
+  5. **Schema CSDL & Migration (`0009_mt5_data_integration.sql` & `core/models.py`):**
+     - [`backend/migrations/0009_mt5_data_integration.sql`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/migrations/0009_mt5_data_integration.sql): Bổ sung cột `data_source VARCHAR(16) DEFAULT 'binance'`, thiết lập chỉ mục kép `idx_market_candles_source` và chỉ mục tối ưu truy vấn 500 nến `idx_market_candles_history(symbol, timeframe, open_time DESC)`. Đã áp dụng thành công vào `trading_postgres`.
+     - [`backend/core/models.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/core/models.py): Khai báo trường `data_source` trong ORM `MarketCandle`.
+  6. **REST API Quản Trị & Endpoint Lịch Sử Nến (`backend/api/v1/market.py`):**
+     - `GET /api/v1/market/mt5/status`: Giám sát trạng thái MT5 bridge, mốc ngày cấu hình `2026-01-01` và báo cáo toàn vẹn dữ liệu.
+     - `POST /api/v1/market/mt5/seed`: Cho phép kích hoạt thủ công pipeline xóa nến cũ và nạp lại toàn bộ từ MT5.
+     - `GET /api/v1/market/history`: Tối ưu hóa truy vấn hiển thị đúng 500 nến gần nhất, đồng bộ với giao diện Cockpit.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - Tạo mới bộ kiểm thử [`backend/tests/test_mt5_integration.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_mt5_integration.py) gồm 4 bài test chuyên sâu cho MT5 Feed, History Seeder, Purge Logic và API endpoints.
+  - **Backend Test Suite:** Toàn bộ **119/119 tests PASSED 100%** trong Docker container.
+  - **Frontend Compilation:** Lệnh `npm run build` biên dịch thành công xuất sắc (2.92s), không có lỗi.
+- **Trạng thái:** Hoàn thành xuất sắc toàn bộ yêu cầu tích hợp MT5 và đồng bộ dữ liệu nến từ 01-01-2026.
+
+---
+
 ## 2026-10-16 13:30 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Đánh Giá Tính Khả Thi & Xác Lập Giải Pháp Kỹ Thuật Thay Thế Binance API Bằng MT5 Linux Bridge (MetaQuotes Demo + mt5linux Docker) Cho Thị Trường XAU/USD

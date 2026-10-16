@@ -176,6 +176,72 @@ class CandleGapHealer:
         start_time: datetime,
         end_time: datetime,
         http: httpx.AsyncClient,
+        use_mt5: bool = False,
+    ) -> int:
+        """Bù đắp nến trong khoảng [start_time, end_time] - ưu tiên MT5, fallback Binance"""
+        # Thử MT5 trước nếu được yêu cầu
+        if use_mt5:
+            try:
+                from data_ingestion.mt5_feed import MT5Feed
+                mt5 = MT5Feed()
+                if await mt5.is_connected():
+                    from_date_str = start_time.strftime("%Y-%m-%d")
+                    tf_secs = TIMEFRAMES.get(timeframe, 60)
+                    estimated = max(1, int((end_time - start_time).total_seconds() / tf_secs) + 10)
+                    candles = await mt5.get_candles(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        from_date=from_date_str,
+                        count=min(estimated, 99000),
+                    )
+                    # Lọc chỉ giữ nến trong khoảng [start_time, end_time]
+                    candles = [
+                        c for c in candles
+                        if start_time.timestamp() <= int(c["time"]) <= end_time.timestamp()
+                    ]
+                    if candles:
+                        total = 0
+                        for candle in candles:
+                            ot = datetime.fromtimestamp(int(candle["time"]), timezone.utc)
+                            values = {
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "open_time": ot,
+                                "open": Decimal(str(candle["open"])),
+                                "high": Decimal(str(candle["high"])),
+                                "low": Decimal(str(candle["low"])),
+                                "close": Decimal(str(candle["close"])),
+                                "volume": Decimal(str(candle.get("volume", 0))),
+                                "data_source": "mt5",
+                            }
+                            stmt = insert(MarketCandle).values(**values)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=["symbol", "timeframe", "open_time"],
+                                set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                            )
+                            await session.execute(stmt)
+                            total += 1
+                        await session.commit()
+                        logger.info(
+                            "MT5 gap heal: %d bars for %s %s [%s -> %s]",
+                            total, symbol, timeframe,
+                            start_time.isoformat(), end_time.isoformat(),
+                        )
+                        return total
+            except Exception as exc:
+                logger.warning("MT5 gap heal failed for %s %s, falling back to Binance: %s", symbol, timeframe, exc)
+
+        # Fallback: Binance REST API
+        return await self._heal_range_binance(session, symbol, timeframe, start_time, end_time, http)
+
+    async def _heal_range_binance(
+        self,
+        session: AsyncSession,
+        symbol: str,
+        timeframe: str,
+        start_time: datetime,
+        end_time: datetime,
+        http: httpx.AsyncClient,
     ) -> int:
         """Bù đắp nến trong khoảng [start_time, end_time] từ Binance REST API"""
         interval = TIMEFRAME_TO_BINANCE_INTERVAL.get(timeframe)
@@ -311,6 +377,7 @@ class CandleGapHealer:
     ) -> dict[str, Any]:
         """
         Quét toàn diện tất cả các khung thời gian và bù đắp toàn bộ nến bị thiếu.
+        Ưu tiên MT5 nếu bridge kết nối được, fallback Binance nếu không.
         """
         if self.is_healing:
             return {"status": "in_progress", "healed": {}}
@@ -319,6 +386,17 @@ class CandleGapHealer:
         healed_summary: dict[str, int] = {}
         now_utc = datetime.now(timezone.utc)
         self.last_check_at = now_utc
+
+        # Kiểm tra MT5 connection một lần
+        use_mt5 = False
+        try:
+            from data_ingestion.mt5_feed import MT5Feed
+            mt5_feed = MT5Feed()
+            use_mt5 = await mt5_feed.is_connected()
+            if use_mt5:
+                logger.info("CandleGapHealer: MT5 bridge connected, will use MT5 for gap healing.")
+        except Exception:
+            pass
 
         try:
             timeout = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
@@ -349,6 +427,7 @@ class CandleGapHealer:
                                     start_time=gap_start,
                                     end_time=gap_end,
                                     http=http,
+                                    use_mt5=use_mt5,
                                 )
                                 tf_healed += count
 

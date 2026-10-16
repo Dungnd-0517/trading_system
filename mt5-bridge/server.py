@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 
 app = FastAPI(
     title="MT5 Linux Data Bridge",
-    version="0.2.0",
+    version="0.3.0",
     description="Real-time MetaTrader 5 Bridge connecting MetaQuotes-Demo via mt5linux (Wine/RPyC) or native Windows runtime.",
 )
 
@@ -24,6 +24,31 @@ MT5_PORT = int(os.getenv("MT5_PORT", "18812"))
 terminal: Any = None
 connection_error: str = "MetaTrader5 runtime is not initialized"
 bridge_mode: str = "none"
+
+# MT5 timeframe constants mapping (fallback nếu terminal chưa kết nối)
+MT5_TF_MAP: dict[str, int] = {
+    "M1": 1,
+    "M5": 5,
+    "M15": 15,
+    "H1": 16385,
+    "H4": 16388,
+    "D1": 16408,
+}
+
+
+def _mt5_timeframe(timeframe: str) -> int:
+    """Chuyển đổi chuỗi timeframe (M1, M5...) sang hằng số MT5 TIMEFRAME_*"""
+    if terminal is not None:
+        tf_map = {
+            "M1": getattr(terminal, "TIMEFRAME_M1", 1),
+            "M5": getattr(terminal, "TIMEFRAME_M5", 5),
+            "M15": getattr(terminal, "TIMEFRAME_M15", 15),
+            "H1": getattr(terminal, "TIMEFRAME_H1", 16385),
+            "H4": getattr(terminal, "TIMEFRAME_H4", 16388),
+            "D1": getattr(terminal, "TIMEFRAME_D1", 16408),
+        }
+        return tf_map.get(timeframe.upper(), 1)
+    return MT5_TF_MAP.get(timeframe.upper(), 1)
 
 
 def init_mt5() -> bool:
@@ -56,7 +81,10 @@ def init_mt5() -> bool:
             terminal = rpc_client
             connection_error = ""
             bridge_mode = "mt5linux_rpyc"
-            logger.info("Successfully connected via mt5linux RPyC to %s:%s (Server: %s, Login: %s)", MT5_HOST, MT5_PORT, MT5_SERVER, MT5_LOGIN)
+            logger.info(
+                "Successfully connected via mt5linux RPyC to %s:%s (Server: %s, Login: %s)",
+                MT5_HOST, MT5_PORT, MT5_SERVER, MT5_LOGIN,
+            )
             return True
         else:
             err = rpc_client.last_error()
@@ -83,6 +111,26 @@ def health() -> dict[str, object]:
         "server": MT5_SERVER,
         "login": MT5_LOGIN,
         "error": connection_error if not connected else None,
+    }
+
+
+@app.post("/reconnect")
+def reconnect() -> dict[str, object]:
+    """Thử kết nối lại MT5 (hữu ích khi container Wine/MT5 khởi động muộn hơn bridge)"""
+    global terminal, connection_error, bridge_mode
+    if terminal is not None:
+        try:
+            terminal.shutdown()
+        except Exception:
+            pass
+        terminal = None
+        connection_error = "Reconnecting..."
+        bridge_mode = "none"
+    success = init_mt5()
+    return {
+        "success": success,
+        "bridge_mode": bridge_mode,
+        "error": connection_error if not success else None,
     }
 
 
@@ -148,4 +196,102 @@ def ticks_since(symbol: str, since_ms: int = Query(default=0, ge=0)) -> dict[str
             for tick in ticks
             if int(tick.time_msc) >= start_ms and float(tick.bid) > 0 and float(tick.ask) >= float(tick.bid)
         ],
+    }
+
+
+@app.get("/candles/{symbol}")
+def get_candles(
+    symbol: str,
+    timeframe: str = Query(default="M1", description="Timeframe: M1, M5, M15, H1, H4, D1"),
+    from_date: str = Query(default="2026-01-01", description="Start date in YYYY-MM-DD format (UTC)"),
+    count: int = Query(default=1000, ge=1, le=99000, description="Số lượng nến tối đa mỗi lần gọi"),
+) -> dict[str, object]:
+    """
+    Lấy lịch sử nến OHLCV từ MT5 bắt đầu từ from_date.
+    Dùng để nạp hoặc làm mới toàn bộ dữ liệu nến từ nguồn MT5 thực.
+    """
+    if terminal is None or connection_error:
+        raise HTTPException(status_code=503, detail=connection_error)
+
+    try:
+        dt_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid from_date format: {from_date}. Use YYYY-MM-DD")
+
+    tf_const = _mt5_timeframe(timeframe)
+
+    # Đảm bảo symbol được chọn trong Market Watch
+    if not terminal.symbol_select(symbol, True):
+        raise HTTPException(status_code=404, detail=f"Unknown MT5 symbol: {symbol}")
+
+    # Lấy nến từ MT5 bắt đầu từ from_date
+    rates = terminal.copy_rates_from(symbol, tf_const, dt_from, count)
+    if rates is None:
+        err = terminal.last_error()
+        raise HTTPException(status_code=503, detail=f"MT5 copy_rates_from failed: {err}")
+
+    candles = []
+    for bar in rates:
+        candles.append({
+            "time": int(bar[0]),        # POSIX timestamp (open_time)
+            "open": float(bar[1]),
+            "high": float(bar[2]),
+            "low": float(bar[3]),
+            "close": float(bar[4]),
+            "volume": float(bar[5]),    # tick volume
+        })
+
+    logger.info(
+        "Fetched %d candles for %s %s from %s (MT5 bridge_mode=%s)",
+        len(candles), symbol, timeframe, from_date, bridge_mode,
+    )
+
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "from_date": from_date,
+        "count": len(candles),
+        "candles": candles,
+    }
+
+
+@app.get("/candles/{symbol}/latest")
+def get_latest_candles(
+    symbol: str,
+    timeframe: str = Query(default="M1"),
+    count: int = Query(default=500, ge=1, le=5000),
+) -> dict[str, object]:
+    """
+    Lấy N nến gần nhất từ MT5 (dùng copy_rates_from_pos với pos=0).
+    Dùng để hiển thị biểu đồ 500 nến gần nhất.
+    """
+    if terminal is None or connection_error:
+        raise HTTPException(status_code=503, detail=connection_error)
+
+    tf_const = _mt5_timeframe(timeframe)
+
+    if not terminal.symbol_select(symbol, True):
+        raise HTTPException(status_code=404, detail=f"Unknown MT5 symbol: {symbol}")
+
+    rates = terminal.copy_rates_from_pos(symbol, tf_const, 0, count)
+    if rates is None:
+        err = terminal.last_error()
+        raise HTTPException(status_code=503, detail=f"MT5 copy_rates_from_pos failed: {err}")
+
+    candles = []
+    for bar in rates:
+        candles.append({
+            "time": int(bar[0]),
+            "open": float(bar[1]),
+            "high": float(bar[2]),
+            "low": float(bar[3]),
+            "close": float(bar[4]),
+            "volume": float(bar[5]),
+        })
+
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "count": len(candles),
+        "candles": candles,
     }

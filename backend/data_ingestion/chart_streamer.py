@@ -16,6 +16,11 @@ from core.models import MarketCandle
 from core.redis_client import client as redis_client
 from data_ingestion.binance_feed import stream_klines
 from data_ingestion.mt5_feed import MT5Feed
+from data_ingestion.mt5_history_seeder import (
+    MT5_DATA_START,
+    seed_all_mt5_history,
+    check_needs_mt5_reseed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -346,11 +351,44 @@ class ChartStreamer:
         self._mt5_cursors = {symbol: max(0, int(time.time() * 1000) - 2000) for symbol in self.symbols}
 
     async def run(self) -> None:
-        await self.seed_binance_history_if_needed()
+        await self.seed_history_if_needed()
         await self._seed_open_candles()
         await asyncio.gather(self._run_mt5(), self._run_binance())
 
-    async def seed_binance_history_if_needed(self, symbol: str = "PAXGUSDT", target_symbol: str = "XAUUSD") -> None:
+    async def seed_history_if_needed(self, target_symbol: str = "XAUUSD") -> None:
+        """Nạp lịch sử nến khi khởi động:
+        1. Ưu tiên MT5 (từ MT5_DATA_START = 2026-01-01) nếu bridge kết nối được
+        2. Fallback về Binance nếu MT5 không khả dụng
+        """
+        mt5_feed = MT5Feed()
+        mt5_ok = await mt5_feed.is_connected()
+
+        if mt5_ok:
+            logger.info("MT5 bridge connected. Seeding candle history from MT5 (from %s)...", MT5_DATA_START)
+            needs_reseed = await check_needs_mt5_reseed(target_symbol)
+            if needs_reseed:
+                try:
+                    result = await seed_all_mt5_history(
+                        symbol=target_symbol,
+                        from_date=MT5_DATA_START,
+                        delete_old=True,
+                    )
+                    logger.info("MT5 history seeding result: %s", result)
+                except Exception as exc:
+                    logger.error("MT5 history seeding failed, falling back to Binance: %s", exc)
+                    await self._seed_binance_history_fallback(target_symbol)
+            else:
+                logger.info("MT5 candles already up-to-date. Skipping reseed.")
+        else:
+            logger.warning(
+                "MT5 bridge not connected (mode=unavailable). Falling back to Binance for initial candle seed."
+            )
+            await self._seed_binance_history_fallback(target_symbol)
+
+    async def _seed_binance_history_fallback(
+        self, target_symbol: str = "XAUUSD", symbol: str = "PAXGUSDT"
+    ) -> None:
+        """Fallback: nạp lịch sử nến từ Binance khi MT5 không khả dụng (hành vi cũ)."""
         now_ts = datetime.now(timezone.utc).timestamp()
         for tf, interval in TIMEFRAME_TO_BINANCE_INTERVAL.items():
             interval_secs = TIMEFRAMES.get(tf, 60)
@@ -377,6 +415,10 @@ class ChartStreamer:
                 )
             except Exception as exc:
                 logger.warning("Failed to seed Binance history for %s %s: %s", target_symbol, tf, exc)
+
+    # Giữ lại phương thức cũ để backward compatibility
+    async def seed_binance_history_if_needed(self, symbol: str = "PAXGUSDT", target_symbol: str = "XAUUSD") -> None:
+        await self._seed_binance_history_fallback(target_symbol, symbol)
 
     async def _seed_open_candles(self) -> None:
         async with session_factory() as session:
