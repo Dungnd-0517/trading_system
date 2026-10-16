@@ -173,6 +173,7 @@ class NewsEventAgent:
             .where(
                 FinancialNews.published_at.is_not(None),
                 FinancialNews.published_at >= past_window_start,
+                FinancialNews.published_at <= now,
             )
             .order_by(FinancialNews.published_at.desc())
             .limit(20)

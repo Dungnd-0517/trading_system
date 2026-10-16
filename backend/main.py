@@ -34,6 +34,11 @@ async def lifespan(_: FastAPI):
             await rag_service.ingest_all_knowledge()
     except Exception:
         pass
+    try:
+        from ai_engine.knowledge_ingestor import knowledge_ingestion_engine
+        await knowledge_ingestion_engine.seed_baseline_standardized_strategies()
+    except Exception:
+        pass
     news_task = asyncio.create_task(NewsCollector().run(), name="news-collector")
     chart_task = asyncio.create_task(ChartStreamer().run(), name="chart-streamer")
     paper_task = asyncio.create_task(paper_worker.run(), name="paper-worker")

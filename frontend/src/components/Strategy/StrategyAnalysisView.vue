@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Activity,
   AlertTriangle,
@@ -27,8 +27,12 @@ import {
   ShieldAlert,
   Sparkles,
   BookMarked,
+  MessageSquare,
 } from 'lucide-vue-next'
 import { agentStore } from '../../stores/agentStore'
+import { chatStore } from '../../stores/chatStore'
+import AIChatStudioView from '../AIAnalysis/AIChatStudioView.vue'
+import KnowledgeManagementSection from './KnowledgeManagementSection.vue'
 
 const props = defineProps({
   candles: { type: Array, default: () => [] },
@@ -36,12 +40,39 @@ const props = defineProps({
   timeframe: { type: String, default: 'M1' },
   news: { type: Array, default: () => [] },
   events: { type: Array, default: () => [] },
+  initialSection: { type: String, default: null },
 })
 
-const emit = defineEmits(['navigate-cockpit'])
+const emit = defineEmits(['navigate-cockpit', 'update:initialSection'])
 
-// Active tab inside Strategy view
-const activeSection = ref('pipeline') // 'pipeline' | 'concepts' | 'sessions' | 'risk' | 'macro' | 'agents' | 'checklist'
+// Major Tab Switcher: 'strategy' (Chiến Lược Giao Dịch & Khung Phân Tích Kỹ Thuật) vs 'chat-studio' (AI Chat Studio)
+const majorTab = ref(props.initialSection === 'chat-studio' ? 'chat-studio' : 'strategy')
+
+// Active subtab inside Strategy view (1 of the 7 SMC modules)
+const activeSection = ref(
+  props.initialSection && props.initialSection !== 'chat-studio'
+    ? props.initialSection
+    : 'pipeline'
+)
+
+watch(() => props.initialSection, (newSec) => {
+  if (newSec === 'chat-studio') {
+    majorTab.value = 'chat-studio'
+  } else if (newSec) {
+    majorTab.value = 'strategy'
+    activeSection.value = newSec
+  }
+}, { immediate: true })
+
+function selectMajorTab(tabKey) {
+  majorTab.value = tabKey
+  emit('update:initialSection', tabKey === 'chat-studio' ? 'chat-studio' : activeSection.value)
+}
+
+function selectSMCSubtab(subtabKey) {
+  activeSection.value = subtabKey
+  emit('update:initialSection', subtabKey)
+}
 
 const agentSearchQuery = ref('')
 const agentSelectedCat = ref('')
@@ -97,8 +128,60 @@ const calculatedRiskMoney = computed(() => {
 
 <template>
   <div class="strategy-view-container">
-    <!-- Top Hero Header -->
-    <header class="strategy-hero">
+    <!-- ======================================================= -->
+    <!-- MAJOR TAB SWITCHER (TAB LỚN PHÂN BIỆT 2 PHÂN HỆ)       -->
+    <!-- ======================================================= -->
+    <div class="major-tabs-bar" role="tablist" aria-label="Strategy & AI Studio Major Tabs">
+      <!-- TAB LỚN 1: CHIẾN LƯỢC & PHÂN TÍCH KỸ THUẬT -->
+      <button
+        role="tab"
+        :aria-selected="majorTab === 'strategy'"
+        :class="['major-tab-btn', { active: majorTab === 'strategy' }]"
+        @click="selectMajorTab('strategy')"
+      >
+        <div class="major-tab-icon">
+          <Layers :size="17" />
+        </div>
+        <div class="major-tab-text">
+          <div class="major-tab-title">
+            <span>Chiến Lược Giao Dịch &amp; Khung Phân Tích Kỹ Thuật</span>
+            <span class="major-modules-badge">7 CHUYÊN MỤC SMC</span>
+          </div>
+          <span class="major-tab-desc">Smart Money Concepts &middot; Cấu trúc đa khung D1/H4/H1/M15 &middot; Quản trị rủi ro &middot; Checklist</span>
+        </div>
+      </button>
+
+      <!-- TAB LỚN 2: AI CHAT STUDIO (GEMINI MULTI-SESSION) -->
+      <button
+        role="tab"
+        :aria-selected="majorTab === 'chat-studio'"
+        :class="['major-tab-btn', 'major-tab-studio', { active: majorTab === 'chat-studio' }]"
+        @click="selectMajorTab('chat-studio')"
+      >
+        <div class="major-tab-icon studio-icon-glow">
+          <Sparkles :size="17" />
+        </div>
+        <div class="major-tab-text">
+          <div class="major-tab-title">
+            <span>AI Chat Studio</span>
+            <span class="major-gemini-tag">GEMINI MULTI-SESSION</span>
+            <span v-if="chatStore.unreadCount > 0" class="major-unread-pill">{{ chatStore.unreadCount }} tin mới</span>
+          </div>
+          <span class="major-tab-desc">Đối thoại 2 chiều HITL &middot; 5 AI Personas &middot; Quyền can thiệp &amp; Ghi đè tham số Strategy Governor</span>
+        </div>
+        <div class="studio-status-indicator">
+          <span class="studio-pulse-dot"></span>
+          <span class="studio-live-text">LIVE</span>
+        </div>
+      </button>
+    </div>
+
+    <!-- ======================================================= -->
+    <!-- PHÂN HỆ 1: CHIẾN LƯỢC GIAO DỊCH & KHUNG PHÂN TÍCH KỸ THUẬT -->
+    <!-- ======================================================= -->
+    <template v-if="majorTab === 'strategy'">
+      <!-- Top Hero Header -->
+      <header class="strategy-hero">
       <div class="hero-left">
         <div class="hero-badge-strip">
           <span class="hero-tag primary"><BrainCircuit :size="13" /> SMC / ICT MULTI-TIMEFRAME ENGINE</span>
@@ -136,12 +219,12 @@ const calculatedRiskMoney = computed(() => {
       </div>
     </header>
 
-    <!-- Sub Navigation Tabs -->
+    <!-- Sub Navigation Tabs (7 SMC Subtabs ONLY) -->
     <nav class="strategy-subnav" role="tablist" aria-label="Strategy sections">
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'pipeline' }]"
-        @click="activeSection = 'pipeline'"
+        @click="selectSMCSubtab('pipeline')"
       >
         <Layers :size="14" />
         <span>1. Quy trình Đa khung thời gian</span>
@@ -150,7 +233,7 @@ const calculatedRiskMoney = computed(() => {
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'concepts' }]"
-        @click="activeSection = 'concepts'"
+        @click="selectSMCSubtab('concepts')"
       >
         <BookOpen :size="14" />
         <span>2. Thư viện Khái niệm SMC</span>
@@ -159,7 +242,7 @@ const calculatedRiskMoney = computed(() => {
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'sessions' }]"
-        @click="activeSection = 'sessions'"
+        @click="selectSMCSubtab('sessions')"
       >
         <Clock :size="14" />
         <span>3. Khung giờ vàng (Kill Zones)</span>
@@ -168,7 +251,7 @@ const calculatedRiskMoney = computed(() => {
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'risk' }]"
-        @click="activeSection = 'risk'"
+        @click="selectSMCSubtab('risk')"
       >
         <ShieldCheck :size="14" />
         <span>4. Quản trị Rủi ro &amp; Vốn</span>
@@ -177,7 +260,7 @@ const calculatedRiskMoney = computed(() => {
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'macro' }]"
-        @click="activeSection = 'macro'"
+        @click="selectSMCSubtab('macro')"
       >
         <Zap :size="14" />
         <span>5. Bộ lọc Tin tức &amp; Bối cảnh</span>
@@ -186,7 +269,7 @@ const calculatedRiskMoney = computed(() => {
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'agents' }]"
-        @click="activeSection = 'agents'"
+        @click="selectSMCSubtab('agents')"
       >
         <BrainCircuit :size="14" />
         <span>6. AI TradingAgents &amp; RAG Brain</span>
@@ -195,10 +278,19 @@ const calculatedRiskMoney = computed(() => {
       <button
         role="tab"
         :class="['subnav-btn', { active: activeSection === 'checklist' }]"
-        @click="activeSection = 'checklist'"
+        @click="selectSMCSubtab('checklist')"
       >
         <Target :size="14" />
         <span>7. Checklist Vào lệnh ({{ completedChecks }}/{{ checklist.length }})</span>
+      </button>
+
+      <button
+        role="tab"
+        :class="['subnav-btn', 'subnav-vector-btn', { active: activeSection === 'vector-knowledge' }]"
+        @click="selectSMCSubtab('vector-knowledge')"
+      >
+        <Sparkles :size="14" class="text-gold" />
+        <span>8. Tri Thức &amp; Chuẩn Hóa [VECTOR]</span>
       </button>
     </nav>
 
@@ -811,10 +903,205 @@ const calculatedRiskMoney = computed(() => {
         </div>
       </div>
     </section>
+
+    <!-- TAB 8: VECTOR KNOWLEDGE & STANDARDIZED STRATEGIES -->
+    <section v-if="activeSection === 'vector-knowledge'" class="section-pane">
+      <KnowledgeManagementSection />
+    </section>
+
+    <!-- ======================================================= -->
+    <!-- SECTION DƯỚI CÙNG CỦA TAB CHIẾN LƯỢC & PHÂN TÍCH KỸ THUẬT -->
+    <!-- HỆ THỐNG CẬP NHẬT & LƯU TRỮ KIẾN THỨC [VECTOR]         -->
+    <!-- ======================================================= -->
+    <KnowledgeManagementSection v-if="activeSection !== 'vector-knowledge'" />
+    </template>
+
+    <!-- ======================================================= -->
+    <!-- PHÂN HỆ 2: DEDICATED AI CHAT STUDIO (GEMINI STYLE)    -->
+    <!-- ======================================================= -->
+    <section v-else-if="majorTab === 'chat-studio'" class="studio-pane-standalone">
+      <AIChatStudioView
+        @navigate-cockpit="emit('navigate-cockpit')"
+      />
+    </section>
   </div>
 </template>
 
 <style scoped>
+/* ==================================================== */
+/* MAJOR TABS BAR (BẬC TRÊN CÙNG: CHIẾN LƯỢC VS AI STUDIO)*/
+/* ==================================================== */
+.major-tabs-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.major-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 18px;
+  background: #f8faf6;
+  border: 1px solid #d5ded6;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+  position: relative;
+}
+
+.major-tab-btn:hover {
+  background: #ffffff;
+  border-color: #b5c7b7;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(27, 42, 35, 0.05);
+}
+
+.major-tab-btn.active {
+  background: #ffffff;
+  border-color: #225c43;
+  box-shadow: 0 4px 12px rgba(34, 92, 67, 0.12);
+  border-width: 1.5px;
+}
+
+.major-tab-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #e6ede4;
+  color: #225c43;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.major-tab-btn.active .major-tab-icon {
+  background: #225c43;
+  color: #c9f06b;
+}
+
+.major-tab-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.major-tab-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.major-tab-title > span:first-child {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #1b2a23;
+  letter-spacing: -0.01em;
+}
+
+.major-modules-badge {
+  font: 9px 'DM Mono', monospace;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e2ece0;
+  color: #225c43;
+}
+
+.major-tab-desc {
+  font-size: 11px;
+  color: #637568;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Studio Tab (Right) */
+.major-tab-studio {
+  background: #f8faf6;
+}
+
+.major-tab-studio:hover {
+  border-color: #a5c3f7;
+}
+
+.major-tab-studio.active {
+  background: #ffffff;
+  border-color: #1f6feb;
+  box-shadow: 0 4px 14px rgba(31, 111, 235, 0.15);
+  border-width: 1.5px;
+}
+
+.studio-icon-glow {
+  background: rgba(56, 139, 253, 0.1);
+  color: #1f6feb;
+}
+
+.major-tab-studio.active .studio-icon-glow {
+  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(31, 111, 235, 0.35);
+}
+
+.major-gemini-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.15) 0%, rgba(138, 56, 253, 0.12) 100%);
+  color: #1f6feb;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 139, 253, 0.3);
+}
+
+.major-unread-pill {
+  font-size: 9px;
+  font-weight: 800;
+  background: #f85149;
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 10px;
+  animation: pulse 1.5s infinite;
+}
+
+.studio-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  background: #eef5ee;
+  border-radius: 20px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #225c43;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.studio-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #238636;
+  box-shadow: 0 0 6px #2ea043;
+  animation: pulse 1.6s infinite;
+}
+
+.studio-live-text {
+  letter-spacing: 0.5px;
+}
+
+.studio-pane-standalone {
+  width: 100%;
+}
 .strategy-view-container {
   display: flex;
   flex-direction: column;
@@ -926,7 +1213,30 @@ h1 {
   align-items: center;
   gap: 6px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd7cc transparent;
+}
+
+.strategy-subnav::-webkit-scrollbar {
+  height: 4px;
+}
+
+.strategy-subnav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.strategy-subnav::-webkit-scrollbar-thumb {
+  background: #cbd7cc;
+  border-radius: 999px;
+}
+
+.strategy-subnav::-webkit-scrollbar-thumb:hover {
+  background: #95a896;
+}
+
+.strategy-subnav::-webkit-scrollbar-button {
+  display: none !important;
 }
 
 .subnav-btn {
@@ -956,6 +1266,25 @@ h1 {
   color: #ffffff;
   border-color: #225c43;
   box-shadow: 0 1px 3px rgba(34, 92, 67, 0.2);
+}
+
+.subnav-btn.subnav-vector-btn {
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.06);
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.subnav-btn.subnav-vector-btn:hover {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1e40af;
+}
+
+.subnav-btn.subnav-vector-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
 }
 
 /* Section Panes */

@@ -10,6 +10,8 @@ _CHANNELS = (
     "market:signals",
     "market:circuit_breaker",
     "governor:consensus",
+    "agent:trader:dialogue",
+    "governor:approval_response",
 )
 
 

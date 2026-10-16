@@ -246,8 +246,27 @@ CREATE TABLE IF NOT EXISTS agent_decision_logs (
 CREATE INDEX IF NOT EXISTS idx_agent_decision_logs_timestamp ON agent_decision_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_decision_logs_is_test ON agent_decision_logs(is_test);
 
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL DEFAULT 'Cuộc trò chuyện mới',
+    agent_target VARCHAR(64) NOT NULL DEFAULT 'GOVERNOR',
+    is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_test BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated_at ON chat_conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_is_pinned ON chat_conversations(is_pinned);
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_is_test ON chat_conversations(is_test);
+
 CREATE TABLE IF NOT EXISTS agent_trader_dialogue (
     id BIGSERIAL PRIMARY KEY,
+    conversation_id BIGINT REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    client_msg_id VARCHAR(64),
+    target_agent VARCHAR(64) NOT NULL DEFAULT 'GOVERNOR',
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     sender VARCHAR(32) NOT NULL,
     message_type VARCHAR(32) NOT NULL,
@@ -258,4 +277,6 @@ CREATE TABLE IF NOT EXISTS agent_trader_dialogue (
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_timestamp ON agent_trader_dialogue(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_is_test ON agent_trader_dialogue(is_test);
+CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_is_test ON agent_trader_dialogue(is_test);
+CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_conv_id ON agent_trader_dialogue(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_agent_trader_dialogue_client_msg_id ON agent_trader_dialogue(client_msg_id);
