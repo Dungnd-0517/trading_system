@@ -1,6 +1,48 @@
 # Backlog cập nhật
 
-## 2026-10-17 01:30 +07:00
+## 2026-10-17 12:30 +07:00
+
+### [Update Phase 03 - Sprint 03]: Tinh Chỉnh Giao Diện UI, Tối Ưu Bố Cục & Đồng Bộ Màu Sắc Toàn Hệ Thống
+
+- **Bỏ hiển thị Menu số 8 Tri Thức & Chuẩn Hóa [VECTOR] trên thanh Subnav:**
+  - File: `frontend/src/components/Strategy/StrategyAnalysisView.vue`
+  - Lý do: Toàn bộ module Kho Tri Thức & Chuẩn Hóa đã được render trực quan, đầy đủ ở section bên dưới (`<KnowledgeManagementSection />`), việc để menu tab 8 ở subnav phía trên gây trùng lặp và phân mảnh điều hướng.
+  - Đã lược bỏ tab item số 8 khỏi danh sách `<nav class="subnav-strip">` và gỡ bỏ khối section điều kiện thừa, giữ trải nghiệm cuộn liền mạch xuống kho tri thức.
+
+- **Khắc phục lỗi vỡ giao diện button / thẻ file chiến lược chuẩn hóa:**
+  - File: `frontend/src/components/Strategy/KnowledgeManagementSection.vue`
+  - Hiện tượng: Tên file dài như `cmt_cmt_supportresistance_polarity_intermarket_dxy.json` bị tràn ngang khung `.system-file-pill`, che lấp hàng nút hành động `[Xem Chi Tiết & Checklist]`, `[JSON]`, `[Markdown]`.
+  - Khắc phục:
+    - Bổ sung `min-width: 0; overflow: hidden;` cho container `.system-file-pill`.
+    - Thêm `overflow: hidden; text-overflow: ellipsis; white-space: nowrap;` cho tên file hiển thị.
+    - Định kiểu `word-break: break-all;` cho thẻ `<code>` đảm bảo không bao giờ làm biến dạng kích thước card hoặc tràn đè lên các nút bên dưới.
+
+- **Tối ưu gọn gàng nút thao tác Header Trading Cockpit (Ảnh số 5):**
+  - File: `frontend/src/components/AIAnalysis/GovernorConsensusPanel.vue`
+  - Hiện tượng: Hai nút `Chat CRO` và `RAG` chứa cả icon và text trong diện tích hẹp của header panel gây chật chội, ép thanh điều khiển co cụm hoặc tràn hàng.
+  - Khắc phục: Lược bỏ phần text, chuyển sang dạng **Icon-Only** (`<MessageSquare />` và `<BookOpen />`) kích thước `13px`, kèm `title` tooltip và `aria-label` trực quan giúp giao diện Trading Cockpit thanh thoát, không còn bị vỡ layout button.
+
+- **Đồng bộ toàn diện màu sắc của các thành phần AI Agents về tông màu chuẩn hệ thống (Fieldnote Markets):**
+  - Chuyển đổi toàn bộ các module Agent từ nền tối/xanh tím riêng lẻ sang bảng màu nhận diện cốt lõi của toàn hệ thống (`--paper: #f8faf6`, `--green: #225c43`, `--lime: #c9f06b`, `--ink: #1b2a23`, viền `--line: #d9e0d9 / #dce4da`, accent gold `#c68133`):
+    - **AI Chat Studio ([AIChatStudioView.vue](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/AIChatStudioView.vue)):**
+      - Toàn bộ container chuyển từ nền đen `#090d16` sang nền thẻ card chuẩn hệ thống (nền trắng `#ffffff`, viền `#d5ded6`).
+      - Sidebar chuyển sang nền `#f8faf6`, viền `#dce4da`; nút `+ Cuộc trò chuyện mới` đổi sang nền Forest Green `#225c43` và nhãn Lime `#c9f06b`.
+      - Welcome hero: biểu tượng Sparkle đổi sang nền `#eaf1e9` và icon `#225c43`; các thẻ Prompt Card mẫu chuyển sang nền trắng, viền `#dce4da`, hover nổi hiệu ứng xanh `#225c43` và viền `#9fc9a4`.
+      - Bong bóng tin nhắn trader và agent đồng bộ với nền xám xanh nhạt (`#e8efe6` và `#ffffff`), avatar trader dùng nền Forest Green viền sắc nét.
+      - Khung soạn thảo (Composer): nền trắng `#ffffff`, viền focus `#225c43`, nút gửi tin nhắn dùng nền xanh `#225c43` với icon `#c9f06b`.
+    - **Kho Tri Thức & Chiến Lược Chuẩn Hóa ([KnowledgeManagementSection.vue](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Strategy/KnowledgeManagementSection.vue)):**
+      - Chuyển Hero Header, Khung Ingestion Center, và Bảng Documents Explorer từ nền đen `#141824` sang nền Paper `#f8faf6` và Trắng `#ffffff` với viền `#dce4da`.
+      - Persona Agent [VECTOR] đổi sang chip xanh Forest Green `#225c43` phối viền Lime `#c9f06b`.
+      - Các thẻ chiến lược chuẩn hóa (Wyckoff, SMC, ICT, CMT, Price Action) chuyển từ nền tối sang nền trắng card viền `#dce4da`, chữ `#1b2a23`, nút hành động chính đổi sang nền Forest Green `#225c43`.
+      - Modal chi tiết chiến lược chuyển từ backdrop tối đen sang phong cách modal sáng trang nhã đồng bộ toàn bộ app.
+    - **Reflexion Stream Panel ([ReflexionStreamPanel.vue](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/AIAnalysis/ReflexionStreamPanel.vue)):**
+      - Chuyển toàn bộ màu tím (`#7c3aed`) ở badge icon, filter chips, nhãn bài học và input focus sang xanh Forest Green (`#225c43`) và Lime (`#c9f06b`).
+    - **Strategy Spec Mark ([StrategyAnalysisView.vue](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Strategy/StrategyAnalysisView.vue)):**
+      - Nhãn bài học Reflexion chuyển sang tông `#225c43` / `#e8efe6`.
+
+- **Đóng gói & Triển khai:**
+  - Đã rebuild Docker container `frontend` (`xau-frontend:latest`), khởi chạy lại container `trading_frontend` hoạt động ổn định trên port 3000.
+
 
 ### [Hoàn Thành Phase 03 - Sprint 03]: Kết Nối MT5 Wine/RPyC Thành Công & Nạp Lại Dữ Liệu Nến Từ 01-01-2026
 

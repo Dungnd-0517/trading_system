@@ -283,15 +283,6 @@ const calculatedRiskMoney = computed(() => {
         <Target :size="14" />
         <span>7. Checklist Vào lệnh ({{ completedChecks }}/{{ checklist.length }})</span>
       </button>
-
-      <button
-        role="tab"
-        :class="['subnav-btn', 'subnav-vector-btn', { active: activeSection === 'vector-knowledge' }]"
-        @click="selectSMCSubtab('vector-knowledge')"
-      >
-        <Sparkles :size="14" class="text-gold" />
-        <span>8. Tri Thức &amp; Chuẩn Hóa [VECTOR]</span>
-      </button>
     </nav>
 
     <!-- TAB 1: MULTI-TIMEFRAME PIPELINE -->
@@ -904,16 +895,11 @@ const calculatedRiskMoney = computed(() => {
       </div>
     </section>
 
-    <!-- TAB 8: VECTOR KNOWLEDGE & STANDARDIZED STRATEGIES -->
-    <section v-if="activeSection === 'vector-knowledge'" class="section-pane">
-      <KnowledgeManagementSection />
-    </section>
-
     <!-- ======================================================= -->
     <!-- SECTION DƯỚI CÙNG CỦA TAB CHIẾN LƯỢC & PHÂN TÍCH KỸ THUẬT -->
     <!-- HỆ THỐNG CẬP NHẬT & LƯU TRỮ KIẾN THỨC [VECTOR]         -->
     <!-- ======================================================= -->
-    <KnowledgeManagementSection v-if="activeSection !== 'vector-knowledge'" />
+    <KnowledgeManagementSection />
     </template>
 
     <!-- ======================================================= -->
@@ -2002,7 +1988,7 @@ h1 {
 
 .spec-mark.news { background: #fef3c7; color: #b45309; }
 .spec-mark.rag { background: #e0f2fe; color: #0284c7; }
-.spec-mark.reflexion { background: #ede9fe; color: #7c3aed; }
+.spec-mark.reflexion { background: #e8efe6; color: #225c43; }
 
 .spec-item strong {
   display: block;

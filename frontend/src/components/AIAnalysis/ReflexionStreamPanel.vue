@@ -242,8 +242,8 @@ function clearSearch() {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: #7c3aed;
-  color: #ede9fe;
+  background: #225c43;
+  color: #c9f06b;
 }
 
 .header-title h2 {
@@ -353,8 +353,8 @@ function clearSearch() {
 
 .search-wrap input:focus {
   outline: none;
-  border-color: #7c3aed;
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+  border-color: #225c43;
+  box-shadow: 0 0 0 2px rgba(34, 92, 67, 0.15);
 }
 
 .clear-search {
@@ -395,9 +395,9 @@ function clearSearch() {
 }
 
 .cat-chip.active {
-  background: #7c3aed;
+  background: #225c43;
   color: #ffffff;
-  border-color: #7c3aed;
+  border-color: #225c43;
 }
 
 .cat-count {
@@ -544,7 +544,7 @@ function clearSearch() {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #7c3aed;
+  color: #225c43;
   font-weight: 800;
 }
 
@@ -585,10 +585,10 @@ function clearSearch() {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #f3f4f6;
+  background: #f0fdf4;
   display: grid;
   place-items: center;
-  color: #7c3aed;
+  color: #225c43;
   margin-bottom: 8px;
 }
 
