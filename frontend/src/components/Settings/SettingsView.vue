@@ -22,7 +22,14 @@ import {
   Wifi,
   Zap,
 } from 'lucide-vue-next'
-import { fetchHealth, fetchMarketIntegrity, healMarketGaps } from '../../services/api'
+import {
+  fetchHealth,
+  fetchMarketIntegrity,
+  fetchMt5Status,
+  healMarketGaps,
+  reconnectMt5,
+  seedMt5History,
+} from '../../services/api'
 import { marketStore } from '../../stores/marketStore'
 import { orderStore } from '../../stores/orderStore'
 import { settingsStore } from '../../stores/settingsStore'
@@ -132,7 +139,9 @@ async function testConnectionPing() {
       time: new Date().toLocaleTimeString('vi-VN'),
       postgres: health?.services?.postgres === true,
       redis: health?.services?.redis === true,
+      mt5: health?.services?.mt5_bridge === true,
     }
+    await loadMt5Status()
   } catch {
     pingResult.value = {
       status: 'error',
@@ -140,9 +149,63 @@ async function testConnectionPing() {
       time: new Date().toLocaleTimeString('vi-VN'),
       postgres: false,
       redis: false,
+      mt5: false,
     }
   } finally {
     pingLoading.value = false
+  }
+}
+
+// MT5 Bridge Infrastructure State & Actions
+const mt5Status = ref(null)
+const mt5ActionLoading = ref(false)
+const mt5Notice = ref('')
+
+async function loadMt5Status() {
+  try {
+    mt5Status.value = await fetchMt5Status()
+  } catch (err) {
+    console.warn('Failed to load MT5 status', err)
+  }
+}
+
+async function handleReconnectMt5() {
+  mt5ActionLoading.value = true
+  mt5Notice.value = ''
+  try {
+    const res = await reconnectMt5()
+    if (res?.success) {
+      mt5Notice.value = 'Đã kết nối lại MT5 thành công!'
+    } else {
+      mt5Notice.value = `Chưa kết nối MT5: ${res?.error || 'Terminal offline'}`
+    }
+    await loadMt5Status()
+  } catch (err) {
+    mt5Notice.value = `Lỗi kết nối lại MT5: ${err.message || err}`
+  } finally {
+    mt5ActionLoading.value = false
+    setTimeout(() => {
+      mt5Notice.value = ''
+    }, 6000)
+  }
+}
+
+async function handleSeedMt5() {
+  if (!confirm('Bạn có chắc muốn xóa nến cũ trước 01-01-2026 và nạp lại toàn bộ lịch sử nến từ MT5?')) return
+  mt5ActionLoading.value = true
+  mt5Notice.value = 'Đang nạp dữ liệu nến từ MT5 (bắt đầu 01-01-2026)...'
+  try {
+    const res = await seedMt5History('XAUUSD', '2026-01-01', true)
+    mt5Notice.value = `Hoàn tất! Đã nạp ${res?.total_seeded ?? 0} nến từ MT5.`
+    await loadMt5Status()
+    await loadIntegrity()
+  } catch (err) {
+    mt5Notice.value = `Lỗi nạp nến MT5: ${err.message || err}`
+  } finally {
+    mt5ActionLoading.value = false
+    setTimeout(() => {
+      mt5Notice.value = ''
+    }, 8000)
   }
 }
 
@@ -180,6 +243,7 @@ onMounted(() => {
   loadSettings()
   testConnectionPing()
   loadIntegrity()
+  loadMt5Status()
 })
 </script>
 
@@ -392,16 +456,61 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Binance Feed -->
+          <!-- MetaTrader 5 Linux Data Bridge (Primary XAUUSD Feed) -->
+          <div class="infra-item">
+            <div class="infra-icon-wrap"><Server :size="16" /></div>
+            <div class="infra-details">
+              <div class="infra-title-row">
+                <strong>MetaTrader 5 Linux Data Bridge (Primary XAUUSD Feed)</strong>
+                <div class="infra-btn-group">
+                  <button
+                    class="mini-heal-btn secondary-btn"
+                    :disabled="mt5ActionLoading"
+                    title="Thử kiểm tra và kết nối lại MT5 bridge"
+                    @click="handleReconnectMt5"
+                  >
+                    <RefreshCw :size="10" :class="{ spinning: mt5ActionLoading }" />
+                    {{ mt5ActionLoading ? 'Đang thử...' : 'Re-check MT5' }}
+                  </button>
+                  <button
+                    class="mini-heal-btn"
+                    :disabled="mt5ActionLoading"
+                    title="Nạp lại dữ liệu nến từ 01-01-2026 cho tất cả timeframe"
+                    @click="handleSeedMt5"
+                  >
+                    <Layers :size="10" />
+                    Đồng bộ nến (2026)
+                  </button>
+                </div>
+              </div>
+              <span>
+                Host: <code>mt5-bridge:5001</code> · Server: <code>MetaQuotes-Demo</code> · Login: <code>5057446983 (Forex Hedged USD)</code> · Mốc dữ liệu: <code>01-01-2026</code> · Tải biểu đồ: <code>500 nến gần nhất</code>
+              </span>
+              <div v-if="mt5Notice" class="heal-notice">{{ mt5Notice }}</div>
+            </div>
+            <div class="infra-status">
+              <span v-if="mt5Status?.mt5_bridge?.connected || mt5Status?.mt5_bridge?.mt5_connected" class="badge-online">
+                <span class="status-dot green"></span> CONNECTED (PRIMARY)
+              </span>
+              <span v-else class="badge-warning" title="MT5 Bridge đang ở chế độ chờ / Hệ thống tự động kích hoạt fallback Binance">
+                <span class="status-dot orange"></span> STANDBY (FALLBACK READY)
+              </span>
+            </div>
+          </div>
+
+          <!-- Binance Feed (Secondary / Emergency Fallback) -->
           <div class="infra-item">
             <div class="infra-icon-wrap"><Wifi :size="16" /></div>
             <div class="infra-details">
-              <strong>Binance PAXGUSDT WebSocket Feed</strong>
-              <span>Stream: <code>paxgusdt@kline_1m</code> · Alias: <code>XAUUSD</code> · Synthetic ECN Spread: 20 pts ($0.20)</span>
+              <strong>Binance PAXGUSDT WebSocket Feed (Secondary / Emergency Fallback)</strong>
+              <span>Stream: <code>paxgusdt@kline_1m</code> · Alias: <code>XAUUSD</code> · Cơ chế: Tự động kích hoạt dự phòng khi MT5 bridge offline · Spread: 20 pts ($0.20)</span>
             </div>
             <div class="infra-status">
-              <span class="badge-online">
-                <span class="status-dot green"></span> ACTIVE STREAM
+              <span v-if="mt5Status?.mt5_bridge?.connected || mt5Status?.mt5_bridge?.mt5_connected" class="badge-warning" title="Sẵn sàng dự phòng tức thời khi MT5 mất kết nối">
+                <span class="status-dot orange"></span> STANDBY (FALLBACK READY)
+              </span>
+              <span v-else class="badge-online" title="Đang cấp dữ liệu nến và tick dự phòng cho hệ thống">
+                <span class="status-dot green"></span> ACTIVE (FALLBACK IN USE)
               </span>
             </div>
           </div>
@@ -411,7 +520,7 @@ onMounted(() => {
             <div class="infra-icon-wrap"><Cpu :size="16" /></div>
             <div class="infra-details">
               <strong>Paper Execution Engine Worker</strong>
-              <span>FastAPI Background Task · Quét SL/TP theo từng tick thị trường thực tế</span>
+              <span>FastAPI Background Task · Quét SL/TP theo từng tick thị trường thực tế (MT5 ECN Hedged ticks / Fallback Binance)</span>
             </div>
             <div class="infra-status">
               <span class="badge-online">
@@ -1053,6 +1162,23 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.infra-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mini-heal-btn.secondary-btn {
+  background: #f0f4ee;
+  color: #2b3d32;
+  border: 1px solid #c8d3c5;
+}
+
+.mini-heal-btn.secondary-btn:hover:not(:disabled) {
+  background: #e1e9de;
+  color: #1b2e22;
 }
 
 .mini-heal-btn {

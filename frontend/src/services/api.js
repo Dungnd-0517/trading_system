@@ -153,4 +153,10 @@ export const fetchStandardizedStrategies = (school = '') =>
 export const fetchStandardizedStrategyDetail = (slug) =>
   get(`/knowledge/standardized-strategies/${encodeURIComponent(slug)}`)
 export const fetchKnowledgeDocuments = () => get('/knowledge/documents')
-export const seedStandardizedStrategies = () => post('/knowledge/seed-strategies')
+export const seedStandardizedStrategies = () => post('/knowledge/seed-strategies')
+
+// Phase 03 Sprint 03: MetaTrader 5 Bridge & Data Integration
+export const fetchMt5Status = () => get('/market/mt5/status')
+export const reconnectMt5 = () => post('/market/mt5/reconnect')
+export const seedMt5History = (symbol = 'XAUUSD', fromDate = '2026-01-01', deleteOld = true) =>
+  post(`/market/mt5/seed?symbol=${encodeURIComponent(symbol)}&from_date=${encodeURIComponent(fromDate)}&delete_old=${deleteOld}`)

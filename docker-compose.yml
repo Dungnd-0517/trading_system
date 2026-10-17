@@ -80,6 +80,38 @@ services:
     networks: [trading-net]
     depends_on: [frontend]
 
+  # ============================================================
+  # MT5 Wine Server — Wine + Xvfb + MT5 Terminal + RPyC Server
+  # Image: lprett/mt5linux:latest  (lucas-campagna/mt5linux)
+  # Exposes: port 18812 (RPyC) + 8080 (noVNC web GUI optional)
+  # ============================================================
+  mt5-wine-server:
+    image: lprett/mt5linux:latest
+    container_name: trading_mt5_wine
+    restart: unless-stopped
+    environment:
+      MT5_HOST: "0.0.0.0"
+      MT5_LOGIN: ${MT5_DEMO_LOGIN:-5057446983}
+      MT5_PASSWORD: ${MT5_DEMO_PASSWORD:-FxN@6nZf}
+      MT5_SERVER: ${MT5_DEMO_SERVER:-MetaQuotes-Demo}
+      VNC_PASSWORD: ${MT5_VNC_PASSWORD:-trading123}
+    ports:
+      - "18812:18812"   # RPyC — MT5 Python RPC bridge
+      - "8080:8080"     # noVNC — Web GUI monitor (optional)
+    volumes:
+      - mt5data:/root/.wine  # Persist Wine prefix & MT5 installation
+    networks: [trading-net]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 18812 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ============================================================
+  # MT5 Bridge — FastAPI HTTP Gateway (connects via mt5linux RPyC)
+  # Depends on mt5-wine-server being healthy on port 18812
+  # ============================================================
   mt5-bridge:
     build:
       context: ./mt5-bridge
@@ -90,10 +122,15 @@ services:
       MT5_LOGIN: ${MT5_DEMO_LOGIN:-5057446983}
       MT5_PASSWORD: ${MT5_DEMO_PASSWORD:-FxN@6nZf}
       MT5_SERVER: ${MT5_DEMO_SERVER:-MetaQuotes-Demo}
-      MT5_HOST: ${MT5_HOST:-localhost}
+      MT5_HOST: mt5-wine-server   # <-- Docker service hostname (NOT localhost)
       MT5_PORT: ${MT5_PORT:-18812}
+    volumes:
+      - ./mt5-bridge:/app
     ports:
       - "5001:5001"
+    depends_on:
+      mt5-wine-server:
+        condition: service_started
     networks: [trading-net]
 
 networks:
@@ -103,3 +140,4 @@ networks:
 volumes:
   pgdata:
   redisdata:
+  mt5data:  # Persistent Wine prefix & MT5 terminal installation

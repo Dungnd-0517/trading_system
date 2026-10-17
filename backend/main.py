@@ -85,7 +85,22 @@ app.include_router(api_router, prefix="/api/v1")
 async def health() -> dict[str, object]:
     database_ok = await ping_database()
     redis_ok = await ping_redis()
+    
+    mt5_status = {"mt5_connected": False, "status": "unavailable"}
+    try:
+        from data_ingestion.mt5_feed import MT5Feed
+        mt5_status = await MT5Feed().health()
+    except Exception as exc:
+        mt5_status = {"mt5_connected": False, "status": "unavailable", "error": str(exc)}
+
+    mt5_ok = bool(mt5_status.get("mt5_connected", False))
+
     return {
         "status": "ok" if database_ok and redis_ok else "degraded",
-        "services": {"postgres": database_ok, "redis": redis_ok},
+        "services": {
+            "postgres": database_ok,
+            "redis": redis_ok,
+            "mt5_bridge": mt5_ok,
+        },
+        "mt5_bridge": mt5_status,
     }

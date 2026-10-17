@@ -97,7 +97,8 @@ Toàn bộ hệ thống được cô lập và chạy trên cùng một bridge n
 | `trading_redis` | `redis` | `redis:7-alpine` | `6379` | `6379` | Message broker Pub/Sub kênh `market:ticks`, `paper:orders`, `news:events`, `agent:trader:dialogue`. Volume: `redisdata`. |
 | `trading_backend` | `backend` | `./backend/Dockerfile` (Python 3.12) | `8000` | `8000` | FastAPI server REST + WebSocket + Multi-Agent Dialogue + 3 background workers (`chart-streamer`, `paper-worker`, `news-collector`). |
 | `trading_frontend` | `frontend` | `./frontend/Dockerfile` (Nginx Alpine) | `3000` | `80` | Nginx reverse-proxy & phục vụ Vue 3 production SPA build (`dist/`). |
-| `trading_mt5_bridge` | `mt5-bridge` | `./mt5-bridge/Dockerfile` (`mt5linux` / Wine headless) | `5001` | `5001` | **Cầu nối chính thức cấp dữ liệu Forex XAUUSD thời gian thực** kết nối máy chủ `MetaQuotes-Demo` qua RPC `mt5linux` (Wine + Xvfb). |
+| `trading_mt5_wine` | `mt5-wine-server` | `lprett/mt5linux:latest` (**Wine + Xvfb + MT5 Terminal**) | `18812`, `8080` | `18812`, `8080` | **Tầng Wine Runtime chuyên biệt:** Chạy MT5 Terminal (`terminal64.exe`) ngầm qua Wine + Xvfb. Khởi động `mt5server.exe` (RPyC server) lắng nghe cổng `18812`. noVNC web GUI trên cổng `8080`. Volume: `mt5data` (persist Wine prefix). |
+| `trading_mt5_bridge` | `mt5-bridge` | `./mt5-bridge/Dockerfile` (Python 3.12 + `mt5linux`) | `5001` | `5001` | **FastAPI HTTP Gateway:** Kết nối đến `mt5-wine-server:18812` qua `mt5linux` RPyC client. Cung cấp REST API `/health`, `/account`, `/ticks`, `/candles` cho backend. |
 | `trading_tunnel` | `tunnel` | `cloudflare/cloudflared:latest` | N/A | N/A | Cloudflare Tunnel phục vụ public URL bảo mật cho người dùng truy cập từ xa. |
 
 ---
@@ -152,6 +153,82 @@ Trước đây, hệ thống sử dụng cặp `PAXGUSDT` từ Binance Spot làm
 | **Độ Trễ (Latency)** | WS WebSocket ~80–120ms | REST Internal Docker ~1.2ms, Poll 250ms | **RẤT TỐT**: Độ trễ nội bộ Docker network gần như tức thời. |
 | **Tài Nguyên (RAM/CPU)** | Nhẹ (~50MB) | Tiêu thụ ~350MB–450MB RAM, CPU < 2% | **KHẢ THI 100%**: Hoàn toàn nằm trong ngân sách tài nguyên VPS/Docker. |
 | **Tương Thích Backend** | Đang chạy | Backend `MT5Feed` đã tích hợp sẵn 100% | **HOÀN THÀNH NGAY**: Không phát sinh chi phí refactor luồng dữ liệu. |
+
+#### C. Kiến Trúc 2-Container MT5 (Phase 03 Sprint 03 — Giải pháp Triển khai Thực tế)
+
+Qua nghiên cứu kỹ thuật chuyên sâu (tham chiếu: [MetaTrader 5 on Linux — MetaQuotes Official Docs](https://www.metatrader5.com/en/terminal/help/start_advanced/install_linux), [lucas-campagna/mt5linux GitHub](https://github.com/lucas-campagna/mt5linux)), vấn đề gốc rễ của kết nối MT5 trên môi trường Linux là:
+
+> **`mt5linux` (thư viện Python Linux client) KHÔNG tự chứa MT5 Terminal hay Wine.** Nó chỉ là client RPyC kết nối đến một `mt5server.exe` đang chạy bên trong Wine. Nếu không có Wine server riêng, RPyC luôn thất bại với `ConnectionRefusedError: [Errno 111]`.
+
+Giải pháp: Tách thành **2 container chuyên biệt**, mỗi container đảm nhiệm đúng 1 tầng:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Docker Network: trading-net               │
+│                                                             │
+│  ┌─────────────────────────┐      ┌────────────────────┐   │
+│  │   trading_mt5_wine      │      │  trading_mt5_bridge │   │
+│  │   lprett/mt5linux:latest│      │  ./mt5-bridge/      │   │
+│  │                         │      │  (Python + mt5linux) │   │
+│  │  Wine (WineHQ Stable)   │      │                    │   │
+│  │  Xvfb (Virtual Display) │      │  FastAPI HTTP       │   │
+│  │  terminal64.exe (MT5)   │─────▶│  :5001             │   │
+│  │  mt5server.exe (RPyC)   │18812 │                    │   │
+│  │  noVNC GUI  :8080       │      │  REST endpoints:   │   │
+│  └─────────────────────────┘      │  /health /account  │   │
+│                                   │  /ticks  /candles  │   │
+│                                   └────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Docker Image `lprett/mt5linux:latest`** (chính thức từ dự án `lucas-campagna/mt5linux`):
+- **Tag `latest`:** Image nền đã cài Wine + Xvfb + noVNC, **chưa cài MT5**. Lần đầu chạy sẽ tự động tải và cài MT5 Terminal qua Wine.
+- **Tag `mt5-installed`:** Image đã tích hợp sẵn MT5 Terminal → thời gian khởi động nhanh hơn đáng kể (khuyến nghị cho production).
+- **Environment Variables bắt buộc:**
+  - `MT5_HOST=0.0.0.0` → Cho phép RPyC bind ra tất cả interface (để `mt5-bridge` kết nối qua Docker network)
+  - `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` → Credentials tài khoản MetaQuotes-Demo
+  - `VNC_PASSWORD` → Mật khẩu bảo vệ noVNC web console
+
+#### D. Hướng Dẫn Khởi Động & Kiểm Thử Kết Nối MT5 Bridge
+
+**Lưu ý quan trọng:** `trading_mt5_wine` cần **2–5 phút** khởi động lần đầu để Wine hoàn tất cài đặt MT5 Terminal. Các lần khởi động tiếp theo từ volume `mt5data` chỉ cần **15–30 giây**.
+
+```powershell
+# Bước 1: Kéo về và khởi động toàn bộ cụm (bao gồm mt5-wine-server)
+docker compose pull mt5-wine-server
+docker compose up -d --build
+
+# Bước 2: Theo dõi tiến trình khởi động Wine & MT5 Terminal
+docker logs -f trading_mt5_wine
+# Đợi đến khi thấy: "mt5server started on port 18812" hoặc tương tự
+
+# Bước 3: Kiểm tra RPyC đang lắng nghe trên port 18812
+docker exec trading_mt5_wine nc -z localhost 18812 && echo "RPyC OK" || echo "RPyC NOT READY"
+
+# Bước 4: Kiểm tra kết nối từ phía mt5-bridge
+docker logs trading_mt5_bridge
+curl http://localhost:5001/health
+
+# Bước 5: Kích hoạt kết nối lại từ Settings UI hoặc REST API
+curl -X POST http://localhost:8000/api/v1/market/mt5/reconnect
+
+# Bước 6: Kiểm tra trạng thái tài khoản MetaQuotes-Demo
+curl http://localhost:5001/account
+
+# Truy cập noVNC để xem giao diện MT5 Terminal trực quan (tùy chọn)
+# → http://localhost:8080  (Password: trading123)
+```
+
+#### E. Xử Lý Sự Cố Kết Nối Wine/RPyC (Troubleshooting Matrix)
+
+| Triệu Chứng | Nguyên Nhân | Hành Động Khắc Phục |
+| :--- | :--- | :--- |
+| `Connection refused: 18812` trong `mt5-bridge` logs | `mt5-wine-server` chưa hoàn tất khởi động | Đợi thêm 2–3 phút. Chạy lại `POST /reconnect`. Kiểm tra `docker logs trading_mt5_wine`. |
+| `mt5-wine-server` không xuất hiện trong `docker ps` | Image chưa được pull hoặc port 8080/18812 bị chiếm | Chạy `docker compose pull mt5-wine-server` và `docker compose up mt5-wine-server`. |
+| `initialize() failed: Error 10019` trong MT5 Bridge | Sai `MT5_SERVER` hoặc `MT5_LOGIN`/`MT5_PASSWORD` | Kiểm tra biến môi trường. Verify credentials tại [MetaQuotes Demo](https://demo.mt5.com/). |
+| MT5 Terminal hiển thị "Account Disabled" trên noVNC | Tài khoản Demo MetaQuotes hết hạn (30 ngày không hoạt động) | Đăng ký tài khoản Demo mới tại [www.metatrader5.com](https://www.metatrader5.com) và cập nhật biến môi trường. |
+| `copy_rates_from` trả về `None` dù kết nối thành công | Symbol `XAUUSD` chưa được thêm vào Market Watch | Trong noVNC, mở MT5 Terminal → Market Watch → Chuột phải → Show All → tìm và chọn `XAUUSD`. |
+| Container `trading_mt5_wine` khởi động liên tục (restart loop) | Wine prefix bị hỏng hoặc không tương thích | Xóa volume `mt5data`: `docker volume rm xau_mt5data` rồi khởi động lại để Wine re-initialize. |
 
 ---
 
