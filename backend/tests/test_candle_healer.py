@@ -6,18 +6,17 @@ from unittest.mock import AsyncMock, MagicMock
 from backend.data_ingestion.candle_healer import (
     CandleGapHealer,
     TIMEFRAMES,
-    resolve_binance_symbol,
 )
+from backend.data_ingestion.twelve_data_client import resolve_twelve_data_symbol
 from backend.core.models import MarketCandle
 
 
-def test_resolve_binance_symbol():
-    assert resolve_binance_symbol("XAUUSD") == "PAXGUSDT"
-    assert resolve_binance_symbol("xau") == "PAXGUSDT"
-    assert resolve_binance_symbol("gold") == "PAXGUSDT"
-    assert resolve_binance_symbol("BTCUSD") == "BTCUSDT"
-    assert resolve_binance_symbol("ETHUSD") == "ETHUSDT"
-    assert resolve_binance_symbol("SOLUSDT") == "SOLUSDT"
+def test_resolve_twelve_data_symbol():
+    assert resolve_twelve_data_symbol("XAUUSD") == "XAU/USD"
+    assert resolve_twelve_data_symbol("xau") == "XAU/USD"
+    assert resolve_twelve_data_symbol("gold") == "XAU/USD"
+    assert resolve_twelve_data_symbol("BTCUSD") == "BTC/USD"
+    assert resolve_twelve_data_symbol("EURUSD") == "EUR/USD"
 
 
 @pytest.mark.anyio

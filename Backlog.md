@@ -1,6 +1,84 @@
 # Backlog cập nhật
 
-## 2026-10-17 12:30 +07:00
+## 2026-10-17 17:15 +07:00
+
+### [Update Phase 03 - Sprint 03]: Thay Thế Hoàn Toàn Hệ Thống Fallback Dữ Liệu Dự Phòng Từ Binance API Sang Twelve Data API (Spot Gold XAU/USD)
+
+- **Động cơ thay thế:**
+  - Nguồn dự phòng Binance trước đây sử dụng token crypto PAXGUSDT (Pax Gold) với cơ chế giá đóng cửa 24/7/365 và spread nhân tạo cố định 20 points ($0.20), không phản ánh chuẩn xác thanh khoản liên ngân hàng của Vàng giao ngay (Spot Gold).
+  - Đã chuyển đổi hoàn toàn sang **Twelve Data API (`twelvedata.com`)** — nguồn dữ liệu tài chính chính thống quốc tế dành riêng cho Vàng giao ngay quốc tế.
+
+- **Thông tin & Cấu hình API:**
+  - **API Key tích hợp:** `d1d845408648474cb09a52607e38e184` (cấu hình trong `backend/core/config.py`, `.env`, `docker-compose.yml`).
+  - **Thư viện kết nối:** Bổ sung `twelvedata>=1.2.0` vào `backend/requirements.txt` và xây dựng module client bất đồng bộ `backend/data_ingestion/twelve_data_client.py`.
+  - **Cấu hình Symbol:** Chuẩn hóa Spot Gold sang **`XAU/USD`** (tự động phân giải từ `XAUUSD`, `xau`, `gold`, `PAXG`, `PAXGUSDT`).
+  - **Cấu hình Timeframes:** Ánh xạ chính xác sang các khoảng nến Twelve Data:
+    - `M1` $\to$ `1min`
+    - `M5` $\to$ `5min`
+    - `M15` $\to$ `15min`
+    - `H1` $\to$ `1h`
+    - `H4` $\to$ `4h`
+    - `D1` $\to$ `1day`
+
+- **Cơ chế Quản lý Giới Hạn Tần Suất Gọi API (`TwelveDataRateLimiter`):**
+  - **Hạn ngạch gói:** Tối đa **8 requests / phút** và **800 requests / ngày**.
+  - **Cơ chế kiểm soát Atomic:** Sử dụng Redis Pipelines với các khóa có thời hạn:
+    - `twelve_data:quota:min:{minute_key}` (TTL 90s)
+    - `twelve_data:quota:day:{today_str}` (TTL 2 ngày)
+  - **Cơ chế Backoff tự động:** Khi phát hiện đã đạt ngưỡng 8 requests trong phút hiện tại, luồng gọi API sẽ tự động `asyncio.sleep` tính toán chính xác số giây còn lại của chu kỳ phút ($60 - \text{now} \pmod{60} + 0.5s$) trước khi gửi request tiếp theo.
+  - **Khả năng tự phục hồi (Fault Tolerance):** Nếu Redis gặp sự cố, hệ thống tự động fallback sang bộ đếm in-memory nội bộ mà không làm sập tiến trình.
+
+- **Cơ chế Bọc Logic Gọi API: Retry + Exponential Backoff:**
+  - Mọi lời gọi API qua HTTP (`httpx.AsyncClient`) được bọc trong vòng lặp thử lại tối đa 3 lần.
+  - Tự động nhận diện lỗi mã HTTP 429 (Rate Limit Exceeded) hoặc lỗi JSON trả về từ Twelve Data API (`status == "error"`).
+  - Tự động giãn cách thời gian chờ tăng lũy tiến: $\text{delay} = 2^{\text{attempt}} + \text{jitter}$ (từ 2s đến 8s).
+
+- **Tích hợp Tầng Bộ Nhớ Đệm Redis Caching (TTL $\ge$ 60s):**
+  - Khóa cache định danh: `twelve_data:cache:{symbol}:{interval}:{outputsize}:{start_date}:{end_date}`.
+  - TTL phân tầng theo khung thời gian:
+    - `M1`: 60s
+    - `M5`: 180s
+    - `M15`: 300s
+    - `H1`: 900s
+    - `H4`: 1800s
+    - `D1`: 3600s
+  - Khi có Cache Hit, dữ liệu trả về tức thì mà không tiêu tốn hạn ngạch gọi API bên ngoài.
+
+- **Chuẩn Hóa Định Dạng Thời Gian & Thứ Tự Biểu Đồ Frontend:**
+  - Định dạng thời gian trả về từ Twelve Data:
+    - Nến trong ngày (intraday): `YYYY-MM-DD HH:MM:SS`
+    - Nến ngày (D1): `YYYY-MM-DD`
+  - Tham số truy vấn luôn đặt `timezone=UTC`. Hàm `parse_twelve_data_datetime()` và `parse_twelve_data_timestamp()` chuyển đổi thành **Unix timestamp theo giây** (`int(dt.timestamp())`) tương thích 100% với thư viện TradingView Lightweight Charts và cột `MarketCandle.open_time`.
+  - Đảo ngược mảng dữ liệu từ **Reverse Chronological (Mới nhất trước)** sang **Chronological (Cũ nhất trước)** đảm bảo biểu đồ vẽ mượt mà và đúng chiều thời gian từ trái sang phải.
+
+- **Cập nhật & Đồng bộ các Module Hệ Thống Liên Quan:**
+  - [`backend/data_ingestion/twelve_data_client.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/twelve_data_client.py): Tạo mới hoàn chỉnh với Rate Limiter, Retry Backoff, Caching, datetime parser, và hàm `seed_candles_to_database()`.
+  - [`backend/data_ingestion/chart_streamer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/chart_streamer.py): Thay thế luồng seed và fallback từ Binance sang Twelve Data (`_seed_twelve_data_history_fallback`, `_run_twelve_data_fallback`).
+  - [`backend/data_ingestion/candle_healer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/candle_healer.py): Thay thế toàn bộ `_heal_range_binance` bằng `_heal_range_twelve_data`, gỡ bỏ URL Binance API cũ.
+  - [`backend/api/v1/market.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/api/v1/market.py): Cập nhật endpoint `/history` fallback sang Twelve Data (XAU/USD).
+  - [`backend/core/models.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/core/models.py): Cập nhật default và docstring của `MarketCandle.data_source` từ `binance` sang `twelvedata`.
+  - [`frontend/src/components/Settings/SettingsView.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Settings/SettingsView.vue): Cập nhật UI hiển thị thông số Twelve Data API Feed (Secondary / Emergency Fallback) kèm hạn ngạch và cơ chế Rate Limiter.
+  - [`technical_system.md`](file:///c:/Users/nguye/OneDrive/Desktop/xau/technical_system.md): Bổ sung mục 3.4 tài liệu hóa toàn diện hệ thống fallback Twelve Data.
+  - [`Architecture_phase_03_sprint_03.md`](file:///c:/Users/nguye/OneDrive/Desktop/xau/Architecture_phase_03_sprint_03.md): Thêm Quyết định Kiến trúc **D31**.
+
+- **Rà Soát & Loại Bỏ Triệt Để Các Thành Phần Binance Khỏi Hệ Thống:**
+  - Đã xóa hoàn toàn file [`backend/data_ingestion/binance_feed.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/binance_feed.py) (file kết nối WebSocket `stream.binance.com`).
+  - Gỡ bỏ toàn bộ các phương thức và biến alias cũ (`_run_binance`, `_seed_binance_history_fallback`, `seed_binance_history_if_needed`, `TIMEFRAME_TO_BINANCE_INTERVAL`, `resolve_binance_symbol`) khỏi [`chart_streamer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/chart_streamer.py), [`candle_healer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/data_ingestion/candle_healer.py), [`market.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/api/v1/market.py).
+  - Cập nhật sơ đồ kiến trúc luồng dữ liệu (Mermaid flowchart) và bảng endpoint trong [`technical_system.md`](file:///c:/Users/nguye/OneDrive/Desktop/xau/technical_system.md).
+  - Biên dịch và đồng bộ trực tiếp thư mục phân phối [`frontend/dist`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/dist) trên host (`npm run build`), khớp với volume mount của container `trading_frontend`.
+  - **Kiểm định Bundle Thực Tế:** Đã xác thực trực tiếp qua HTTP GET trên cổng 3000:
+    - Bundle file: `/assets/index-CCICyyP-.js`
+    - Chuỗi `'Twelve Data API Feed'`: **TRUE**
+    - Chuỗi `'Binance PAXGUSDT'`: **FALSE** (hoàn toàn không còn tồn tại).
+  - **Lưu ý Client:** Do trình duyệt có thể lưu bộ nhớ đệm (Browser Cache) của các file script cũ, người dùng chỉ cần thực hiện **Hard Refresh (Ctrl + F5 hoặc Cmd + Shift + R)** để hiển thị ngay lập tức giao diện mới Twelve Data API.
+
+- **Kiểm Thử & Nghiệm Thu:**
+  - Viết mới 6 unit tests trong [`backend/tests/test_twelve_data_client.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_twelve_data_client.py) (kiểm tra Symbol mapping, Timeframe mapping, Timestamp parsing, In-memory rate limiting, Chronological ordering, Redis Cache Hit).
+  - Toàn bộ backend test suite: **125 passed in 14.45s** trên container `trading_backend`.
+  - Rebuild thành công Docker container `trading_frontend` (`xau-frontend:latest`).
+  - Kiểm tra trạng thái hệ thống: PostgreSQL, Redis, MT5 Bridge (MetaQuotes-Demo), Backend, Frontend hoạt động 100% Healthy.
+
+---
 
 ### [Update Phase 03 - Sprint 03]: Tinh Chỉnh Giao Diện UI, Tối Ưu Bố Cục & Đồng Bộ Màu Sắc Toàn Hệ Thống
 

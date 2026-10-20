@@ -40,8 +40,8 @@ class MarketCandle(Base):
     low: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     close: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     volume: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
-    data_source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="binance")
-    """Nguồn dữ liệu: 'mt5' (MetaTrader5 bridge), 'binance' (PAXGUSDT proxy), 'synthetic' (tổng hợp M1)"""
+    data_source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="twelvedata")
+    """Nguồn dữ liệu: 'mt5' (MetaTrader5 bridge), 'twelvedata' (Twelve Data Spot Gold XAU/USD), 'synthetic' (tổng hợp M1)"""
 
 
 class FinancialNews(Base):

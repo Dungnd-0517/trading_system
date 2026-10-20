@@ -30,7 +30,7 @@ Hệ thống được thiết kế theo kiến trúc **Modular Monolith** kết 
 flowchart TB
     subgraph Data_Sources["Nguồn Cấp Dữ Liệu Ngoại Vi"]
         MT5Bridge["MT5 Linux Bridge (CHÍNH THỨC)<br/>MetaQuotes-Demo / Wine + mt5linux<br/>Port 5001 (Real Forex Ticks & Spread)"]
-        BinanceWS["Binance Spot WS / REST (DỰ PHÒNG CŨ)<br/>paxgusdt@kline_1m (24/7 Crypto Fallback)"]
+        TwelveDataAPI["Twelve Data REST API (DỰ PHÒNG NGOẠI VI)<br/>api.twelvedata.com (XAU/USD Spot Gold)<br/>Rate Limiter 8 req/min + Redis Cache"]
         NewsSources["News & Calendar Feeds<br/>FairEconomy, Kitco, FXStreet, Finnhub"]
     end
 
@@ -61,7 +61,7 @@ flowchart TB
     end
 
     MT5Bridge -->|HTTP Poll /ticks/since (Primary 250ms)| Streamer
-    BinanceWS -.->|Emergency crypto fallback| Streamer
+    TwelveDataAPI -.->|Emergency REST fallback (1 req/min)| Streamer
     NewsSources -->|polling / RSS / JSON| NewsCollector
 
     Streamer -->|publish 'market:ticks'| RedisPubSub
@@ -251,9 +251,40 @@ Hỗ trợ đầy đủ **6 khung thời gian**:
 Khi khởi động hệ thống hoặc khi frontend chuyển sang khung thời gian bất kỳ (ví dụ H4, D1), nếu DB chưa có đủ nến:
 * Endpoint `GET /api/v1/market/history` tự động kích hoạt nạp nến lịch sử:
   * **Nguồn ưu tiên 1 (MT5 Linux Bridge):** Gọi `terminal.copy_rates_from_pos(symbol, timeframe, 0, 500)` để trích xuất 500 nến chuẩn lịch sử trực tiếp từ máy chủ MetaQuotes-Demo.
-  * **Nguồn dự phòng 2 (Binance REST API):** Gọi `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit=500` làm nguồn hạt giống dự phòng khi MT5 bridge chưa kịp sẵn sàng.
+  * **Nguồn dự phòng 2 (Twelve Data REST API):** Gọi `https://api.twelvedata.com/time_series?symbol=XAU/USD&interval={interval}&outputsize=500&timezone=UTC` làm nguồn hạt giống dự phòng khi MT5 bridge chưa kết nối hoặc không phản hồi.
   * Thực hiện câu lệnh PostgreSQL `ON CONFLICT (symbol, timeframe, open_time) DO UPDATE` để ghi đè hoặc bổ sung 500 nến chuẩn vào bảng `market_candles`.
   * Trả về ngay lập tức cho biểu đồ mà không gây nến rỗng (blank chart).
+
+### 3.4. Hệ thống Dự phòng Dữ liệu Ngoại vi: Twelve Data API (`twelvedata.com`)
+Nhằm thay thế hoàn toàn nguồn fallback Binance cũ (vốn dùng token PAXGUSDT với độ trễ và spread nhân tạo), hệ thống đã tích hợp chính thức **Twelve Data API** chuyên dụng cho vàng giao ngay quốc tế:
+
+1. **Cấu hình Symbol & Khung Thời Gian:**
+   * **Symbol chuẩn hóa:** `XAU/USD` (Spot Gold vs US Dollar theo chuẩn liên ngân hàng).
+   * **Bảng ánh xạ Timeframes:**
+     * `M1` $\to$ `1min`
+     * `M5` $\to$ `5min`
+     * `M15` $\to$ `15min`
+     * `H1` $\to$ `1h`
+     * `H4` $\to$ `4h`
+     * `D1` $\to$ `1day`
+2. **Bộ Quản lý Giới hạn Tần suất (Rate Limit Handler):**
+   * **Hạn ngạch gói Free:** Tối đa **8 requests / phút** và **800 requests / ngày**.
+   * **Cơ chế kiểm soát (`TwelveDataRateLimiter`):** Sử dụng Redis Pipeline Atomic (`twelve_data:quota:min:{min_key}` và `twelve_data:quota:day:{day_key}`) để theo dõi quota thời gian thực.
+   * **Tự động chờ (Backoff):** Nếu chạm 8 req/phút, hệ thống tự động sleep đến chu kỳ phút tiếp theo ($60 - \text{now} \pmod{60} + 0.5s$) trước khi phát request. Nếu Redis gián đoạn, tự động chuyển về in-memory counter.
+3. **Cơ chế Retry & Exponential Backoff:**
+   * Mỗi request được bọc trong vòng lặp tối đa 3 lần thử.
+   * Khi gặp HTTP 429 hoặc lỗi kết nối, tính toán thời gian chờ tăng lũy tiến: $\text{delay} = 2^{\text{attempt}} + \text{jitter}$ (từ 2.0s đến 8.0s).
+4. **Tầng Bộ nhớ Đệm Redis Caching (TTL $\ge$ 60s):**
+   * Khóa cache: `twelve_data:cache:{symbol}:{interval}:{outputsize}:{start_date}:{end_date}`.
+   * **TTL linh hoạt:** M1 (60s), M5 (180s), M15 (300s), H1 (900s), H4 (1800s), D1 (3600s).
+   * Cache Hit trả về ngay kết quả mà **không tiêu tốn hạn ngạch** gọi API Twelve Data.
+5. **Chuẩn hóa Định dạng Thời gian & Thứ tự Biểu đồ:**
+   * Twelve Data trả về chuỗi datetime dạng `YYYY-MM-DD HH:MM:SS` (nến trong ngày) hoặc `YYYY-MM-DD` (nến ngày D1).
+   * Được ép múi giờ `timezone=UTC` khi gọi API và chuyển đổi thành **Unix timestamp theo giây** (`int(dt.timestamp())`) tương thích 100% với TradingView Lightweight Charts trên frontend và cột `MarketCandle.open_time`.
+   * Đảo ngược thứ tự trả về từ **Reverse Chronological (Mới nhất trước)** sang **Chronological (Cũ nhất trước)** để biểu đồ hiển thị liên tục, mượt mà từ trái sang phải.
+6. **Vá Lỗ Hổng Nến Tự Động (`CandleGapHealer`):**
+   * Tự động phát hiện Trailing Gaps và Internal Gaps khi có sự cố downtime máy chủ.
+   * Ưu tiên vá nến từ MT5 Bridge; nếu MT5 ngắt kết nối, tự động chuyển sang Twelve Data API để bù đắp các khoảng trống dữ liệu với nhãn `data_source = 'twelvedata'`.
 
 ---
 
@@ -397,7 +428,7 @@ Frontend được xây dựng bằng **Vue 3 Composition API**, quản lý trạ
 2. **Orders History:** Bảng tổng kết toàn bộ lệnh đã đóng, bộ lọc nâng cao, thống kê Win Rate, Profit Factor, Realized PnL.
 3. **News & Events:** Trung tâm tin tức vĩ mô toàn diện, giám sát trạng thái 4 nguồn tin (Health/Latency), tab Economic Calendar và tab Breaking News.
 4. **Strategy & Analysis:** Toàn bộ hệ tri thức SMC, quy trình đa khung thời gian, thư viện khái niệm, ma trận quản trị rủi ro, checklist 7 bước.
-5. **Settings & Diagnostics:** Giám sát PostgreSQL/Redis/Binance, chẩn đoán ping API latency, thiết lập tham số trượt giá, lot size mặc định.
+5. **Settings & Diagnostics:** Giám sát PostgreSQL/Redis/MT5 Linux Bridge/Twelve Data API, chẩn đoán ping API latency, thiết lập tham số trượt giá, lot size mặc định.
 
 ### 7.2. Tối ưu Đồ họa Biểu đồ (`TradingViewChart.vue`)
 * **Thư viện:** TradingView Lightweight Charts (v4.x Canvas-based).
@@ -427,7 +458,7 @@ Frontend được xây dựng bằng **Vue 3 Composition API**, quản lý trạ
 | Phương thức | Endpoint | Tham số Query / Body | Chức năng |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | Không | Kiểm tra trạng thái hệ thống, ping kết nối DB và Redis. |
-| `GET` | `/api/v1/market/history` | `symbol` (str), `timeframe` (str), `limit` (int, 1-5000) | Lấy danh sách nến lịch sử. Tự động seed từ MT5 (hoặc Binance fallback nếu trống). |
+| `GET` | `/api/v1/market/history` | `symbol` (str), `timeframe` (str), `limit` (int, 1-5000) | Lấy danh sách nến lịch sử. Tự động seed từ MT5 (hoặc Twelve Data fallback nếu trống). |
 | `GET` | `/api/v1/market/analysis` | `symbol` (str) | Lấy dữ liệu phân tích SMC, kịch bản giao dịch, setup dự kiến. |
 | `GET` | `/api/v1/orders` | `limit` (int, 1-200) | Lấy danh sách lệnh giả lập (cả lệnh OPEN và CLOSED). |
 | `POST` | `/api/v1/orders` | JSON: `symbol`, `order_type`, `lot_size`, `stop_loss`, `take_profit`, `entry_price?` | Đặt lệnh mới qua Paper Trading Engine. |

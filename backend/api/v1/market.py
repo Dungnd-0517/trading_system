@@ -7,7 +7,10 @@ from ai_engine import sessions
 from core.database import get_session
 from core.models import MarketCandle
 from data_ingestion.candle_healer import candle_gap_healer, TIMEFRAMES
-from data_ingestion.chart_streamer import TIMEFRAME_TO_BINANCE_INTERVAL, seed_history_for_timeframe
+from data_ingestion.chart_streamer import (
+    TIMEFRAME_TO_TWELVE_DATA,
+    seed_history_for_timeframe,
+)
 from data_ingestion.mt5_feed import MT5Feed
 from data_ingestion.mt5_history_seeder import (
     MT5_DATA_START,
@@ -27,7 +30,7 @@ async def history(
 ) -> list[dict[str, object]]:
     """
     Lấy lịch sử nến (500 nến gần nhất theo mặc định) từ DB.
-    Nếu DB trống hoặc nến quá cũ: tự động fallback ưu tiên MT5, sau đó Binance.
+    Nếu DB trống hoặc nến quá cũ: tự động fallback ưu tiên MT5, sau đó Twelve Data (XAU/USD).
     """
     query = (
         select(MarketCandle)
@@ -80,16 +83,15 @@ async def history(
                             await session.execute(stmt)
                     rows = (await session.scalars(query)).all()
             except Exception:
-                pass  # Fallback to Binance below
+                pass  # Fallback to Twelve Data below
 
-        # Fallback Binance nếu MT5 không có hoặc thất bại
-        if (not rows) and timeframe in TIMEFRAME_TO_BINANCE_INTERVAL:
-            binance_symbol = "PAXGUSDT" if symbol.upper() in {"XAUUSD", "PAXG", "PAXGUSDT"} else symbol.upper()
+        # Fallback Twelve Data API nếu MT5 không có hoặc thất bại
+        if (not rows) and timeframe in TIMEFRAME_TO_TWELVE_DATA:
+            td_symbol = "XAU/USD" if symbol.upper() in {"XAUUSD", "PAXG", "PAXGUSDT", "GOLD"} else symbol.upper()
             await seed_history_for_timeframe(
                 target_symbol=symbol,
                 timeframe=timeframe,
-                source_symbol=binance_symbol,
-                interval=TIMEFRAME_TO_BINANCE_INTERVAL[timeframe],
+                source_symbol=td_symbol,
                 limit=limit,
             )
             rows = (await session.scalars(query)).all()

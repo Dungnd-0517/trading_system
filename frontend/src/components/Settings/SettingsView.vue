@@ -492,18 +492,18 @@ onMounted(() => {
               <span v-if="mt5Status?.mt5_bridge?.connected || mt5Status?.mt5_bridge?.mt5_connected" class="badge-online">
                 <span class="status-dot green"></span> CONNECTED (PRIMARY)
               </span>
-              <span v-else class="badge-warning" title="MT5 Bridge đang ở chế độ chờ / Hệ thống tự động kích hoạt fallback Binance">
+              <span v-else class="badge-warning" title="MT5 Bridge đang ở chế độ chờ / Hệ thống tự động kích hoạt fallback Twelve Data">
                 <span class="status-dot orange"></span> STANDBY (FALLBACK READY)
               </span>
             </div>
           </div>
 
-          <!-- Binance Feed (Secondary / Emergency Fallback) -->
+          <!-- Twelve Data API Feed (Secondary / Emergency Fallback) -->
           <div class="infra-item">
             <div class="infra-icon-wrap"><Wifi :size="16" /></div>
             <div class="infra-details">
-              <strong>Binance PAXGUSDT WebSocket Feed (Secondary / Emergency Fallback)</strong>
-              <span>Stream: <code>paxgusdt@kline_1m</code> · Alias: <code>XAUUSD</code> · Cơ chế: Tự động kích hoạt dự phòng khi MT5 bridge offline · Spread: 20 pts ($0.20)</span>
+              <strong>Twelve Data API Feed (Secondary / Emergency Fallback)</strong>
+              <span>Endpoint: <code>api.twelvedata.com/time_series</code> · Symbol: <code>XAU/USD</code> (Spot Gold) · Quota: Max 8 req/min, 800 req/day · Rate Limit Handler + Exponential Backoff + Redis Caching (TTL &ge; 60s)</span>
             </div>
             <div class="infra-status">
               <span v-if="mt5Status?.mt5_bridge?.connected || mt5Status?.mt5_bridge?.mt5_connected" class="badge-warning" title="Sẵn sàng dự phòng tức thời khi MT5 mất kết nối">
@@ -520,7 +520,7 @@ onMounted(() => {
             <div class="infra-icon-wrap"><Cpu :size="16" /></div>
             <div class="infra-details">
               <strong>Paper Execution Engine Worker</strong>
-              <span>FastAPI Background Task · Quét SL/TP theo từng tick thị trường thực tế (MT5 ECN Hedged ticks / Fallback Binance)</span>
+              <span>FastAPI Background Task · Quét SL/TP theo từng tick thị trường thực tế (MT5 ECN Hedged ticks / Fallback Twelve Data)</span>
             </div>
             <div class="infra-status">
               <span class="badge-online">

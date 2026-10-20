@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     fxstreet_news_rss_url: str = "https://www.fxstreet.com/rss/news"
     finnhub_api_key: str | None = None
     finnhub_economic_calendar_enabled: bool = False
+    twelve_data_api_key: str = "d1d845408648474cb09a52607e38e184"
+    twelve_data_base_url: str = "https://api.twelvedata.com"
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     embedding_model: str = "text-embedding-3-small"

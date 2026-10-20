@@ -14,12 +14,16 @@ from sqlalchemy.dialects.postgresql import insert
 from core.database import session_factory
 from core.models import MarketCandle
 from core.redis_client import client as redis_client
-from data_ingestion.binance_feed import stream_klines
 from data_ingestion.mt5_feed import MT5Feed
 from data_ingestion.mt5_history_seeder import (
     MT5_DATA_START,
     seed_all_mt5_history,
     check_needs_mt5_reseed,
+)
+from data_ingestion.twelve_data_client import (
+    twelve_data_client,
+    resolve_twelve_data_symbol,
+    TIMEFRAME_TO_TWELVE_DATA,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,15 +35,6 @@ TIMEFRAMES = {
     "H1": 3600,
     "H4": 14400,
     "D1": 86400,
-}
-
-TIMEFRAME_TO_BINANCE_INTERVAL = {
-    "M1": "1m",
-    "M5": "5m",
-    "M15": "15m",
-    "H1": "1h",
-    "H4": "4h",
-    "D1": "1d",
 }
 
 
@@ -123,11 +118,16 @@ class CandleAggregator:
             return None
 
         # Symbol mapping & synthetic spread for Gold (D7)
-        if raw_symbol in {"PAXGUSDT", "PAXG", "XAUUSD"}:
+        if raw_symbol in {"PAXGUSDT", "PAXG", "XAUUSD", "XAU/USD", "XAU"}:
             symbol = "XAUUSD"
             close_price = float(item["close"])
             bid = round(close_price - 0.10, 4)
             ask = round(close_price + 0.10, 4)
+        elif "/" in raw_symbol:
+            symbol = raw_symbol.replace("/", "")
+            close_price = float(item["close"])
+            bid = close_price
+            ask = None
         else:
             symbol = raw_symbol
             close_price = float(item["close"])
@@ -232,50 +232,22 @@ class CandleAggregator:
 async def seed_history_for_timeframe(
     target_symbol: str = "XAUUSD",
     timeframe: str = "M1",
-    source_symbol: str = "PAXGUSDT",
-    interval: str = "1m",
+    source_symbol: str | None = None,
+    interval: str | None = None,
     limit: int = 500,
 ) -> int:
-    """Fetch and persist historical candles from Binance for target_symbol and timeframe.
-    If Binance fails or is offline, synthesizes candles from M1 if timeframe != M1."""
+    """Fetch and persist historical candles from Twelve Data API for target_symbol and timeframe.
+    If Twelve Data fails or is offline, synthesizes candles from M1 if timeframe != M1."""
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={source_symbol.upper()}&interval={interval}&limit={min(limit, 1000)}"
-        async with httpx.AsyncClient(timeout=10.0) as http_client:
-            resp = await http_client.get(url)
-            if resp.status_code == 200:
-                klines = resp.json()
-                async with session_factory() as session:
-                    for item in klines:
-                        open_time_ms = int(item[0])
-                        open_time = datetime.fromtimestamp(open_time_ms / 1000, timezone.utc)
-                        values = {
-                            "symbol": target_symbol,
-                            "timeframe": timeframe,
-                            "open_time": open_time,
-                            "open": Decimal(str(item[1])),
-                            "high": Decimal(str(item[2])),
-                            "low": Decimal(str(item[3])),
-                            "close": Decimal(str(item[4])),
-                            "volume": Decimal(str(item[5])),
-                        }
-                        stmt = insert(MarketCandle).values(**values)
-                        stmt = stmt.on_conflict_do_update(
-                            index_elements=["symbol", "timeframe", "open_time"],
-                            set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
-                        )
-                        await session.execute(stmt)
-                    await session.commit()
-                logger.info(
-                    "Successfully seeded %d historical candles for %s %s from Binance %s (%s)",
-                    len(klines),
-                    target_symbol,
-                    timeframe,
-                    source_symbol,
-                    interval,
-                )
-                return len(klines)
+        count = await twelve_data_client.seed_candles_to_database(
+            symbol=target_symbol,
+            timeframe=timeframe,
+            outputsize=limit,
+        )
+        if count > 0:
+            return count
     except Exception as exc:
-        logger.warning("Could not fetch Binance klines for %s %s: %s", target_symbol, timeframe, exc)
+        logger.warning("Could not fetch Twelve Data klines for %s %s: %s", target_symbol, timeframe, exc)
 
     # Fallback: tổng hợp từ M1 có sẵn trong DB
     if timeframe != "M1" and timeframe in TIMEFRAMES:
@@ -322,6 +294,7 @@ async def seed_history_for_timeframe(
                         "low": b["low"],
                         "close": b["close"],
                         "volume": b["volume"],
+                        "data_source": "synthetic",
                     }
                     stmt = insert(MarketCandle).values(**values)
                     stmt = stmt.on_conflict_do_update(
@@ -353,12 +326,12 @@ class ChartStreamer:
     async def run(self) -> None:
         await self.seed_history_if_needed()
         await self._seed_open_candles()
-        await asyncio.gather(self._run_mt5(), self._run_binance())
+        await asyncio.gather(self._run_mt5(), self._run_twelve_data_fallback())
 
     async def seed_history_if_needed(self, target_symbol: str = "XAUUSD") -> None:
         """Nạp lịch sử nến khi khởi động:
         1. Ưu tiên MT5 (từ MT5_DATA_START = 2026-01-01) nếu bridge kết nối được
-        2. Fallback về Binance nếu MT5 không khả dụng
+        2. Fallback về Twelve Data API nếu MT5 không khả dụng
         """
         mt5_feed = MT5Feed()
         mt5_ok = await mt5_feed.is_connected()
@@ -375,22 +348,22 @@ class ChartStreamer:
                     )
                     logger.info("MT5 history seeding result: %s", result)
                 except Exception as exc:
-                    logger.error("MT5 history seeding failed, falling back to Binance: %s", exc)
-                    await self._seed_binance_history_fallback(target_symbol)
+                    logger.error("MT5 history seeding failed, falling back to Twelve Data: %s", exc)
+                    await self._seed_twelve_data_history_fallback(target_symbol)
             else:
                 logger.info("MT5 candles already up-to-date. Skipping reseed.")
         else:
             logger.warning(
-                "MT5 bridge not connected (mode=unavailable). Falling back to Binance for initial candle seed."
+                "MT5 bridge not connected (mode=unavailable). Falling back to Twelve Data for initial candle seed."
             )
-            await self._seed_binance_history_fallback(target_symbol)
+            await self._seed_twelve_data_history_fallback(target_symbol)
 
-    async def _seed_binance_history_fallback(
-        self, target_symbol: str = "XAUUSD", symbol: str = "PAXGUSDT"
+    async def _seed_twelve_data_history_fallback(
+        self, target_symbol: str = "XAUUSD", symbol: str | None = None
     ) -> None:
-        """Fallback: nạp lịch sử nến từ Binance khi MT5 không khả dụng (hành vi cũ)."""
+        """Fallback: nạp lịch sử nến từ Twelve Data API (Spot Gold XAU/USD) khi MT5 không khả dụng."""
         now_ts = datetime.now(timezone.utc).timestamp()
-        for tf, interval in TIMEFRAME_TO_BINANCE_INTERVAL.items():
+        for tf, interval in TIMEFRAME_TO_TWELVE_DATA.items():
             interval_secs = TIMEFRAMES.get(tf, 60)
             try:
                 async with session_factory() as session:
@@ -409,16 +382,12 @@ class ChartStreamer:
                 await seed_history_for_timeframe(
                     target_symbol=target_symbol,
                     timeframe=tf,
-                    source_symbol=symbol,
-                    interval=interval,
                     limit=500,
                 )
             except Exception as exc:
-                logger.warning("Failed to seed Binance history for %s %s: %s", target_symbol, tf, exc)
+                logger.warning("Failed to seed Twelve Data history for %s %s: %s", target_symbol, tf, exc)
 
-    # Giữ lại phương thức cũ để backward compatibility
-    async def seed_binance_history_if_needed(self, symbol: str = "PAXGUSDT", target_symbol: str = "XAUUSD") -> None:
-        await self._seed_binance_history_fallback(target_symbol, symbol)
+
 
     async def _seed_open_candles(self) -> None:
         async with session_factory() as session:
@@ -469,29 +438,55 @@ class ChartStreamer:
                     logger.debug("MT5 tick unavailable for %s: %s", symbol, exc)
             await asyncio.sleep(0.25)
 
-    async def _run_binance_symbol(self, symbol: str) -> None:
+    async def _run_twelve_data_fallback(self) -> None:
+        """Fallback realtime stream từ Twelve Data API (Spot Gold XAU/USD).
+        Khi MT5 đang hoạt động bình thường (có tick trong 15s gần nhất), Twelve Data ở chế độ chờ (standby)
+        để bảo toàn hạn ngạch 8 req/phút và 800 req/ngày.
+        Khi MT5 gián đoạn / offline, tự động định kỳ quét nến mới nhất từ Twelve Data (1 req/phút, tuân thủ hạn ngạch).
+        """
+        last_polled_minute = -1
         while True:
             try:
-                async for candle in stream_klines(symbol, "1m"):
-                    events = self.aggregator.ingest_kline(candle)
-                    if events:
-                        await self._emit(list(events) if isinstance(events, list) else [events])
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.warning("Binance kline stream for %s disconnected: %s", symbol, exc)
-                await asyncio.sleep(5)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.warning("Binance kline stream for %s disconnected: %s", symbol, exc)
-                await asyncio.sleep(5)
+                now = time.time()
+                latest_mt5_tick_ts = max(self._mt5_cursors.values()) if self._mt5_cursors else 0
+                mt5_healthy = (now * 1000 - latest_mt5_tick_ts) < 15000
 
-    async def _run_binance(self) -> None:
-        await asyncio.gather(
-            self._run_binance_symbol("btcusdt"),
-            self._run_binance_symbol("paxgusdt"),
-        )
+                if mt5_healthy:
+                    await asyncio.sleep(5)
+                    continue
+
+                # MT5 offline / mất kết nối -> Kích hoạt fallback Twelve Data
+                current_minute = int(now // 60)
+                if current_minute != last_polled_minute:
+                    for sym in ("XAUUSD",):
+                        try:
+                            candle = await twelve_data_client.get_latest_candle(symbol=sym, timeframe="M1")
+                            if candle:
+                                kline_item = {
+                                    "symbol": sym,
+                                    "timestamp": candle["time"] * 1000,
+                                    "open": candle["open"],
+                                    "high": candle["high"],
+                                    "low": candle["low"],
+                                    "close": candle["close"],
+                                    "volume": candle.get("volume", 0.0),
+                                }
+                                events = self.aggregator.ingest_kline(kline_item)
+                                if events:
+                                    await self._emit(list(events) if isinstance(events, list) else [events])
+                        except Exception as sym_err:
+                            logger.debug("Twelve Data fallback error for %s: %s", sym, sym_err)
+                    last_polled_minute = current_minute
+
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Twelve Data fallback loop exception: %s", exc)
+                await asyncio.sleep(10)
+
+
+
 
     async def _emit(self, events: list[dict[str, object]]) -> None:
         if not events:

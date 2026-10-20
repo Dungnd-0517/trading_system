@@ -48,6 +48,7 @@ services:
       CORS_ORIGINS: '["*"]'
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       FINNHUB_ECONOMIC_CALENDAR_ENABLED: ${FINNHUB_ECONOMIC_CALENDAR_ENABLED:-false}
+      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-d1d845408648474cb09a52607e38e184}
     depends_on:
       postgres:
         condition: service_healthy
