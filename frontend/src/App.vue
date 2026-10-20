@@ -127,7 +127,13 @@ onMounted(() => {
         chatStore.handleIncomingSocketEvent(event)
       }
       if (event.type?.startsWith('chat.')) chatStore.handleIncomingSocketEvent(event)
-      if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
+      if (
+        (event.type === 'candle' && event.symbol === marketStore.symbol) ||
+        event.type === 'REFRESH_CHART' ||
+        event.type === 'chart.refresh'
+      ) {
+        marketStore.refresh()
+      }
     },
     (value) => {
       streamConnected.value = value
