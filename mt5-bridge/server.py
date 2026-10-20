@@ -74,7 +74,13 @@ def init_mt5() -> bool:
         try:
             import MetaTrader5 as native_mt5  # type: ignore
 
-            if native_mt5.initialize(login=login_int, password=MT5_PASSWORD, server=MT5_SERVER):
+            connected_native = False
+            if login_int and MT5_PASSWORD:
+                connected_native = bool(native_mt5.initialize(login=login_int, password=MT5_PASSWORD, server=MT5_SERVER))
+            if not connected_native:
+                connected_native = bool(native_mt5.initialize())
+
+            if connected_native:
                 terminal = native_mt5
                 connection_error = ""
                 bridge_mode = "native_windows"
@@ -153,7 +159,13 @@ def parse_candles_json(rates):
 """)
             mt5_module = conn.modules["MetaTrader5"]
 
-            if mt5_module.initialize(login=login_int, password=MT5_PASSWORD, server=MT5_SERVER):
+            connected_rpyc = False
+            if login_int and MT5_PASSWORD:
+                connected_rpyc = bool(mt5_module.initialize(login=login_int, password=MT5_PASSWORD, server=MT5_SERVER))
+            if not connected_rpyc:
+                connected_rpyc = bool(mt5_module.initialize())
+
+            if connected_rpyc:
                 terminal = mt5_module
                 rpyc_conn = conn
                 connection_error = ""

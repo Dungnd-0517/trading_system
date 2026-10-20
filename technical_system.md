@@ -186,34 +186,39 @@ Giải pháp: Tách thành **2 container chuyên biệt**, mỗi container đả
 - **Tag `mt5-installed`:** Image đã tích hợp sẵn MT5 Terminal → thời gian khởi động nhanh hơn đáng kể (khuyến nghị cho production).
 - **Environment Variables bắt buộc:**
   - `MT5_HOST=0.0.0.0` → Cho phép RPyC bind ra tất cả interface (để `mt5-bridge` kết nối qua Docker network)
-  - `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` → Credentials tài khoản MetaQuotes-Demo
+  - `SYSTEMROOT="C:\\windows"` → Biến hệ thống bắt buộc trong Wine để PyInstaller (`mt5server.exe`) khởi tạo crypto RNG tránh lỗi `_Py_HashRandomization_Init`
+  - `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` & `LOGIN`, `PASSWORD`, `SERVER` → Credentials tài khoản MetaQuotes-Demo đồng bộ cho cả entrypoint và INI config
   - `VNC_PASSWORD` → Mật khẩu bảo vệ noVNC web console
 
 #### D. Hướng Dẫn Khởi Động & Kiểm Thử Kết Nối MT5 Bridge
 
-**Lưu ý quan trọng:** `trading_mt5_wine` cần **2–5 phút** khởi động lần đầu để Wine hoàn tất cài đặt MT5 Terminal. Các lần khởi động tiếp theo từ volume `mt5data` chỉ cần **15–30 giây**.
+**Lưu ý quan trọng:** `trading_mt5_wine` cần **15–30 giây** để Wine và tiến trình RPyC `mt5server.exe` hoàn tất khởi động.
 
 ```powershell
-# Bước 1: Kéo về và khởi động toàn bộ cụm (bao gồm mt5-wine-server)
-docker compose pull mt5-wine-server
-docker compose up -d --build
+# Bước 1: Kéo về và khởi động các container MT5
+docker compose up -d mt5-wine-server mt5-bridge
 
 # Bước 2: Theo dõi tiến trình khởi động Wine & MT5 Terminal
 docker logs -f trading_mt5_wine
-# Đợi đến khi thấy: "mt5server started on port 18812" hoặc tương tự
+# Đợi đến khi thấy: "INFO SLAVE/18812[MainThread]: server started on [0.0.0.0]:18812"
 
 # Bước 3: Kiểm tra RPyC đang lắng nghe trên port 18812
 docker exec trading_mt5_wine nc -z localhost 18812 && echo "RPyC OK" || echo "RPyC NOT READY"
 
 # Bước 4: Kiểm tra kết nối từ phía mt5-bridge
-docker logs trading_mt5_bridge
-curl http://localhost:5001/health
+curl.exe http://localhost:5001/health
+# Hoặc kích hoạt kết nối lại nếu vừa khởi động xong wine-server:
+curl.exe -X POST http://localhost:5001/reconnect
 
-# Bước 5: Kích hoạt kết nối lại từ Settings UI hoặc REST API
-curl -X POST http://localhost:8000/api/v1/market/mt5/reconnect
+# Bước 5: Kiểm tra trạng thái tài khoản MetaQuotes-Demo qua mt5-bridge
+curl.exe http://localhost:5001/account
 
-# Bước 6: Kiểm tra trạng thái tài khoản MetaQuotes-Demo
-curl http://localhost:5001/account
+# Bước 6: Kiểm tra lấy tick giá thực tế
+curl.exe http://localhost:5001/ticks/XAUUSD
+
+# Bước 7: Kiểm tra tổng thể từ Backend và trạng thái toàn hệ thống
+curl.exe http://localhost:8000/health
+curl.exe http://localhost:8000/api/v1/market/mt5/status
 
 # Truy cập noVNC để xem giao diện MT5 Terminal trực quan (tùy chọn)
 # → http://localhost:8080  (Password: trading123)
@@ -223,12 +228,12 @@ curl http://localhost:5001/account
 
 | Triệu Chứng | Nguyên Nhân | Hành Động Khắc Phục |
 | :--- | :--- | :--- |
-| `Connection refused: 18812` trong `mt5-bridge` logs | `mt5-wine-server` chưa hoàn tất khởi động | Đợi thêm 2–3 phút. Chạy lại `POST /reconnect`. Kiểm tra `docker logs trading_mt5_wine`. |
-| `mt5-wine-server` không xuất hiện trong `docker ps` | Image chưa được pull hoặc port 8080/18812 bị chiếm | Chạy `docker compose pull mt5-wine-server` và `docker compose up mt5-wine-server`. |
-| `initialize() failed: Error 10019` trong MT5 Bridge | Sai `MT5_SERVER` hoặc `MT5_LOGIN`/`MT5_PASSWORD` | Kiểm tra biến môi trường. Verify credentials tại [MetaQuotes Demo](https://demo.mt5.com/). |
+| `Connection refused: 18812` trong `mt5-bridge` logs | `mt5-wine-server` chưa hoàn tất khởi động hoặc vừa restart | Chờ 15s rồi gọi `POST http://localhost:5001/reconnect`. Kiểm tra `docker logs trading_mt5_wine`. |
+| Container `trading_mt5_wine` bị crash loop (`mkfifo: File exists`) | FIFO `/opt/wineprefix/drive_c/server` tồn tại từ lượt chạy trước bị kẹt bởi `set -e` | Đã xử lý triệt để qua entrypoint `rm -f /opt/wineprefix/drive_c/server; exec /app/src/main.sh`. |
+| `Fatal Python error: _Py_HashRandomization_Init` | `mt5server.exe` chạy trong Wine thiếu biến Windows `SYSTEMROOT` | Đã cấu hình `SYSTEMROOT: "C:\\windows"` trong `docker-compose.yml`. |
+| `initialize() failed: Error 10019` trong MT5 Bridge | Sai `MT5_SERVER` hoặc `MT5_LOGIN`/`MT5_PASSWORD` | Đã bổ sung cơ chế fallback tự động gọi `initialize()` không tham số để bind trực tiếp profile MT5 đang mở. |
 | MT5 Terminal hiển thị "Account Disabled" trên noVNC | Tài khoản Demo MetaQuotes hết hạn (30 ngày không hoạt động) | Đăng ký tài khoản Demo mới tại [www.metatrader5.com](https://www.metatrader5.com) và cập nhật biến môi trường. |
 | `copy_rates_from` trả về `None` dù kết nối thành công | Symbol `XAUUSD` chưa được thêm vào Market Watch | Trong noVNC, mở MT5 Terminal → Market Watch → Chuột phải → Show All → tìm và chọn `XAUUSD`. |
-| Container `trading_mt5_wine` khởi động liên tục (restart loop) | Wine prefix bị hỏng hoặc không tương thích | Xóa volume `mt5data`: `docker volume rm xau_mt5data` rồi khởi động lại để Wine re-initialize. |
 
 ---
 

@@ -90,20 +90,25 @@ services:
     image: lprett/mt5linux:latest
     container_name: trading_mt5_wine
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "rm -f /opt/wineprefix/drive_c/server 2>/dev/null; exec /app/src/main.sh"]
     environment:
       MT5_HOST: "0.0.0.0"
+      SYSTEMROOT: "C:\\windows"
       MT5_LOGIN: ${MT5_DEMO_LOGIN:-5057446983}
       MT5_PASSWORD: ${MT5_DEMO_PASSWORD:-FxN@6nZf}
       MT5_SERVER: ${MT5_DEMO_SERVER:-MetaQuotes-Demo}
+      LOGIN: ${MT5_DEMO_LOGIN:-5057446983}
+      PASSWORD: ${MT5_DEMO_PASSWORD:-FxN@6nZf}
+      SERVER: ${MT5_DEMO_SERVER:-MetaQuotes-Demo}
       VNC_PASSWORD: ${MT5_VNC_PASSWORD:-trading123}
     ports:
       - "18812:18812"   # RPyC — MT5 Python RPC bridge
       - "8080:8080"     # noVNC — Web GUI monitor (optional)
     volumes:
-      - mt5data:/root/.wine  # Persist Wine prefix & MT5 installation
+      - mt5data:/opt/wineprefix  # Persist Wine prefix & MT5 installation
     networks: [trading-net]
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 18812 || exit 1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 18812 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
