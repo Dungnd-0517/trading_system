@@ -7,7 +7,26 @@ from ai_engine import sessions
 from core.database import get_session
 from core.models import MarketCandle
 from data_ingestion.candle_healer import candle_gap_healer, TIMEFRAMES
-from data_ingestion.chart_streamer import TIMEFRAME_TO_BINANCE_INTERVAL, seed_history_for_timeframe
+from data_ingestion.chart_streamer import (
+    TIMEFRAME_TO_TWELVE_DATA,
+    seed_history_for_timeframe,
+)
+from data_ingestion.market_hours import (
+    is_natural_market_break,
+    is_xauusd_market_closed,
+    is_xauusd_trading_hour,
+)
+from data_ingestion.mt5_feed import MT5Feed
+from data_ingestion.mt5_history_seeder import (
+    MT5_DATA_START,
+    seed_all_mt5_history,
+    check_needs_mt5_reseed,
+)
+from data_ingestion.resync_service import (
+    clear_candle_cache,
+    resync_candles_full,
+    trigger_client_chart_refresh,
+)
 
 router = APIRouter()
 
@@ -19,6 +38,10 @@ async def history(
     limit: int = Query(default=500, ge=1, le=5000),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
+    """
+    Lấy lịch sử nến (500 nến gần nhất theo mặc định) từ DB.
+    Nếu DB trống hoặc nến quá cũ: tự động fallback ưu tiên MT5, sau đó Twelve Data (XAU/USD).
+    """
     query = (
         select(MarketCandle)
         .where(MarketCandle.symbol == symbol, MarketCandle.timeframe == timeframe)
@@ -35,18 +58,59 @@ async def history(
     if not rows:
         needs_sync = True
     elif (now_ts - rows[0].open_time.timestamp()) > interval_secs * 2.5:
-        needs_sync = True
+        if symbol.upper() == "XAUUSD" and (is_xauusd_market_closed(now_ts) or is_natural_market_break(rows[0].open_time, datetime.now(timezone.utc))):
+            needs_sync = False
+        else:
+            needs_sync = True
 
-    if needs_sync and timeframe in TIMEFRAME_TO_BINANCE_INTERVAL:
-        binance_symbol = "PAXGUSDT" if symbol.upper() in {"XAUUSD", "PAXG", "PAXGUSDT"} else symbol.upper()
-        await seed_history_for_timeframe(
-            target_symbol=symbol,
-            timeframe=timeframe,
-            source_symbol=binance_symbol,
-            interval=TIMEFRAME_TO_BINANCE_INTERVAL[timeframe],
-            limit=limit,
-        )
-        rows = (await session.scalars(query)).all()
+    if needs_sync:
+        # Ưu tiên thử MT5 trước
+        mt5 = MT5Feed()
+        mt5_ok = await mt5.is_connected()
+        if mt5_ok:
+            try:
+                candles = await mt5.get_latest_candles(
+                    symbol=symbol, timeframe=timeframe, count=limit
+                )
+                if candles:
+                    from decimal import Decimal
+                    from sqlalchemy.dialects.postgresql import insert as pg_insert
+                    async with session.begin():
+                        for c in candles:
+                            c_time = int(c["time"])
+                            if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(c_time):
+                                continue
+                            open_time = datetime.fromtimestamp(c_time, timezone.utc)
+                            values = {
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "open_time": open_time,
+                                "open": Decimal(str(c["open"])),
+                                "high": Decimal(str(c["high"])),
+                                "low": Decimal(str(c["low"])),
+                                "close": Decimal(str(c["close"])),
+                                "volume": Decimal(str(c.get("volume", 0))),
+                            }
+                            stmt = pg_insert(MarketCandle).values(**values)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=["symbol", "timeframe", "open_time"],
+                                set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                            )
+                            await session.execute(stmt)
+                    rows = (await session.scalars(query)).all()
+            except Exception:
+                pass  # Fallback to Twelve Data below
+
+        # Fallback Twelve Data API nếu MT5 không có hoặc thất bại
+        if (not rows) and timeframe in TIMEFRAME_TO_TWELVE_DATA:
+            td_symbol = "XAU/USD" if symbol.upper() in {"XAUUSD", "PAXG", "PAXGUSDT", "GOLD"} else symbol.upper()
+            await seed_history_for_timeframe(
+                target_symbol=symbol,
+                timeframe=timeframe,
+                source_symbol=td_symbol,
+                limit=limit,
+            )
+            rows = (await session.scalars(query)).all()
 
     return [
         {
@@ -74,6 +138,80 @@ async def heal_market_gaps(
 ) -> dict[str, object]:
     """Kích hoạt quét toàn diện và bù đắp các khoảng trống nến lịch sử do server downtime"""
     return await candle_gap_healer.check_and_heal_all(symbol, lookback_hours=lookback_hours)
+
+
+@router.get("/mt5/status")
+async def mt5_bridge_status() -> dict[str, object]:
+    """Kiểm tra trạng thái kết nối MT5 bridge và tóm tắt dữ liệu nến hiện tại trong DB."""
+    mt5 = MT5Feed()
+    try:
+        health = await mt5.health()
+    except Exception as exc:
+        health = {"mt5_connected": False, "error": str(exc)}
+
+    needs_reseed = await check_needs_mt5_reseed("XAUUSD")
+    integrity = await candle_gap_healer.get_integrity_report("XAUUSD")
+
+    return {
+        "mt5_bridge": health,
+        "data_start_config": MT5_DATA_START,
+        "needs_reseed": needs_reseed,
+        "candle_integrity": integrity,
+    }
+
+
+@router.post("/mt5/seed")
+async def seed_from_mt5(
+    symbol: str = "XAUUSD",
+    from_date: str = Query(default=MT5_DATA_START, description="Start date YYYY-MM-DD"),
+    delete_old: bool = Query(default=True, description="Xóa nến cũ trước from_date"),
+) -> dict[str, object]:
+    """
+    [Admin] Kích hoạt thủ công pipeline nạp toàn bộ dữ liệu nến từ MT5.
+    Xóa toàn bộ nến cũ trước from_date rồi nạp lại từ MT5 cho các timeframe M1, M5, M15, H1, H4, D1.
+    """
+    result = await seed_all_mt5_history(
+        symbol=symbol,
+        from_date=from_date,
+        delete_old=delete_old,
+    )
+    return result
+
+
+@router.post("/mt5/reconnect")
+async def reconnect_mt5() -> dict[str, object]:
+    """[Admin] Yêu cầu MT5 bridge thử kết nối lại."""
+    mt5 = MT5Feed()
+    try:
+        result = await mt5.reconnect()
+        return result
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@router.post("/resync")
+async def resync_market_data(
+    symbol: str = "XAUUSD",
+    outputsize: int = Query(default=500, ge=50, le=5000),
+    force_purge: bool = Query(default=True, description="Xóa sạch dữ liệu nến cũ trước khi nạp lại"),
+) -> dict[str, object]:
+    """
+    [Admin/System] Kích hoạt quy trình Full Resync dữ liệu nến:
+    1. Clear toàn bộ cache nến trên Redis.
+    2. Purge sạch toàn bộ dữ liệu nến rác của cặp XAUUSD.
+    3. Lấy lại mảng nến lịch sử chuẩn từ Broker (MT5 hoặc Twelve Data), chỉ lấy nến thực tế trong giờ mở cửa.
+    4. Phát tín hiệu WebSocket REFRESH_CHART xuống Client để re-render Canvas Lightweight Charts.
+    """
+    result = await resync_candles_full(symbol=symbol, outputsize_per_tf=outputsize, force_purge=force_purge)
+    return result
+
+
+@router.post("/clear-cache")
+async def clear_cache_endpoint() -> dict[str, object]:
+    """[Admin] Xóa sạch toàn bộ cache nến trên Redis."""
+    count = await clear_candle_cache()
+    return {"status": "success", "cleared_keys": count}
+
 
 
 @router.get("/analysis")

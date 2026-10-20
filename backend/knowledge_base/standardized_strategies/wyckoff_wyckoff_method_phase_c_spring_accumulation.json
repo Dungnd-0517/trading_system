@@ -1,0 +1,65 @@
+{
+  "slug": "wyckoff_wyckoff_method_phase_c_spring_accumulation",
+  "name": "Chiến lược Wyckoff Wyckoff Method - Phase C Spring Accumulation",
+  "school_of_thought": "WYCKOFF",
+  "timeframe_focus": "H1 / M15",
+  "target_risk_reward": 2.0,
+  "philosophy": "Ứng dụng chu kỳ tích lũy/phân phối của Richard Wyckoff. Xác định dòng tiền tổ chức (Smart Money) qua hành vi gom hàng (Accumulation Phase C Spring) hoặc phân phối (Distribution UTAD), kết hợp kiểm tra khối lượng nỗ lực so với kết quả (Effort vs Result - VSA).",
+  "setup_checklist": [
+    {
+      "id": "s1",
+      "label": "Xác định khung tích lũy Trading Range (TR) có Phase A (SC/AR) và Phase B",
+      "required": true
+    },
+    {
+      "id": "s2",
+      "label": "Xuất hiện Spring (Phase C) quét thủng Preliminary Support/Đáy Range với khối lượng cạn kiệt",
+      "required": true
+    },
+    {
+      "id": "s3",
+      "label": "Nến kiểm tra (Test of Spring) giữ vững trên đáy cũ và hồi phục dứt khoát",
+      "required": true
+    },
+    {
+      "id": "s4",
+      "label": "Xuất hiện cây nến Sign of Strength (SOS) vượt ngưỡng kháng cự trung tâm Creek",
+      "required": true
+    },
+    {
+      "id": "s5",
+      "label": "Tỷ lệ tiềm năng Risk:Reward ≥ 1:2.5 hướng tới mục tiêu đỉnh biên trên của Range",
+      "required": true
+    },
+    {
+      "id": "s6",
+      "label": "Không có tin tức vĩ mô 3 sao (CPI, NFP, FOMC) trong vòng 30 phút",
+      "required": true
+    }
+  ],
+  "entry_rules": "Mở vị thế BUY tại nhịp hồi kiểm tra (LPS - Last Point of Support) sau cú bật của Spring hoặc SOS.",
+  "stop_loss_rules": "Đặt Stop Loss cách đáy Spring thấp nhất 1.5x ATR M15 để bảo vệ khỏi các cú quét râu thứ cấp.",
+  "take_profit_rules": "TP1 tại mốc 1:2.0R (đóng 50% khối lượng và dời SL về Breakeven); TP2 tại đỉnh biên trên Range (Jump Across Creek) 1:3.0R - 1:4.0R.",
+  "invalidation_conditions": "Giá đóng cửa nến M15 dứt khoát dưới đáy Spring; hoặc thị trường xuất hiện khối lượng bán tháo bất thường (SOW).",
+  "risk_guardrails": {
+    "max_risk_per_trade_pct": 1.0,
+    "min_risk_per_trade_pct": 0.25,
+    "recommended_risk_pct": 0.5,
+    "min_risk_reward": 1.5,
+    "target_risk_reward": 2.0,
+    "max_daily_drawdown_limit_pct": 3.0,
+    "circuit_breaker_buffer_mins": 30
+  },
+  "source_documents": [
+    {
+      "source_type": "SYSTEM_CORE",
+      "source_name": "wyckoff_method_core.md",
+      "ingested_at": "2026-10-16T04:35:58.804229+00:00"
+    }
+  ],
+  "system_file_path": null,
+  "json_content": null,
+  "markdown_content": null,
+  "created_at": null,
+  "updated_at": null
+}

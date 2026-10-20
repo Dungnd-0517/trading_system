@@ -13,7 +13,7 @@ from main import app
 @pytest.mark.anyio
 async def test_reflexion_sl_too_tight_analysis():
     """Kiểm tra phân tích lệnh thua do đặt SL quá ngắn (SL_TOO_TIGHT)"""
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 1, 10, 10, 0, tzinfo=timezone.utc)
     order_data = {
         "id": 99901,
         "symbol": "XAUUSD",
@@ -43,7 +43,7 @@ async def test_reflexion_sl_too_tight_analysis():
 @pytest.mark.anyio
 async def test_reflexion_early_entry_analysis():
     """Kiểm tra phân tích lệnh thua do vào lệnh quá sớm trước khi đóng nến xác nhận (EARLY_ENTRY)"""
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 1, 10, 10, 0, tzinfo=timezone.utc)
     order_data = {
         "id": 99902,
         "symbol": "XAUUSD",
@@ -167,7 +167,7 @@ async def test_reflexion_win_and_breakeven_analysis():
 async def test_reflexion_semantic_search_and_retrieval():
     """Kiểm tra tìm kiếm semantic search bài học tương tự bằng pgvector"""
     # Tạo sẵn 1 ký ức về SL quá ngắn
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 1, 10, 10, 0, tzinfo=timezone.utc)
     order_data = {
         "id": 99906,
         "symbol": "XAUUSD",
@@ -216,8 +216,8 @@ async def test_reflexion_api_endpoints():
             realized_pnl=Decimal("-36.00"),
             close_reason="SL_HIT",
             is_test=True,
-            open_time=datetime.now(timezone.utc) - timedelta(minutes=15),
-            close_time=datetime.now(timezone.utc),
+            open_time=datetime(2026, 1, 10, 9, 45, tzinfo=timezone.utc),
+            close_time=datetime(2026, 1, 10, 10, 0, tzinfo=timezone.utc),
         )
         session.add(test_order)
         await session.commit()

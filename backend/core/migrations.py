@@ -26,8 +26,14 @@ async def run_migrations() -> None:
 
             script = migration_path.read_text(encoding="utf-8")
             for statement in script.split(";"):
-                if statement.strip():
-                    await connection.execute(text(statement))
+                # Loại bỏ các dòng comment thuần túy và khoảng trắng thừa
+                clean_lines = [
+                    line for line in statement.splitlines()
+                    if line.strip() and not line.strip().startswith("--")
+                ]
+                clean_sql = "\n".join(clean_lines).strip()
+                if clean_sql:
+                    await connection.execute(text(clean_sql))
             await connection.execute(
                 text("INSERT INTO schema_migrations (version) VALUES (:version)"),
                 {"version": version},

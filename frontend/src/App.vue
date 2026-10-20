@@ -33,15 +33,18 @@ import GovernorConsensusPanel from './components/AIAnalysis/GovernorConsensusPan
 import ReflexionStreamPanel from './components/AIAnalysis/ReflexionStreamPanel.vue'
 import KnowledgeAssistantModal from './components/AIAnalysis/KnowledgeAssistantModal.vue'
 import GovernorDialogueConsole from './components/AIAnalysis/GovernorDialogueConsole.vue'
+import GlobalChatWidget from './components/AIAnalysis/GlobalChatWidget.vue'
 import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
 import { agentStore } from './stores/agentStore'
+import { chatStore } from './stores/chatStore'
 import { connectMarketStream } from './services/websocket'
 
 const activeTab = ref('cockpit')
 const rightPanelTab = ref('agents')
 const showKnowledgeModal = ref(false)
 const calendarInitialSubTab = ref('calendar')
+const strategyInitialSection = ref(null)
 const streamConnected = ref(false)
 const showVolume = ref(true)
 const now = ref(new Date())
@@ -50,6 +53,16 @@ let clockTimer
 let sourceTimer
 let agentTimer
 let socket
+
+function openStrategyView() {
+  activeTab.value = 'strategy'
+  strategyInitialSection.value = 'pipeline'
+}
+
+function openFullChatStudio() {
+  activeTab.value = 'strategy'
+  strategyInitialSection.value = 'chat-studio'
+}
 
 function openFullCalendar() {
   activeTab.value = 'news'
@@ -86,6 +99,7 @@ onMounted(() => {
   marketStore.startPolling(2500)
   orderStore.refresh()
   agentStore.refreshAll()
+  chatStore.init()
   socket = connectMarketStream(
     (event) => {
       if (event.type === 'chart.update') {
@@ -104,9 +118,22 @@ onMounted(() => {
       if (event.type === 'signal.new') orderStore.applySignalUpdate(event)
       if (event.type === 'circuit_breaker.update') orderStore.applyCircuitBreakerUpdate(event)
       if (event.type === 'governor.update') agentStore.applyGovernorUpdate(event)
-      if (event.type === 'agent.dialogue.message') agentStore.applyDialogueMessage(event)
-      if (event.type === 'governor.approval_response') agentStore.refreshDialogueHistory()
-      if (event.type === 'candle' && event.symbol === marketStore.symbol) marketStore.refresh()
+      if (event.type === 'agent.dialogue.message') {
+        agentStore.applyDialogueMessage(event)
+        chatStore.handleIncomingSocketEvent(event)
+      }
+      if (event.type === 'governor.approval_response') {
+        agentStore.refreshDialogueHistory()
+        chatStore.handleIncomingSocketEvent(event)
+      }
+      if (event.type?.startsWith('chat.')) chatStore.handleIncomingSocketEvent(event)
+      if (
+        (event.type === 'candle' && event.symbol === marketStore.symbol) ||
+        event.type === 'REFRESH_CHART' ||
+        event.type === 'chart.refresh'
+      ) {
+        marketStore.refresh()
+      }
     },
     (value) => {
       streamConnected.value = value
@@ -181,7 +208,7 @@ onUnmounted(() => {
           role="tab"
           :aria-selected="activeTab === 'strategy'"
           :class="['nav-tab', { active: activeTab === 'strategy' }]"
-          @click="activeTab = 'strategy'"
+          @click="openStrategyView"
         >
           <BrainCircuit :size="14" />
           <span>Strategy &amp; Analysis</span>
@@ -329,6 +356,8 @@ onUnmounted(() => {
               ? 'VIEW: ORDERS HISTORY'
               : activeTab === 'news'
               ? 'VIEW: NEWS & EVENTS'
+              : activeTab === 'strategy' && strategyInitialSection === 'chat-studio'
+              ? 'VIEW: AI CHAT STUDIO (GEMINI)'
               : activeTab === 'strategy'
               ? 'VIEW: STRATEGY & ANALYSIS'
               : activeTab === 'backtest'
@@ -451,7 +480,7 @@ onUnmounted(() => {
       @refresh="orderStore.refresh"
     />
 
-    <!-- VIEW 4: STRATEGY & ANALYSIS -->
+    <!-- VIEW 4: STRATEGY & ANALYSIS / AI CHAT STUDIO -->
     <StrategyAnalysisView
       v-else-if="activeTab === 'strategy'"
       :candles="marketStore.candles"
@@ -459,6 +488,8 @@ onUnmounted(() => {
       :timeframe="marketStore.timeframe"
       :news="orderStore.news"
       :events="orderStore.events"
+      :initial-section="strategyInitialSection"
+      @update:initial-section="(sec) => strategyInitialSection = sec"
       @navigate-cockpit="activeTab = 'cockpit'"
     />
 
@@ -476,6 +507,11 @@ onUnmounted(() => {
     <KnowledgeAssistantModal
       :show="showKnowledgeModal"
       @close="showKnowledgeModal = false"
+    />
+
+    <!-- GLOBAL FLOATING CHAT & HITL WIDGET (ALL SCREENS) -->
+    <GlobalChatWidget
+      @open-studio="openFullChatStudio"
     />
 
     <footer class="footer">

@@ -1,0 +1,55 @@
+{
+  "slug": "price_action_classical_price_action_wick_rejection_at_key_levels",
+  "name": "Chiến lược Price Action Classical Price Action - Wick Rejection at Key Levels",
+  "school_of_thought": "PRICE_ACTION",
+  "timeframe_focus": "M15",
+  "target_risk_reward": 2.0,
+  "philosophy": "Đọc hành động giá thuần túy (Price Action): Tương quan lực nến, hấp thụ thanh khoản tại cản then chốt, mô hình nến râu từ chối (Wick Rejection) và nến nhấn chìm (Engulfing).",
+  "setup_checklist": [
+    {
+      "id": "s1",
+      "label": "Giá tiếp cận Key Level (Hỗ trợ/Kháng cự then chốt H1)",
+      "required": true
+    },
+    {
+      "id": "s2",
+      "label": "Xuất hiện nến rút chân mạnh (Wick Rejection ≥ 60% chiều dài thân nến)",
+      "required": true
+    },
+    {
+      "id": "s3",
+      "label": "Nến tiếp theo là nến xác nhận đóng theo hướng đảo chiều",
+      "required": true
+    },
+    {
+      "id": "s4",
+      "label": "Tỷ lệ R:R ≥ 1:2.0",
+      "required": true
+    }
+  ],
+  "entry_rules": "Mở vị thế ngay khi nến xác nhận đóng cửa.",
+  "stop_loss_rules": "Đặt SL ngoài đầu râu nến từ chối dài nhất cộng 1.2x ATR.",
+  "take_profit_rules": "TP1 tại 1:1.5R dời SL về Entry; TP2 tại vùng cản đối diện 1:2.5R.",
+  "invalidation_conditions": "Giá phá vỡ đầu râu nến từ chối trước khi khớp lệnh.",
+  "risk_guardrails": {
+    "max_risk_per_trade_pct": 1.0,
+    "min_risk_per_trade_pct": 0.25,
+    "recommended_risk_pct": 0.5,
+    "min_risk_reward": 1.5,
+    "target_risk_reward": 2.0,
+    "max_daily_drawdown_limit_pct": 3.0,
+    "circuit_breaker_buffer_mins": 30
+  },
+  "source_documents": [
+    {
+      "source_type": "SYSTEM_CORE",
+      "source_name": "price_action_patterns.md",
+      "ingested_at": "2026-10-16T04:35:58.892167+00:00"
+    }
+  ],
+  "system_file_path": null,
+  "json_content": null,
+  "markdown_content": null,
+  "created_at": null,
+  "updated_at": null
+}

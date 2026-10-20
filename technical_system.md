@@ -1,10 +1,10 @@
 # TECHNICAL SYSTEM SPECIFICATION & ARCHITECTURE
 # HỆ THỐNG THÔNG SỐ KỸ THUẬT & CÁCH THỨC HOẠT ĐỘNG CÁC CHỨC NĂNG
 
-> **Dự án:** Trading System - Nền tảng Phân tích Kỹ thuật, Lịch kinh tế & Giả lập Thực thi Giao dịch Vàng (XAUUSD / PAXGUSDT)  
-> **Phiên bản hiện tại:** Phase 02 - Sprint 02 (Completed & Verified)  
-> **Ngày cập nhật:** 2026-10-08  
-> **Môi trường hoạt động:** Docker Compose (Linux Containers) & Windows Host  
+> **Dự án:** Trading System - Nền tảng Phân tích Kỹ thuật, Lịch kinh tế & Giả lập Thực thi Giao dịch Vàng (XAUUSD / Forex Spot)  
+> **Phiên bản hiện tại:** Phase 03 - Sprint 03 (Live Multi-Agent Chat & MT5 Linux Bridge Integration)  
+> **Ngày cập nhật:** 2026-10-16  
+> **Môi trường hoạt động:** Docker Compose (Linux Containers: Ubuntu/Debian Wine) & Windows Host  
 
 ---
 
@@ -29,10 +29,9 @@ Hệ thống được thiết kế theo kiến trúc **Modular Monolith** kết 
 ```mermaid
 flowchart TB
     subgraph Data_Sources["Nguồn Cấp Dữ Liệu Ngoại Vi"]
-        BinanceWS["Binance Spot WS<br/>paxgusdt@kline_1m"]
-        BinanceREST["Binance REST API<br/>/api/v3/klines"]
+        MT5Bridge["MT5 Linux Bridge (CHÍNH THỨC)<br/>MetaQuotes-Demo / Wine + mt5linux<br/>Port 5001 (Real Forex Ticks & Spread)"]
+        TwelveDataAPI["Twelve Data REST API (DỰ PHÒNG NGOẠI VI)<br/>api.twelvedata.com (XAU/USD Spot Gold)<br/>Rate Limiter 8 req/min + Redis Cache"]
         NewsSources["News & Calendar Feeds<br/>FairEconomy, Kitco, FXStreet, Finnhub"]
-        MT5Local["MT5 Terminal Bridge<br/>(Local Windows / Future)"]
     end
 
     subgraph Backend_Services["Backend Core (FastAPI / Python 3.12)"]
@@ -40,30 +39,30 @@ flowchart TB
         NewsCollector["NewsCollector Worker<br/>(Dedupe, Circuit Breaker, 1-3 Stars)"]
         PaperWorker["PaperEngineWorker<br/>(SL/TP Tick Scanner, Real PnL)"]
         SMCEngine["SMC / ICT Strategy Module<br/>(BOS, CHoCH, OB, FVG, Kill Zones)"]
+        ChatEngine["Multi-Agent Chat Service<br/>(Sentinel, Vector, Scribe, Arbiter)"]
         WSHub["WebSocket Hub<br/>(/api/v1/ws/market)"]
-        RESTHub["REST API Controllers<br/>(/api/v1/market, orders, news, simulation)"]
+        RESTHub["REST API Controllers<br/>(/api/v1/market, orders, news, chat, knowledge)"]
     end
 
     subgraph State_Bus["Message Broker & Caching Layer"]
-        RedisPubSub[("Redis 7 Alpine<br/>Channels: market:ticks, paper:orders, news:events")]
+        RedisPubSub[("Redis 7 Alpine<br/>Channels: market:ticks, paper:orders, news:events, agent:trader:dialogue")]
     end
 
     subgraph Storage_Layer["Persistent Storage"]
-        Postgres[("PostgreSQL 16 Alpine<br/>market_candles, simulated_orders,<br/>simulation_account, financial_news, economic_events")]
+        Postgres[("PostgreSQL 16 Alpine + pgvector<br/>market_candles, simulated_orders, chat_conversations,<br/>standardized_trading_strategies, economic_events")]
     end
 
     subgraph Frontend_App["Frontend Client (Vue 3 + Vite + Tailwind + Lightweight Charts)"]
         Cockpit["Trading Cockpit View<br/>(TV Chart, Orders Table, Market Analysis)"]
-        History["Orders History View"]
+        ChatStudio["AI Chat Studio View (Gemini Layout)<br/>(Multi-Session, Agent Personas)"]
+        GlobalPopup["Global Chat Pop-up Widget<br/>(Floating Quick Override & Approvals)"]
+        StrategyView["Strategy & Analysis View<br/>(Standardized Strategies Ingestion)"]
         NewsView["News & Events View"]
-        StrategyView["Strategy & Analysis View"]
-        SettingsView["Settings & Diagnostics View"]
     end
 
-    BinanceWS -->|kline stream| Streamer
-    BinanceREST -->|historical seed| Streamer
+    MT5Bridge -->|HTTP Poll /ticks/since (Primary 250ms)| Streamer
+    TwelveDataAPI -.->|Emergency REST fallback (1 req/min)| Streamer
     NewsSources -->|polling / RSS / JSON| NewsCollector
-    MT5Local -.->|tick bridge| Streamer
 
     Streamer -->|publish 'market:ticks'| RedisPubSub
     Streamer -->|upsert OHLCV| Postgres
@@ -75,11 +74,15 @@ flowchart TB
     PaperWorker -->|execute close / update| Postgres
     PaperWorker -->|publish 'paper:orders'| RedisPubSub
 
+    ChatEngine <-->|Pub/Sub dialogue| RedisPubSub
+    ChatEngine <-->|CRUD sessions & messages| Postgres
+
     RedisPubSub -->|subscribe all channels| WSHub
     WSHub -->|WebSocket push frame| Frontend_App
     Frontend_App -->|REST API calls| RESTHub
     RESTHub -->|query / write| Postgres
     RESTHub -->|evaluate SMC| SMCEngine
+    RESTHub -->|chat orchestration| ChatEngine
 ```
 
 ---
@@ -90,25 +93,149 @@ Toàn bộ hệ thống được cô lập và chạy trên cùng một bridge n
 
 | Container Name | Service Name | Base Image / Build | Cổng Host (Mapped) | Cổng Nội bộ | Trách nhiệm chính |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `trading_postgres` | `postgres` | `postgres:16-alpine` | `5432` | `5432` | Cơ sở dữ liệu quan hệ lưu nến, lệnh, tài khoản, tin tức. Volume: `pgdata`. |
-| `trading_redis` | `redis` | `redis:7-alpine` | `6379` | `6379` | Message broker Pub/Sub kênh `market:ticks`, `paper:orders`, `news:events`. Volume: `redisdata`. |
-| `trading_backend` | `backend` | `./backend/Dockerfile` (Python 3.12) | `8000` | `8000` | FastAPI server REST + WebSocket + 3 background workers (`chart-streamer`, `paper-worker`, `news-collector`). |
+| `trading_postgres` | `postgres` | `pgvector/pgvector:pg16` | `5432` | `5432` | Cơ sở dữ liệu quan hệ & vector lưu nến, lệnh, tài khoản, tin tức, chat conversations, vector embeddings. Volume: `pgdata`. |
+| `trading_redis` | `redis` | `redis:7-alpine` | `6379` | `6379` | Message broker Pub/Sub kênh `market:ticks`, `paper:orders`, `news:events`, `agent:trader:dialogue`. Volume: `redisdata`. |
+| `trading_backend` | `backend` | `./backend/Dockerfile` (Python 3.12) | `8000` | `8000` | FastAPI server REST + WebSocket + Multi-Agent Dialogue + 3 background workers (`chart-streamer`, `paper-worker`, `news-collector`). |
 | `trading_frontend` | `frontend` | `./frontend/Dockerfile` (Nginx Alpine) | `3000` | `80` | Nginx reverse-proxy & phục vụ Vue 3 production SPA build (`dist/`). |
-| `trading_mt5_bridge` | `mt5-bridge` | `./mt5-bridge/Dockerfile` | `5001` | `5001` | Dự phòng kết nối MetaTrader 5 (chạy môi trường Windows/Wine). |
+| `trading_mt5_wine` | `mt5-wine-server` | `lprett/mt5linux:latest` (**Wine + Xvfb + MT5 Terminal**) | `18812`, `8080` | `18812`, `8080` | **Tầng Wine Runtime chuyên biệt:** Chạy MT5 Terminal (`terminal64.exe`) ngầm qua Wine + Xvfb. Khởi động `mt5server.exe` (RPyC server) lắng nghe cổng `18812`. noVNC web GUI trên cổng `8080`. Volume: `mt5data` (persist Wine prefix). |
+| `trading_mt5_bridge` | `mt5-bridge` | `./mt5-bridge/Dockerfile` (Python 3.12 + `mt5linux`) | `5001` | `5001` | **FastAPI HTTP Gateway:** Kết nối đến `mt5-wine-server:18812` qua `mt5linux` RPyC client. Cung cấp REST API `/health`, `/account`, `/ticks`, `/candles` cho backend. |
+| `trading_tunnel` | `tunnel` | `cloudflare/cloudflared:latest` | N/A | N/A | Cloudflare Tunnel phục vụ public URL bảo mật cho người dùng truy cập từ xa. |
 
 ---
 
 ## 3. LUỒNG DỮ LIỆU THỊ TRƯỜNG & NẠP NẾN REAL-TIME
 
-### 3.1. Nguồn cấp dữ liệu độc lập 24/7 (Binance PAXGUSDT Feed)
-* **Tài sản cơ sở:** PAX Gold (`PAXG`), neo 1:1 theo 1 Troy Ounce vàng ròng London Good Delivery, giao dịch 24/7 không đóng phiên cuối tuần.
-* **Symbol Alias:** Hệ thống tự động map `PAXGUSDT` (từ Binance) sang symbol chuẩn của hệ thống là `XAUUSD`.
-* **Cơ chế Synthetic ECN Spread (Spread mô phỏng ECN):**
-  * Độ giãn spread cố định: **20 points** ($0.20 USD/oz).
-  * Bid = $\text{Close} - 0.10$
-  * Ask = $\text{Close} + 0.10$
-  * Spread = $20$ points (0.20 USD).
-* **Kết nối WebSocket:** `wss://stream.binance.com:9443/ws/paxgusdt@kline_1m` tự động tái kết nối với exponential backoff.
+### 3.1. Nguồn Cấp Dữ Liệu Chuẩn Forex: MT5 Linux Bridge & Đánh Giá Tính Khả Thi Thay Thế Binance API
+
+#### A. Bất cập cốt lõi của Binance API (PAXGUSDT) đối với thị trường Forex Vàng XAUUSD
+Trước đây, hệ thống sử dụng cặp `PAXGUSDT` từ Binance Spot làm nguồn cấp dữ liệu giả định cho `XAUUSD`. Tuy nhiên, qua quá trình vận hành thực tế tại Phase 02 và đầu Phase 03, phương án này bộc lộ những sai lệch nghiêm trọng không thể dung hòa với đặc thù thị trường Forex:
+1. **Lệch pha chu kỳ thời gian (24/7 Crypto vs 24/5 Forex Interbank):**
+   - Thị trường Forex / Vàng giao ngay (Spot XAUUSD) thế giới hoạt động theo phiên liên ngân hàng quốc tế: Mở cửa lúc 17:00 NY Chủ Nhật (04:00/05:00 sáng Thứ Hai giờ VN) và đóng cửa lúc 17:00 NY Thứ Sáu (04:00/05:00 sáng Thứ Bảy giờ VN). Thứ Bảy và Chủ Nhật toàn bộ các ngân hàng trung ương và sàn giao dịch kim loại quý (London Bullion Market, COMEX) nghỉ hoàn toàn.
+   - Binance là sàn Crypto hoạt động liên tục **24/7/365**. Vào hai ngày cuối tuần, Binance PAXGUSDT vẫn tiếp tục khớp lệnh và sinh nến M1–D1. Khối lượng cuối tuần cực kỳ mỏng manh và bị chi phối bởi các bot bán lẻ crypto, tạo ra các cây nến "rác" (choppy wicks) làm biến dạng hoàn toàn các chỉ báo kỹ thuật cốt lõi:
+     - Làm méo mó đường trung bình động (EMA 20, EMA 50) và dải biến động thực tế (ATR 14).
+     - **Triệt tiêu hiện tượng Khoảng trống giá Mở tuần (Weekend Gap):** Trong Forex, chênh lệch giữa giá đóng cửa Thứ Sáu và mở cửa Thứ Hai phản ánh các biến cố địa chính trị vĩ mô cuối tuần (tin chiến sự, bầu cử, họp G7). Nến chạy 24/7 của Binance triệt tiêu hoàn toàn Weekend Gap, làm mất đi các setup giao dịch Wyckoff/SMC kinh điển.
+2. **Phá vỡ cấu trúc Phiên giao dịch & Khung giờ Vàng (Kill Zones Mismatch):**
+   - Hệ thống chiến lược SMC/ICT trong `ai_engine/sessions.py` dựa trên các phiên: **Asian Range** (07:00–13:00 ICT), **London Kill Zone** (13:00–16:00 ICT) và **New York AM Kill Zone** (18:00–21:00 ICT).
+   - Nến Binance chạy vào thứ Bảy và Chủ Nhật không có phiên London hay New York thực tế, dẫn đến việc động cơ SMC nhận diện nhầm các điểm Swing High / Swing Low giả mạo và kích hoạt tín hiệu sai.
+3. **Cơ chế Spread & Chi phí Giao dịch Không Thực Tế:**
+   - Binance không có khái niệm Spread thả nổi (Floating Spread) theo thanh khoản ngân hàng. Hệ thống cũ buộc phải sử dụng công thức "Synthetic ECN Spread" nhân tạo (20 points cố định).
+   - Trong thực tế, spread XAUUSD co hẹp trong phiên London/NY (10–18 points) và giãn rộng dữ dội vào thời điểm giao phiên (Rollover 17:00 NY) hoặc khi công bố tin tức 3 sao (CPI, NFP có thể giãn lên 40–80 points). Việc thiếu spread thực tế làm sai lệch hoàn toàn thuật toán quét SL/TP của Paper Trading Engine.
+4. **Quy chuẩn Hợp đồng & Đòn bẩy:**
+   - Binance PAXG tính theo token coin (1 PAXG = 1 oz), phí tính theo USDT Maker/Taker, không có Swap qua đêm (Rollover / Triple Swap vào Thứ Tư).
+   - MetaTrader 5 chuẩn hóa hợp đồng Forex Hedged: 1 Lot = 100 Troy Oz, đòn bẩy linh hoạt (1:100), tính Margin, Free Margin và Swap thực tế.
+
+#### B. Giải pháp Kỹ thuật: Cầu Nối MetaTrader 5 trên Linux (`trading_mt5_bridge`)
+Để khắc phục triệt để các hạn chế trên, hệ thống chuyển dịch toàn diện sang sử dụng tài khoản Demo MetaQuotes trên nền tảng MetaTrader 5 chạy trong container Linux.
+
+1. **Cơ sở Kỹ thuật: MetaTrader 5 trên Linux qua Wine:**
+   - Theo tài liệu chính thức từ MetaQuotes ([MetaTrader 5 Installation on Linux](https://www.metatrader5.com/en/terminal/help/start_advanced/install_linux)), nền tảng MetaTrader 5 hoạt động ổn định trên môi trường Linux (Ubuntu/Debian) thông qua lớp tương thích **Wine (WineHQ)**. MetaQuotes cung cấp script tự động hóa chính thức `https://download.terminal.free/cdn/web/metaquotes.software.corp/mt5/mt5linux.sh`.
+2. **Kiến trúc Đóng gói Docker Container với `mt5linux`:**
+   - Do thư viện Python chính thức `MetaTrader5` từ MetaQuotes chỉ phát hành bản binary wheel (`.whl`) dành riêng cho Windows runtime (`terminal64.exe`), phương án đóng gói container Linux tối ưu áp dụng kiến trúc cầu nối RPC **`mt5linux`** (thư viện mã nguồn mở chuyên dụng cho Linux/Docker):
+     - **Tầng 1 (Wine & Headless Display):** Container Linux (Ubuntu 22.04 LTS) tích hợp `winehq-stable` và `Xvfb` (X Virtual Framebuffer). Cho phép `terminal64.exe` chạy ngầm 100% không cần màn hình vật lý.
+     - **Tầng 2 (Windows Python Engine trong Wine):** Bên trong môi trường Wine, cài đặt phiên bản Python for Windows và thư viện `MetaTrader5` chính thức.
+     - **Tầng 3 (RPC Server - RPyC):** Khởi chạy một tiến trình RPyC Server ngầm lắng nghe cổng nội bộ `18812`.
+     - **Tầng 4 (FastAPI HTTP Microservice):** File `mt5-bridge/server.py` kết nối với `MetaTrader5` qua RPC `mt5linux`, cung cấp các endpoint REST HTTP siêu tốc (`/health`, `/account`, `/ticks/{symbol}`, `/ticks/{symbol}/since`) trên cổng `5001`.
+3. **Cấu hình Tài khoản Demo MetaQuotes Độc lập:**
+   - **Tên chủ tài khoản:** `Nguyen Dinh Dung`
+   - **Máy chủ (Server):** `MetaQuotes-Demo`
+   - **Loại tài khoản (Type):** `Forex Hedged USD`
+   - **Mã đăng nhập (Login ID):** `5057446983`
+   - **Mật khẩu giao dịch (Master Password):** `FxN@6nZf`
+   - **Mật khẩu nhà đầu tư (Investor/Read-only):** `_g0bGwTk`
+   - **Cặp giao dịch:** `XAUUSD` (Spot Gold vs US Dollar, 1 lot = 100 oz, khớp lệnh Hedging).
+4. **Đánh giá Tính Khả Thi Kỹ Thuật (Feasibility Matrix):**
+
+| Tiêu Chí Đánh Giá | Binance API (PAXGUSDT) | MT5 Linux Bridge (MetaQuotes Demo) | Kết Luận & Đánh Giá Khả Thi |
+| :--- | :--- | :--- | :--- |
+| **Giờ Giao Dịch** | 24/7/365 (Bị nhiễu cuối tuần) | 24/5 (Chính xác theo phiên quốc tế) | **VƯỢT TRỘI**: Bảo toàn Weekend Gap và cấu trúc phiên SMC. |
+| **Dữ Liệu Spread** | Cố định 20 points (Synthetic) | Thả nổi thực tế từ Liquidity Providers | **VƯỢT TRỘI**: Phản ánh đúng giãn spread lúc tin tức và rollover. |
+| **Độ Sâu & Khối Lượng** | Pool Crypto nhỏ lẻ | Báo giá chuẩn liên ngân hàng | **VƯỢT TRỘI**: Tick volume phản ánh đúng động lượng Smart Money. |
+| **Độ Trễ (Latency)** | WS WebSocket ~80–120ms | REST Internal Docker ~1.2ms, Poll 250ms | **RẤT TỐT**: Độ trễ nội bộ Docker network gần như tức thời. |
+| **Tài Nguyên (RAM/CPU)** | Nhẹ (~50MB) | Tiêu thụ ~350MB–450MB RAM, CPU < 2% | **KHẢ THI 100%**: Hoàn toàn nằm trong ngân sách tài nguyên VPS/Docker. |
+| **Tương Thích Backend** | Đang chạy | Backend `MT5Feed` đã tích hợp sẵn 100% | **HOÀN THÀNH NGAY**: Không phát sinh chi phí refactor luồng dữ liệu. |
+
+#### C. Kiến Trúc 2-Container MT5 (Phase 03 Sprint 03 — Giải pháp Triển khai Thực tế)
+
+Qua nghiên cứu kỹ thuật chuyên sâu (tham chiếu: [MetaTrader 5 on Linux — MetaQuotes Official Docs](https://www.metatrader5.com/en/terminal/help/start_advanced/install_linux), [lucas-campagna/mt5linux GitHub](https://github.com/lucas-campagna/mt5linux)), vấn đề gốc rễ của kết nối MT5 trên môi trường Linux là:
+
+> **`mt5linux` (thư viện Python Linux client) KHÔNG tự chứa MT5 Terminal hay Wine.** Nó chỉ là client RPyC kết nối đến một `mt5server.exe` đang chạy bên trong Wine. Nếu không có Wine server riêng, RPyC luôn thất bại với `ConnectionRefusedError: [Errno 111]`.
+
+Giải pháp: Tách thành **2 container chuyên biệt**, mỗi container đảm nhiệm đúng 1 tầng:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Docker Network: trading-net               │
+│                                                             │
+│  ┌─────────────────────────┐      ┌────────────────────┐   │
+│  │   trading_mt5_wine      │      │  trading_mt5_bridge │   │
+│  │   lprett/mt5linux:latest│      │  ./mt5-bridge/      │   │
+│  │                         │      │  (Python + mt5linux) │   │
+│  │  Wine (WineHQ Stable)   │      │                    │   │
+│  │  Xvfb (Virtual Display) │      │  FastAPI HTTP       │   │
+│  │  terminal64.exe (MT5)   │─────▶│  :5001             │   │
+│  │  mt5server.exe (RPyC)   │18812 │                    │   │
+│  │  noVNC GUI  :8080       │      │  REST endpoints:   │   │
+│  └─────────────────────────┘      │  /health /account  │   │
+│                                   │  /ticks  /candles  │   │
+│                                   └────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Docker Image `lprett/mt5linux:latest`** (chính thức từ dự án `lucas-campagna/mt5linux`):
+- **Tag `latest`:** Image nền đã cài Wine + Xvfb + noVNC, **chưa cài MT5**. Lần đầu chạy sẽ tự động tải và cài MT5 Terminal qua Wine.
+- **Tag `mt5-installed`:** Image đã tích hợp sẵn MT5 Terminal → thời gian khởi động nhanh hơn đáng kể (khuyến nghị cho production).
+- **Environment Variables bắt buộc:**
+  - `MT5_HOST=0.0.0.0` → Cho phép RPyC bind ra tất cả interface (để `mt5-bridge` kết nối qua Docker network)
+  - `SYSTEMROOT="C:\\windows"` → Biến hệ thống bắt buộc trong Wine để PyInstaller (`mt5server.exe`) khởi tạo crypto RNG tránh lỗi `_Py_HashRandomization_Init`
+  - `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` & `LOGIN`, `PASSWORD`, `SERVER` → Credentials tài khoản MetaQuotes-Demo đồng bộ cho cả entrypoint và INI config
+  - `VNC_PASSWORD` → Mật khẩu bảo vệ noVNC web console
+
+#### D. Hướng Dẫn Khởi Động & Kiểm Thử Kết Nối MT5 Bridge
+
+**Lưu ý quan trọng:** `trading_mt5_wine` cần **15–30 giây** để Wine và tiến trình RPyC `mt5server.exe` hoàn tất khởi động.
+
+```powershell
+# Bước 1: Kéo về và khởi động các container MT5
+docker compose up -d mt5-wine-server mt5-bridge
+
+# Bước 2: Theo dõi tiến trình khởi động Wine & MT5 Terminal
+docker logs -f trading_mt5_wine
+# Đợi đến khi thấy: "INFO SLAVE/18812[MainThread]: server started on [0.0.0.0]:18812"
+
+# Bước 3: Kiểm tra RPyC đang lắng nghe trên port 18812
+docker exec trading_mt5_wine nc -z localhost 18812 && echo "RPyC OK" || echo "RPyC NOT READY"
+
+# Bước 4: Kiểm tra kết nối từ phía mt5-bridge
+curl.exe http://localhost:5001/health
+# Hoặc kích hoạt kết nối lại nếu vừa khởi động xong wine-server:
+curl.exe -X POST http://localhost:5001/reconnect
+
+# Bước 5: Kiểm tra trạng thái tài khoản MetaQuotes-Demo qua mt5-bridge
+curl.exe http://localhost:5001/account
+
+# Bước 6: Kiểm tra lấy tick giá thực tế
+curl.exe http://localhost:5001/ticks/XAUUSD
+
+# Bước 7: Kiểm tra tổng thể từ Backend và trạng thái toàn hệ thống
+curl.exe http://localhost:8000/health
+curl.exe http://localhost:8000/api/v1/market/mt5/status
+
+# Truy cập noVNC để xem giao diện MT5 Terminal trực quan (tùy chọn)
+# → http://localhost:8080  (Password: trading123)
+```
+
+#### E. Xử Lý Sự Cố Kết Nối Wine/RPyC (Troubleshooting Matrix)
+
+| Triệu Chứng | Nguyên Nhân | Hành Động Khắc Phục |
+| :--- | :--- | :--- |
+| `Connection refused: 18812` trong `mt5-bridge` logs | `mt5-wine-server` chưa hoàn tất khởi động hoặc vừa restart | Chờ 15s rồi gọi `POST http://localhost:5001/reconnect`. Kiểm tra `docker logs trading_mt5_wine`. |
+| Container `trading_mt5_wine` bị crash loop (`mkfifo: File exists`) | FIFO `/opt/wineprefix/drive_c/server` tồn tại từ lượt chạy trước bị kẹt bởi `set -e` | Đã xử lý triệt để qua entrypoint `rm -f /opt/wineprefix/drive_c/server; exec /app/src/main.sh`. |
+| `Fatal Python error: _Py_HashRandomization_Init` | `mt5server.exe` chạy trong Wine thiếu biến Windows `SYSTEMROOT` | Đã cấu hình `SYSTEMROOT: "C:\\windows"` trong `docker-compose.yml`. |
+| `initialize() failed: Error 10019` trong MT5 Bridge | Sai `MT5_SERVER` hoặc `MT5_LOGIN`/`MT5_PASSWORD` | Đã bổ sung cơ chế fallback tự động gọi `initialize()` không tham số để bind trực tiếp profile MT5 đang mở. |
+| MT5 Terminal hiển thị "Account Disabled" trên noVNC | Tài khoản Demo MetaQuotes hết hạn (30 ngày không hoạt động) | Đăng ký tài khoản Demo mới tại [www.metatrader5.com](https://www.metatrader5.com) và cập nhật biến môi trường. |
+| `copy_rates_from` trả về `None` dù kết nối thành công | Symbol `XAUUSD` chưa được thêm vào Market Watch | Trong noVNC, mở MT5 Terminal → Market Watch → Chuột phải → Show All → tìm và chọn `XAUUSD`. |
+
+---
 
 ### 3.2. Bộ tổng hợp nến đa khung thời gian (`CandleAggregator`)
 Hỗ trợ đầy đủ **6 khung thời gian**:
@@ -125,12 +252,44 @@ Hỗ trợ đầy đủ **6 khung thời gian**:
   * Trong thời gian nến chạy: cập nhật $\text{high} = \max(\text{high}, bid)$, $\text{low} = \min(\text{low}, bid)$, $\text{close} = bid$, cộng dồn `volume`.
   * Khử trùng lặp tick (Tick Deduplication): Sử dụng `deque` trượt 4,096 ticks để lọc các tick trùng lặp miligiây.
 
-### 3.3. Cơ chế On-demand Seeding (Tự động nạp nến lịch sử)
-Khi frontend chuyển sang khung thời gian bất kỳ (ví dụ H4, D1), nếu DB chưa có nến:
-* Endpoint `GET /api/v1/market/history` tự động kích hoạt hàm `seed_history_for_timeframe()`:
-  * Gọi Binance REST API: `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit=500`.
+### 3.3. Cơ chế Khởi tạo & Nạp nến lịch sử (Historical Seeding Pipeline)
+Khi khởi động hệ thống hoặc khi frontend chuyển sang khung thời gian bất kỳ (ví dụ H4, D1), nếu DB chưa có đủ nến:
+* Endpoint `GET /api/v1/market/history` tự động kích hoạt nạp nến lịch sử:
+  * **Nguồn ưu tiên 1 (MT5 Linux Bridge):** Gọi `terminal.copy_rates_from_pos(symbol, timeframe, 0, 500)` để trích xuất 500 nến chuẩn lịch sử trực tiếp từ máy chủ MetaQuotes-Demo.
+  * **Nguồn dự phòng 2 (Twelve Data REST API):** Gọi `https://api.twelvedata.com/time_series?symbol=XAU/USD&interval={interval}&outputsize=500&timezone=UTC` làm nguồn hạt giống dự phòng khi MT5 bridge chưa kết nối hoặc không phản hồi.
   * Thực hiện câu lệnh PostgreSQL `ON CONFLICT (symbol, timeframe, open_time) DO UPDATE` để ghi đè hoặc bổ sung 500 nến chuẩn vào bảng `market_candles`.
   * Trả về ngay lập tức cho biểu đồ mà không gây nến rỗng (blank chart).
+
+### 3.4. Hệ thống Dự phòng Dữ liệu Ngoại vi: Twelve Data API (`twelvedata.com`)
+Nhằm thay thế hoàn toàn nguồn fallback Binance cũ (vốn dùng token PAXGUSDT với độ trễ và spread nhân tạo), hệ thống đã tích hợp chính thức **Twelve Data API** chuyên dụng cho vàng giao ngay quốc tế:
+
+1. **Cấu hình Symbol & Khung Thời Gian:**
+   * **Symbol chuẩn hóa:** `XAU/USD` (Spot Gold vs US Dollar theo chuẩn liên ngân hàng).
+   * **Bảng ánh xạ Timeframes:**
+     * `M1` $\to$ `1min`
+     * `M5` $\to$ `5min`
+     * `M15` $\to$ `15min`
+     * `H1` $\to$ `1h`
+     * `H4` $\to$ `4h`
+     * `D1` $\to$ `1day`
+2. **Bộ Quản lý Giới hạn Tần suất (Rate Limit Handler):**
+   * **Hạn ngạch gói Free:** Tối đa **8 requests / phút** và **800 requests / ngày**.
+   * **Cơ chế kiểm soát (`TwelveDataRateLimiter`):** Sử dụng Redis Pipeline Atomic (`twelve_data:quota:min:{min_key}` và `twelve_data:quota:day:{day_key}`) để theo dõi quota thời gian thực.
+   * **Tự động chờ (Backoff):** Nếu chạm 8 req/phút, hệ thống tự động sleep đến chu kỳ phút tiếp theo ($60 - \text{now} \pmod{60} + 0.5s$) trước khi phát request. Nếu Redis gián đoạn, tự động chuyển về in-memory counter.
+3. **Cơ chế Retry & Exponential Backoff:**
+   * Mỗi request được bọc trong vòng lặp tối đa 3 lần thử.
+   * Khi gặp HTTP 429 hoặc lỗi kết nối, tính toán thời gian chờ tăng lũy tiến: $\text{delay} = 2^{\text{attempt}} + \text{jitter}$ (từ 2.0s đến 8.0s).
+4. **Tầng Bộ nhớ Đệm Redis Caching (TTL $\ge$ 60s):**
+   * Khóa cache: `twelve_data:cache:{symbol}:{interval}:{outputsize}:{start_date}:{end_date}`.
+   * **TTL linh hoạt:** M1 (60s), M5 (180s), M15 (300s), H1 (900s), H4 (1800s), D1 (3600s).
+   * Cache Hit trả về ngay kết quả mà **không tiêu tốn hạn ngạch** gọi API Twelve Data.
+5. **Chuẩn hóa Định dạng Thời gian & Thứ tự Biểu đồ:**
+   * Twelve Data trả về chuỗi datetime dạng `YYYY-MM-DD HH:MM:SS` (nến trong ngày) hoặc `YYYY-MM-DD` (nến ngày D1).
+   * Được ép múi giờ `timezone=UTC` khi gọi API và chuyển đổi thành **Unix timestamp theo giây** (`int(dt.timestamp())`) tương thích 100% với TradingView Lightweight Charts trên frontend và cột `MarketCandle.open_time`.
+   * Đảo ngược thứ tự trả về từ **Reverse Chronological (Mới nhất trước)** sang **Chronological (Cũ nhất trước)** để biểu đồ hiển thị liên tục, mượt mà từ trái sang phải.
+6. **Vá Lỗ Hổng Nến Tự Động (`CandleGapHealer`):**
+   * Tự động phát hiện Trailing Gaps và Internal Gaps khi có sự cố downtime máy chủ.
+   * Ưu tiên vá nến từ MT5 Bridge; nếu MT5 ngắt kết nối, tự động chuyển sang Twelve Data API để bù đắp các khoảng trống dữ liệu với nhãn `data_source = 'twelvedata'`.
 
 ---
 
@@ -274,7 +433,7 @@ Frontend được xây dựng bằng **Vue 3 Composition API**, quản lý trạ
 2. **Orders History:** Bảng tổng kết toàn bộ lệnh đã đóng, bộ lọc nâng cao, thống kê Win Rate, Profit Factor, Realized PnL.
 3. **News & Events:** Trung tâm tin tức vĩ mô toàn diện, giám sát trạng thái 4 nguồn tin (Health/Latency), tab Economic Calendar và tab Breaking News.
 4. **Strategy & Analysis:** Toàn bộ hệ tri thức SMC, quy trình đa khung thời gian, thư viện khái niệm, ma trận quản trị rủi ro, checklist 7 bước.
-5. **Settings & Diagnostics:** Giám sát PostgreSQL/Redis/Binance, chẩn đoán ping API latency, thiết lập tham số trượt giá, lot size mặc định.
+5. **Settings & Diagnostics:** Giám sát PostgreSQL/Redis/MT5 Linux Bridge/Twelve Data API, chẩn đoán ping API latency, thiết lập tham số trượt giá, lot size mặc định.
 
 ### 7.2. Tối ưu Đồ họa Biểu đồ (`TradingViewChart.vue`)
 * **Thư viện:** TradingView Lightweight Charts (v4.x Canvas-based).
@@ -298,12 +457,13 @@ Frontend được xây dựng bằng **Vue 3 Composition API**, quản lý trạ
 
 ## 8. HỢP ĐỒNG GIAO TIẾP: REST API & WEBSOCKET PROTOCOL
 
-### 8.1. Danh mục Endpoints REST API (Base: `/api/v1`)
+### 8.1. Danh mục Endpoints REST API (Base: `/api/v1` & MT5 Bridge: Port 5001)
 
+#### A. Backend Core Endpoints (`http://backend:8000/api/v1`)
 | Phương thức | Endpoint | Tham số Query / Body | Chức năng |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | Không | Kiểm tra trạng thái hệ thống, ping kết nối DB và Redis. |
-| `GET` | `/api/v1/market/history` | `symbol` (str), `timeframe` (str), `limit` (int, 1-5000) | Lấy danh sách nến lịch sử. Tự động seed từ Binance nếu trống. |
+| `GET` | `/api/v1/market/history` | `symbol` (str), `timeframe` (str), `limit` (int, 1-5000) | Lấy danh sách nến lịch sử. Tự động seed từ MT5 (hoặc Twelve Data fallback nếu trống). |
 | `GET` | `/api/v1/market/analysis` | `symbol` (str) | Lấy dữ liệu phân tích SMC, kịch bản giao dịch, setup dự kiến. |
 | `GET` | `/api/v1/orders` | `limit` (int, 1-200) | Lấy danh sách lệnh giả lập (cả lệnh OPEN và CLOSED). |
 | `POST` | `/api/v1/orders` | JSON: `symbol`, `order_type`, `lot_size`, `stop_loss`, `take_profit`, `entry_price?` | Đặt lệnh mới qua Paper Trading Engine. |
@@ -312,6 +472,16 @@ Frontend được xây dựng bằng **Vue 3 Composition API**, quản lý trạ
 | `GET` | `/api/v1/news` | `limit` (int, 1-200) | Lấy danh sách tin tức tức thời kèm điểm tâm lý và số sao. |
 | `GET` | `/api/v1/news/events` | `limit` (int, 1-200) | Lấy danh sách sự kiện lịch kinh tế (Actual/Forecast/Prev). |
 | `GET` | `/api/v1/news/status` | Không | Trạng thái sức khỏe, số lượt nạp của 4 nguồn tin. |
+| `GET` | `/api/v1/chat/conversations` | `is_archived` (bool) | Lấy danh sách phiên hội thoại đa Agent (Gemini layout). |
+| `POST` | `/api/v1/chat/conversations/{id}/messages` | JSON: `message`, `target_agent`, `attach_market_context` | Gửi tin nhắn đối thoại với Governor (Arbiter), Vector, Sentinel, Scribe. |
+
+#### B. MT5 Linux Bridge Microservice Endpoints (`http://mt5-bridge:5001`)
+| Phương thức | Endpoint | Tham số Query / Body | Chức năng |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | Không | Kiểm tra kết nối terminal MetaTrader 5, server `MetaQuotes-Demo`, login status. |
+| `GET` | `/account` | Không | Lấy thông tin tài khoản demo MT5: Balance, Equity, Leverage, Margin, Currency. |
+| `GET` | `/ticks/{symbol}` | Path: `symbol` (`XAUUSD`) | Lấy tick mới nhất gồm Bid, Ask, Spread (points), Volume và Unix timestamp. |
+| `GET` | `/ticks/{symbol}/since` | Query: `since_ms` (int timestamp miligiây) | Trích xuất batch ticks mới phát sinh kể từ mốc thời gian `since_ms` cho `ChartStreamer`. |
 
 ### 8.2. WebSocket Multiplexing Stream (`/api/v1/ws/market`)
 Hệ thống sử dụng một endpoint WebSocket duy nhất phân phối 3 loại event frame qua thuộc tính `type`:
@@ -389,6 +559,8 @@ Hệ thống quản lý schema qua các tệp migration SQL lũy tiến (`backen
 * `0001_phase1.sql`: Schema cơ bản cho nến, lệnh và tin tức.
 * `0002_phase2_sprint1.sql`: Thêm bảng `economic_events`, `economic_event_revisions`, các cột sao, revision.
 * `0003_phase2_sprint2.sql`: Thêm bảng `simulation_account`, bổ sung `ticket_uuid`, `slippage`, `commission`, `swap`, `close_reason` cho `simulated_orders`.
+* `0007_phase3_sprint3_chat.sql`: Thêm bảng `chat_conversations` (tiêu đề, ghim, lưu trữ), mở rộng `agent_trader_dialogue` với `conversation_id`, `client_msg_id`, `target_agent`.
+* `0008_phase3_sprint3_knowledge_strategies.sql`: Thêm bảng `standardized_trading_strategies` và mở rộng `trading_knowledge` cho hệ thống tiếp nhận tri thức đa nguồn.
 
 ```mermaid
 erDiagram
@@ -396,6 +568,7 @@ erDiagram
     SIMULATION_ACCOUNT ||--o{ SIMULATED_ORDER : funds
     FINANCIAL_NEWS ||--o{ SIMULATED_ORDER : context
     ECONOMIC_EVENT ||--o{ ECONOMIC_EVENT_REVISION : has_history
+    CHAT_CONVERSATION ||--o{ AGENT_TRADER_DIALOGUE : contains
 
     MARKET_CANDLE {
         bigint id PK
@@ -439,6 +612,29 @@ erDiagram
         numeric equity
         numeric margin_used
         datetime updated_at
+    }
+
+    CHAT_CONVERSATION {
+        bigint id PK
+        string title
+        string agent_target
+        boolean is_pinned
+        boolean is_archived
+        jsonb metadata
+        datetime created_at
+        datetime updated_at
+        boolean is_test
+    }
+
+    AGENT_TRADER_DIALOGUE {
+        bigint id PK
+        bigint conversation_id FK
+        string sender
+        string message_text
+        string message_type
+        string target_agent
+        datetime created_at
+        boolean is_test
     }
 
     ECONOMIC_EVENT {
@@ -489,29 +685,39 @@ FXSTREET_NEWS_RSS_URL=https://www.fxstreet.com/rss/news
 FINNHUB_API_KEY=your_optional_api_key
 FINNHUB_ECONOMIC_CALENDAR_ENABLED=false
 
-# MT5 Bridge Connector (Optional)
+# MetaTrader 5 Linux Bridge (CHÍNH THỨC - Primary Forex XAUUSD Feed)
 MT5_BRIDGE_URL=http://mt5-bridge:5001
-MT5_DEMO_LOGIN=
-MT5_DEMO_PASSWORD=
-MT5_DEMO_SERVER=
+MT5_DEMO_NAME=Nguyen Dinh Dung
+MT5_DEMO_LOGIN=5057446983
+MT5_DEMO_PASSWORD=FxN@6nZf
+MT5_DEMO_INVESTOR=_g0bGwTk
+MT5_DEMO_SERVER=MetaQuotes-Demo
+MT5_DEMO_TYPE=Forex Hedged USD
+MT5_HOST=localhost
+MT5_PORT=18812
 ```
 
 ### 10.2. Lệnh Vận hành & Kiểm thử Thường dùng
 
 ```powershell
-# 1. Khởi động toàn bộ cụm dịch vụ qua Docker Compose
+# 1. Khởi động toàn bộ cụm dịch vụ qua Docker Compose (bao gồm MT5 Linux Bridge)
 docker compose up -d --build
 
-# 2. Kiểm tra log của backend container
+# 2. Kiểm tra log của backend container và mt5-bridge container
 docker logs -f trading_backend
+docker logs -f trading_mt5_bridge
 
 # 3. Chạy toàn bộ bộ kiểm thử đơn vị & tích hợp (Unit & Integration Tests)
 docker exec trading_backend pytest -v
 
-# 4. Kiểm tra sức khỏe hệ thống (Health Check)
+# 4. Kiểm tra sức khỏe hệ thống Backend & MT5 Bridge
 curl http://localhost:8000/health
+curl http://localhost:5001/health
 
-# 5. Build lại giao diện frontend khi có cập nhật
+# 5. Kiểm tra thông tin tài khoản Demo MetaQuotes qua MT5 Bridge
+curl http://localhost:5001/account
+
+# 6. Build lại giao diện frontend khi có cập nhật
 cd frontend
 npm run build
 docker restart trading_frontend

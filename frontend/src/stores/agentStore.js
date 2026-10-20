@@ -19,6 +19,13 @@ import {
   searchReflexionMemories as searchReflexionMemoriesApi,
   sendGovernorDialogue as sendGovernorDialogueApi,
   submitKnowledge as submitKnowledgeApi,
+  uploadKnowledgeFile as uploadKnowledgeFileApi,
+  ingestKnowledgeUrl as ingestKnowledgeUrlApi,
+  ingestKnowledgeMarkdown as ingestKnowledgeMarkdownApi,
+  fetchStandardizedStrategies as fetchStandardizedStrategiesApi,
+  fetchStandardizedStrategyDetail as fetchStandardizedStrategyDetailApi,
+  fetchKnowledgeDocuments as fetchKnowledgeDocumentsApi,
+  seedStandardizedStrategies as seedStandardizedStrategiesApi,
 } from '../services/api'
 
 export const agentStore = reactive({
@@ -52,7 +59,7 @@ export const agentStore = reactive({
   searchingMemories: false,
   promotingRuleId: null,
 
-  // RAG Knowledge State (Multi-School)
+  // RAG Knowledge State (Multi-School & Standardized Strategies)
   knowledgeStats: {
     total_chunks: 18,
     categories: {},
@@ -62,6 +69,16 @@ export const agentStore = reactive({
   searchingKnowledge: false,
   reindexing: false,
   submittingKnowledge: false,
+
+  // Standardized Trading Strategies & Ingestion State
+  standardizedStrategies: [],
+  selectedStrategyDetail: null,
+  knowledgeDocuments: [],
+  loadingStrategies: false,
+  loadingDocuments: false,
+  ingestingKnowledge: false,
+  ingestionResult: null,
+  ingestionError: null,
 
   // Actions: Governor Consensus
   async refreshConsensus() {
@@ -273,10 +290,119 @@ export const agentStore = reactive({
     this.reindexing = true
     try {
       const res = await reindexKnowledgeApi()
-      await this.refreshKnowledge()
+      await Promise.all([this.refreshKnowledge(), this.refreshKnowledgeDocuments(), this.refreshStandardizedStrategies()])
       return res
     } finally {
       this.reindexing = false
+    }
+  },
+
+  // Actions: Phase 03 Sprint 03 - Standardized Trading Strategies & Ingestion
+  async refreshStandardizedStrategies(school = '') {
+    this.loadingStrategies = true
+    try {
+      const data = await fetchStandardizedStrategiesApi(school)
+      this.standardizedStrategies = data || []
+    } catch {
+      this.standardizedStrategies = []
+    } finally {
+      this.loadingStrategies = false
+    }
+  },
+
+  async loadStrategyDetail(slug) {
+    try {
+      const data = await fetchStandardizedStrategyDetailApi(slug)
+      this.selectedStrategyDetail = data
+      return data
+    } catch {
+      return null
+    }
+  },
+
+  async refreshKnowledgeDocuments() {
+    this.loadingDocuments = true
+    try {
+      const data = await fetchKnowledgeDocumentsApi()
+      this.knowledgeDocuments = data || []
+    } catch {
+      this.knowledgeDocuments = []
+    } finally {
+      this.loadingDocuments = false
+    }
+  },
+
+  async uploadFile(formData) {
+    this.ingestingKnowledge = true
+    this.ingestionError = null
+    try {
+      const res = await uploadKnowledgeFileApi(formData)
+      this.ingestionResult = res
+      await Promise.all([
+        this.refreshKnowledge(),
+        this.refreshKnowledgeDocuments(),
+        this.refreshStandardizedStrategies(),
+      ])
+      return res
+    } catch (err) {
+      this.ingestionError = err.message || 'Lỗi khi tải lên file tài liệu'
+      throw err
+    } finally {
+      this.ingestingKnowledge = false
+    }
+  },
+
+  async ingestUrl(payload) {
+    this.ingestingKnowledge = true
+    this.ingestionError = null
+    try {
+      const res = await ingestKnowledgeUrlApi(payload)
+      this.ingestionResult = res
+      await Promise.all([
+        this.refreshKnowledge(),
+        this.refreshKnowledgeDocuments(),
+        this.refreshStandardizedStrategies(),
+      ])
+      return res
+    } catch (err) {
+      this.ingestionError = err.message || 'Lỗi khi nạp liên kết tài liệu'
+      throw err
+    } finally {
+      this.ingestingKnowledge = false
+    }
+  },
+
+  async ingestMarkdown(payload) {
+    this.ingestingKnowledge = true
+    this.ingestionError = null
+    try {
+      const res = await ingestKnowledgeMarkdownApi(payload)
+      this.ingestionResult = res
+      await Promise.all([
+        this.refreshKnowledge(),
+        this.refreshKnowledgeDocuments(),
+        this.refreshStandardizedStrategies(),
+      ])
+      return res
+    } catch (err) {
+      this.ingestionError = err.message || 'Lỗi khi nạp nội dung Markdown'
+      throw err
+    } finally {
+      this.ingestingKnowledge = false
+    }
+  },
+
+  async seedBaselineStrategies() {
+    try {
+      const res = await seedStandardizedStrategiesApi()
+      await Promise.all([
+        this.refreshKnowledge(),
+        this.refreshKnowledgeDocuments(),
+        this.refreshStandardizedStrategies(),
+      ])
+      return res
+    } catch {
+      return null
     }
   },
 
@@ -295,6 +421,9 @@ export const agentStore = reactive({
       this.refreshDialogueHistory(),
       this.refreshMemories(),
       this.refreshKnowledge(),
+      this.refreshStandardizedStrategies(),
+      this.refreshKnowledgeDocuments(),
     ])
   },
 })
+

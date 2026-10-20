@@ -24,39 +24,24 @@ TIMEFRAMES = {
     "D1": 86400,
 }
 
-TIMEFRAME_TO_BINANCE_INTERVAL = {
-    "M1": "1m",
-    "M5": "5m",
-    "M15": "15m",
-    "H1": "1h",
-    "H4": "4h",
-    "D1": "1d",
-}
-
-BINANCE_API_URLS = [
-    "https://api.binance.com/api/v3/klines",
-    "https://data-api.binance.vision/api/v3/klines",
-    "https://api1.binance.com/api/v3/klines",
-]
-
-
-def resolve_binance_symbol(symbol: str) -> str:
-    sym = symbol.upper()
-    if sym in {"XAUUSD", "XAU", "GOLD", "PAXG", "PAXGUSDT"}:
-        return "PAXGUSDT"
-    if sym in {"BTCUSD", "BTC", "BTCUSDT"}:
-        return "BTCUSDT"
-    if sym in {"ETHUSD", "ETH", "ETHUSDT"}:
-        return "ETHUSDT"
-    if not sym.endswith("USDT"):
-        return f"{sym}USDT"
-    return sym
+from data_ingestion.market_hours import (
+    filter_valid_xauusd_candles,
+    is_natural_market_break,
+    is_xauusd_market_closed,
+    is_xauusd_trading_hour,
+)
+from data_ingestion.twelve_data_client import (
+    TIMEFRAME_TO_TWELVE_DATA,
+    resolve_twelve_data_symbol,
+    twelve_data_client,
+)
 
 
 class CandleGapHealer:
     """
     Hệ thống phát hiện khoảng trống dữ liệu nến (Gaps) và tự động bù đắp (Healer)
     đảm bảo dữ liệu liên tục 24/7 trên tất cả các khung thời gian khi server downtime.
+    Ưu tiên MT5, fallback về Twelve Data API (XAU/USD Spot Gold).
     """
 
     def __init__(self) -> None:
@@ -107,9 +92,12 @@ class CandleGapHealer:
         trailing_diff = (now_utc - latest_time).total_seconds()
         # Cho phép dung sai 1.5 chu kỳ nến
         if trailing_diff >= interval_secs * 1.5:
-            # Gap bắt đầu từ chu kỳ kế tiếp của latest_time
             gap_start = datetime.fromtimestamp(latest_time.timestamp() + interval_secs, timezone.utc)
-            gaps.append((gap_start, now_utc))
+            # Nếu thị trường XAUUSD đang đóng cửa hoặc khoảng cách hoàn toàn là giờ nghỉ phiên -> không coi là gap
+            if symbol.upper() == "XAUUSD" and (is_xauusd_market_closed(now_utc) or is_natural_market_break(latest_time, now_utc)):
+                pass
+            else:
+                gaps.append((gap_start, now_utc))
 
         # 2. Kiểm tra Internal Gaps (đứt gãy giữa các nến)
         for i in range(len(rows) - 1):
@@ -117,6 +105,9 @@ class CandleGapHealer:
             next_time = rows[i + 1]
             diff = (next_time - curr_time).total_seconds()
             if diff >= interval_secs * 1.5:
+                # Kiểm tra xem khoảng đứt gãy có phải là nghỉ phiên tự nhiên (Weekend / Daily Break) không
+                if symbol.upper() == "XAUUSD" and is_natural_market_break(curr_time, next_time):
+                    continue
                 # Có nến bị thiếu ở giữa
                 gap_start = datetime.fromtimestamp(curr_time.timestamp() + interval_secs, timezone.utc)
                 gap_end = datetime.fromtimestamp(next_time.timestamp() - interval_secs, timezone.utc)
@@ -134,40 +125,6 @@ class CandleGapHealer:
 
         return gaps
 
-    async def fetch_binance_klines_chunk(
-        self,
-        http: httpx.AsyncClient,
-        binance_symbol: str,
-        interval: str,
-        start_ms: int,
-        end_ms: int | None = None,
-        limit: int = 1000,
-    ) -> list[list[Any]]:
-        """Gọi Binance REST API lấy một mẻ nến klines tối đa 1000 nến"""
-        params: dict[str, Any] = {
-            "symbol": binance_symbol,
-            "interval": interval,
-            "startTime": start_ms,
-            "limit": limit,
-        }
-        if end_ms is not None:
-            params["endTime"] = end_ms
-
-        for base_url in BINANCE_API_URLS:
-            try:
-                resp = await http.get(base_url, params=params, timeout=10.0)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list):
-                        return data
-                elif resp.status_code == 429:
-                    logger.warning("Binance rate limit 429 hit, back off")
-                    await asyncio.sleep(2)
-            except Exception as exc:
-                logger.debug("Binance API %s failed: %s", base_url, exc)
-                continue
-        return []
-
     async def heal_range(
         self,
         session: AsyncSession,
@@ -175,69 +132,130 @@ class CandleGapHealer:
         timeframe: str,
         start_time: datetime,
         end_time: datetime,
-        http: httpx.AsyncClient,
+        http: httpx.AsyncClient | None = None,
+        use_mt5: bool = False,
     ) -> int:
-        """Bù đắp nến trong khoảng [start_time, end_time] từ Binance REST API"""
-        interval = TIMEFRAME_TO_BINANCE_INTERVAL.get(timeframe)
-        if not interval:
+        """Bù đắp nến trong khoảng [start_time, end_time] - ưu tiên MT5, fallback Twelve Data API"""
+        # Thử MT5 trước nếu được yêu cầu
+        if use_mt5:
+            try:
+                from data_ingestion.mt5_feed import MT5Feed
+                mt5 = MT5Feed()
+                if await mt5.is_connected():
+                    from_date_str = start_time.strftime("%Y-%m-%d")
+                    tf_secs = TIMEFRAMES.get(timeframe, 60)
+                    estimated = max(1, int((end_time - start_time).total_seconds() / tf_secs) + 10)
+                    candles = await mt5.get_candles(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        from_date=from_date_str,
+                        count=min(estimated, 99000),
+                    )
+                    # Lọc chỉ giữ nến trong khoảng [start_time, end_time]
+                    candles = [
+                        c for c in candles
+                        if start_time.timestamp() <= int(c["time"]) <= end_time.timestamp()
+                    ]
+                    if candles:
+                        total = 0
+                        for candle in candles:
+                            ot = datetime.fromtimestamp(int(candle["time"]), timezone.utc)
+                            if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(ot):
+                                continue
+                            values = {
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "open_time": ot,
+                                "open": Decimal(str(candle["open"])),
+                                "high": Decimal(str(candle["high"])),
+                                "low": Decimal(str(candle["low"])),
+                                "close": Decimal(str(candle["close"])),
+                                "volume": Decimal(str(candle.get("volume", 0))),
+                                "data_source": "mt5",
+                            }
+                            stmt = insert(MarketCandle).values(**values)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=["symbol", "timeframe", "open_time"],
+                                set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                            )
+                            await session.execute(stmt)
+                            total += 1
+                        await session.commit()
+                        logger.info(
+                            "MT5 gap heal: %d bars for %s %s [%s -> %s]",
+                            total, symbol, timeframe,
+                            start_time.isoformat(), end_time.isoformat(),
+                        )
+                        return total
+            except Exception as exc:
+                logger.warning("MT5 gap heal failed for %s %s, falling back to Twelve Data: %s", symbol, timeframe, exc)
+
+        # Fallback: Twelve Data API
+        return await self._heal_range_twelve_data(session, symbol, timeframe, start_time, end_time)
+
+    async def _heal_range_twelve_data(
+        self,
+        session: AsyncSession,
+        symbol: str,
+        timeframe: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> int:
+        """Bù đắp nến trong khoảng [start_time, end_time] từ Twelve Data API (Spot Gold XAU/USD)"""
+        if timeframe not in TIMEFRAME_TO_TWELVE_DATA:
             return 0
 
-        binance_sym = resolve_binance_symbol(symbol)
-        step_secs = TIMEFRAMES[timeframe]
-        step_ms = step_secs * 1000
+        tf_secs = TIMEFRAMES.get(timeframe, 60)
+        needed_bars = max(1, int((end_time - start_time).total_seconds() / tf_secs) + 5)
+        needed_bars = min(needed_bars, 500)
 
-        curr_start_ms = int(start_time.timestamp() * 1000)
-        target_end_ms = int(end_time.timestamp() * 1000)
-        total_upserted = 0
+        start_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
+        end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
 
-        while curr_start_ms <= target_end_ms:
-            klines = await self.fetch_binance_klines_chunk(
-                http=http,
-                binance_symbol=binance_sym,
-                interval=interval,
-                start_ms=curr_start_ms,
-                end_ms=target_end_ms,
-                limit=1000,
+        try:
+            candles = await twelve_data_client.fetch_time_series(
+                symbol=symbol,
+                timeframe=timeframe,
+                outputsize=max(needed_bars, 100),
             )
-            if not klines:
-                break
 
-            for item in klines:
-                open_time_ms = int(item[0])
-                open_time = datetime.fromtimestamp(open_time_ms / 1000, timezone.utc)
-                values = {
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "open_time": open_time,
-                    "open": Decimal(str(item[1])),
-                    "high": Decimal(str(item[2])),
-                    "low": Decimal(str(item[3])),
-                    "close": Decimal(str(item[4])),
-                    "volume": Decimal(str(item[5])),
-                }
-                stmt = insert(MarketCandle).values(**values)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["symbol", "timeframe", "open_time"],
-                    set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+            total_upserted = 0
+            for item in candles:
+                c_time = int(item["time"])
+                if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(c_time):
+                    continue
+                if start_time.timestamp() - tf_secs <= c_time <= end_time.timestamp() + tf_secs:
+                    open_time = datetime.fromtimestamp(c_time, timezone.utc)
+                    values = {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "open_time": open_time,
+                        "open": Decimal(str(item["open"])),
+                        "high": Decimal(str(item["high"])),
+                        "low": Decimal(str(item["low"])),
+                        "close": Decimal(str(item["close"])),
+                        "volume": Decimal(str(item.get("volume", 0) or 0)),
+                        "data_source": "twelvedata",
+                    }
+                    stmt = insert(MarketCandle).values(**values)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["symbol", "timeframe", "open_time"],
+                        set_={k: v for k, v in values.items() if k not in {"symbol", "timeframe", "open_time"}},
+                    )
+                    await session.execute(stmt)
+                    total_upserted += 1
+
+            if total_upserted > 0:
+                await session.commit()
+                logger.info(
+                    "Twelve Data gap heal: %d bars for %s %s [%s -> %s]",
+                    total_upserted, symbol, timeframe,
+                    start_str, end_str,
                 )
-                await session.execute(stmt)
-                total_upserted += 1
-
-            await session.commit()
-
-            last_returned_ms = int(klines[-1][0])
-            next_start_ms = last_returned_ms + step_ms
-            if next_start_ms <= curr_start_ms:
-                # Tránh vòng lặp vô tận
-                curr_start_ms += 1000 * step_ms
-            else:
-                curr_start_ms = next_start_ms
-
-            if len(klines) < 1000:
-                # Đã lấy hết dữ liệu tới thời điểm hiện tại
-                break
-
-        return total_upserted
+            return total_upserted
+        except Exception as exc:
+            logger.warning("Twelve Data gap heal failed for %s %s: %s", symbol, timeframe, exc)
+            return 0
 
     async def synthesize_higher_timeframes_from_m1(
         self,
@@ -311,6 +329,7 @@ class CandleGapHealer:
     ) -> dict[str, Any]:
         """
         Quét toàn diện tất cả các khung thời gian và bù đắp toàn bộ nến bị thiếu.
+        Ưu tiên MT5 nếu bridge kết nối được, fallback Binance nếu không.
         """
         if self.is_healing:
             return {"status": "in_progress", "healed": {}}
@@ -319,6 +338,17 @@ class CandleGapHealer:
         healed_summary: dict[str, int] = {}
         now_utc = datetime.now(timezone.utc)
         self.last_check_at = now_utc
+
+        # Kiểm tra MT5 connection một lần
+        use_mt5 = False
+        try:
+            from data_ingestion.mt5_feed import MT5Feed
+            mt5_feed = MT5Feed()
+            use_mt5 = await mt5_feed.is_connected()
+            if use_mt5:
+                logger.info("CandleGapHealer: MT5 bridge connected, will use MT5 for gap healing.")
+        except Exception:
+            pass
 
         try:
             timeout = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
@@ -349,6 +379,7 @@ class CandleGapHealer:
                                     start_time=gap_start,
                                     end_time=gap_end,
                                     http=http,
+                                    use_mt5=use_mt5,
                                 )
                                 tf_healed += count
 
@@ -399,7 +430,10 @@ class CandleGapHealer:
                 if newest
                 else None
             )
-            is_synced = bool(newest and (now_utc - newest).total_seconds() < secs * 2.0)
+            if symbol.upper() == "XAUUSD" and is_xauusd_market_closed(now_utc) and newest:
+                is_synced = is_natural_market_break(newest, now_utc)
+            else:
+                is_synced = bool(newest and (now_utc - newest).total_seconds() < secs * 2.0)
 
             summary[tf] = {
                 "count": count,

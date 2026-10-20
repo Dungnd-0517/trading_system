@@ -479,20 +479,20 @@ class StrategyGovernor:
 
         # 5. Xây dựng nội dung bản tin (Briefing Text Markdown)
         briefing_text = (
-            f"🏛️ **BẢN TIN ĐIỀU HÀNH CHIẾN LƯỢC (EXECUTIVE BRIEFING)**\n"
-            f"⏱️ *Thời gian phát hành:* {now_str} | *Chỉ huy:* Strategy Governor (CRO)\n\n"
-            f"**1. Bối cảnh Vĩ mô & Sự kiện (News & Event Agent):**\n"
+            f"🏛️ **BẢN TIN ĐIỀU HÀNH CHIẾN LƯỢC (EXECUTIVE BRIEFING - ARBITER CRO)**\n"
+            f"⏱️ *Thời gian phát hành:* {now_str} | *Chỉ huy:* Arbiter - Strategy Governor (CRO)\n\n"
+            f"**1. Bối cảnh Vĩ mô & Sự kiện (Sentinel - News & Event Agent):**\n"
             f"- Điểm cảm xúc vĩ mô: **{sentiment_score:+.2f}** ({macro_bias})\n"
             f"- Trạng thái Circuit Breaker: **{cb_status}**\n"
             f"- Chi tiết: {cb_reason}\n\n"
-            f"**2. Cấu trúc Kỹ thuật Đa Trường phái (Technical RAG Agent):**\n"
+            f"**2. Cấu trúc Kỹ thuật Đa Trường phái (Vector - Technical RAG Agent):**\n"
             f"- Trạng thái biến động (Regime): **{regime}** (ATR M15: {current_atr:.1f} pts)\n"
             f"- Thiên hướng kỹ thuật: **{tech_bias}** (Độ tin cậy: {tech_conf}%)\n"
             f"- Hợp lưu: Wyckoff, ICT, CMT, SMC & Traps đang duy trì cấu trúc nhất quán.\n\n"
-            f"**3. Phản tư & Phòng ngừa Sai lầm (Reflexion Agent):**\n"
+            f"**3. Phản tư & Phòng ngừa Sai lầm (Scribe - Reflexion Agent):**\n"
             f"- Tỷ lệ lệnh thua gần đây: **{recent_losses}/10 lệnh**\n"
             f"- Nhóm sai lầm cảnh báo: **{mistake_str}**\n\n"
-            f"**4. Chỉ thị Quản trị Rủi ro Hiện hành (Governor Mandate):**\n"
+            f"**4. Chỉ thị Quản trị Rủi ro Hiện hành (Arbiter / Governor Mandate):**\n"
             f"- Trạng thái: **{allowed_str}**\n"
             f"- Rủi ro áp dụng: **{params.get('risk_per_trade_percent', 1.0):.2f}%** / lệnh (Biên an toàn [0.25%, 1.50%])\n"
             f"- ATR SL Multiplier: **{params.get('atr_sl_multiplier', 1.5):.2f}x**\n"
@@ -558,6 +558,8 @@ class StrategyGovernor:
         message: str,
         session: AsyncSession,
         is_test: bool = False,
+        conversation_id: int | None = None,
+        client_msg_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Kênh đối thoại hai chiều Trader - Governor:
@@ -638,6 +640,9 @@ class StrategyGovernor:
         # 2. Lưu tin nhắn của Trader vào agent_trader_dialogue
         is_command = bool(risk_match or atr_match or rr_match or is_pause or is_resume or is_briefing_request)
         trader_msg = AgentTraderDialogue(
+            conversation_id=conversation_id,
+            client_msg_id=client_msg_id,
+            target_agent="GOVERNOR",
             sender="TRADER",
             message_type="COMMAND" if is_command else "TEXT",
             content=message_clean,
@@ -807,6 +812,8 @@ class StrategyGovernor:
 
         # 7. Ghi nhận phản hồi của Governor vào agent_trader_dialogue
         gov_msg = AgentTraderDialogue(
+            conversation_id=conversation_id,
+            target_agent="GOVERNOR",
             sender="GOVERNOR",
             message_type=msg_type,
             content=reply_text,
@@ -829,14 +836,17 @@ class StrategyGovernor:
                 "agent:trader:dialogue",
                 json.dumps({
                     "type": "agent.dialogue.message",
+                    "conversation_id": conversation_id,
                     "trader_message": {
                         "id": trader_msg.id,
+                        "conversation_id": conversation_id,
                         "sender": trader_msg.sender,
                         "content": trader_msg.content,
                         "timestamp": trader_msg.timestamp.isoformat(),
                     },
                     "governor_message": {
                         "id": gov_msg.id,
+                        "conversation_id": conversation_id,
                         "sender": gov_msg.sender,
                         "message_type": gov_msg.message_type,
                         "content": gov_msg.content,
@@ -912,16 +922,15 @@ class StrategyGovernor:
         await session.refresh(gov_confirm)
 
         try:
-            await redis_client.publish(
-                "governor:approval_response",
-                json.dumps({
-                    "type": "governor.approval_response",
-                    "dialogue_id": dialogue_id,
-                    "action": action_upper,
-                    "status": new_status,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }),
-            )
+            event_payload = json.dumps({
+                "type": "governor.approval_response",
+                "dialogue_id": dialogue_id,
+                "action": action_upper,
+                "status": new_status,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            await redis_client.publish("governor:approval_response", event_payload)
+            await redis_client.publish("agent:trader:dialogue", event_payload)
         except Exception as e:
             logger.warning("Failed to publish approval response: %s", e)
 

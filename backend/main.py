@@ -34,6 +34,11 @@ async def lifespan(_: FastAPI):
             await rag_service.ingest_all_knowledge()
     except Exception:
         pass
+    try:
+        from ai_engine.knowledge_ingestor import knowledge_ingestion_engine
+        await knowledge_ingestion_engine.seed_baseline_standardized_strategies()
+    except Exception:
+        pass
     news_task = asyncio.create_task(NewsCollector().run(), name="news-collector")
     chart_task = asyncio.create_task(ChartStreamer().run(), name="chart-streamer")
     paper_task = asyncio.create_task(paper_worker.run(), name="paper-worker")
@@ -80,7 +85,22 @@ app.include_router(api_router, prefix="/api/v1")
 async def health() -> dict[str, object]:
     database_ok = await ping_database()
     redis_ok = await ping_redis()
+    
+    mt5_status = {"mt5_connected": False, "status": "unavailable"}
+    try:
+        from data_ingestion.mt5_feed import MT5Feed
+        mt5_status = await MT5Feed().health()
+    except Exception as exc:
+        mt5_status = {"mt5_connected": False, "status": "unavailable", "error": str(exc)}
+
+    mt5_ok = bool(mt5_status.get("mt5_connected", False))
+
     return {
         "status": "ok" if database_ok and redis_ok else "degraded",
-        "services": {"postgres": database_ok, "redis": redis_ok},
+        "services": {
+            "postgres": database_ok,
+            "redis": redis_ok,
+            "mt5_bridge": mt5_ok,
+        },
+        "mt5_bridge": mt5_status,
     }

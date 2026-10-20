@@ -129,19 +129,19 @@ async function submitOverride() {
       <div class="header-actions">
         <button
           class="action-btn"
-          title="Kênh đối thoại Trader - Governor & HITL"
+          title="Kênh đối thoại Trader - Governor & HITL (Chat CRO)"
+          aria-label="Chat CRO"
           @click="emit('open-dialogue')"
         >
-          <MessageSquare :size="12" />
-          <span>Chat CRO</span>
+          <MessageSquare :size="13" />
         </button>
         <button
           class="action-btn"
           title="Mở Thư viện Tri thức RAG"
+          aria-label="Thư viện RAG"
           @click="emit('open-knowledge')"
         >
-          <BookOpen :size="12" />
-          <span>RAG</span>
+          <BookOpen :size="13" />
         </button>
         <button
           class="action-btn"

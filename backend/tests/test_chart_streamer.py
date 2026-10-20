@@ -51,12 +51,12 @@ def test_mt5_tick_rolls_to_new_candle():
     assert event["volume"]["color"] == "up"
 
 
-def test_binance_kline_keeps_traded_volume_unit():
+def test_kline_keeps_traded_volume_unit():
     aggregator = CandleAggregator()
 
     event = aggregator.ingest_kline(
         {
-            "symbol": "BTCUSDT",
+            "symbol": "BTCUSD",
             "timestamp": 1_790_942_400_000,
             "open": 100.0,
             "high": 102.0,
@@ -67,17 +67,17 @@ def test_binance_kline_keeps_traded_volume_unit():
     )
 
     assert event is not None
-    assert event["symbol"] == "BTCUSDT"
+    assert event["symbol"] == "BTCUSD"
     assert event["volume"]["value"] == 12.5
     assert event["volume"]["unit"] == "base_asset_quantity"
 
 
-def test_binance_paxgusdt_mapped_to_xauusd_with_synthetic_spread():
+def test_twelve_data_xau_usd_mapped_to_xauusd():
     aggregator = CandleAggregator()
 
     event = aggregator.ingest_kline(
         {
-            "symbol": "PAXGUSDT",
+            "symbol": "XAU/USD",
             "timestamp": 1_790_942_400_000,
             "open": 2685.0,
             "high": 2688.0,
@@ -115,7 +115,7 @@ def test_candle_aggregator_supports_all_six_timeframes():
     # Ingest kline should also produce events for all 6 timeframes
     kline_events = aggregator.ingest_kline(
         {
-            "symbol": "PAXGUSDT",
+            "symbol": "XAU/USD",
             "timestamp": timestamp_ms + 60_000,
             "open": 2685.0,
             "high": 2690.0,

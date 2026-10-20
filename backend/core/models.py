@@ -19,7 +19,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 
 
@@ -40,6 +40,8 @@ class MarketCandle(Base):
     low: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     close: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     volume: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    data_source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="twelvedata")
+    """Nguồn dữ liệu: 'mt5' (MetaTrader5 bridge), 'twelvedata' (Twelve Data Spot Gold XAU/USD), 'synthetic' (tổng hợp M1)"""
 
 
 class FinancialNews(Base):
@@ -274,6 +276,7 @@ class TradingKnowledge(Base):
         Index("idx_trading_knowledge_school", "school_of_thought"),
         Index("idx_trading_knowledge_source_type", "source_type"),
         Index("idx_trading_knowledge_metadata", "metadata", postgresql_using="gin"),
+        Index("idx_trading_knowledge_is_test", "is_test"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -286,6 +289,8 @@ class TradingKnowledge(Base):
     source_type: Mapped[str] = mapped_column(
         String(64), default="SYSTEM_CORE", server_default=text("'SYSTEM_CORE'"), nullable=False
     )
+    source_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     verified_by_trader: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
@@ -300,6 +305,38 @@ class TradingKnowledge(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
+
+class StandardizedTradingStrategy(Base):
+    __tablename__ = "standardized_trading_strategies"
+    __table_args__ = (
+        Index("idx_std_strategies_school", "school_of_thought"),
+        Index("idx_std_strategies_is_test", "is_test"),
+        Index("idx_std_strategies_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    school_of_thought: Mapped[str] = mapped_column(String(64), nullable=False)
+    timeframe_focus: Mapped[str] = mapped_column(String(32), default="M15", server_default=text("'M15'"), nullable=False)
+    target_risk_reward: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("2.00"), server_default=text("2.00"), nullable=False)
+    philosophy: Mapped[str] = mapped_column(Text, nullable=False)
+    setup_checklist: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False)
+    entry_rules: Mapped[str] = mapped_column(Text, nullable=False)
+    stop_loss_rules: Mapped[str] = mapped_column(Text, nullable=False)
+    take_profit_rules: Mapped[str] = mapped_column(Text, nullable=False)
+    invalidation_conditions: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_guardrails: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False)
+    source_documents: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False)
+    system_file_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
 
 class EpisodicTradeMemory(Base):
@@ -353,14 +390,54 @@ class AgentDecisionLog(Base):
     is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
 
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+    __table_args__ = (
+        Index("idx_chat_conversations_updated_at", "updated_at"),
+        Index("idx_chat_conversations_is_pinned", "is_pinned"),
+        Index("idx_chat_conversations_is_test", "is_test"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    title: Mapped[str] = mapped_column(
+        String(255), default="Cuộc trò chuyện mới", server_default=text("'Cuộc trò chuyện mới'"), nullable=False
+    )
+    agent_target: Mapped[str] = mapped_column(
+        String(64), default="GOVERNOR", server_default=text("'GOVERNOR'"), nullable=False
+    )
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    metadata_: Mapped[dict[str, object]] = mapped_column(
+        "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
+    dialogues: Mapped[list["AgentTraderDialogue"]] = relationship(
+        "AgentTraderDialogue", back_populates="conversation", cascade="all, delete-orphan"
+    )
+
+
 class AgentTraderDialogue(Base):
     __tablename__ = "agent_trader_dialogue"
     __table_args__ = (
         Index("idx_agent_trader_dialogue_timestamp", "timestamp"),
         Index("idx_agent_trader_dialogue_is_test", "is_test"),
+        Index("idx_agent_trader_dialogue_conv_id", "conversation_id"),
+        Index("idx_agent_trader_dialogue_client_msg_id", "client_msg_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=True
+    )
+    client_msg_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_agent: Mapped[str] = mapped_column(
+        String(64), default="GOVERNOR", server_default=text("'GOVERNOR'"), nullable=False
+    )
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     sender: Mapped[str] = mapped_column(String(32), nullable=False)  # 'TRADER', 'GOVERNOR'
     message_type: Mapped[str] = mapped_column(String(32), nullable=False)  # 'TEXT', 'COMMAND', 'BRIEFING', 'APPROVAL_REQUEST', 'OVERRIDE_CONFIRM'
@@ -370,5 +447,7 @@ class AgentTraderDialogue(Base):
     )
     approval_status: Mapped[str | None] = mapped_column(String(32))  # 'PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'
     is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
+    conversation: Mapped[ChatConversation | None] = relationship("ChatConversation", back_populates="dialogues")
 
 

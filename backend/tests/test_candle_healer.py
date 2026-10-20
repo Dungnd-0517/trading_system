@@ -6,18 +6,17 @@ from unittest.mock import AsyncMock, MagicMock
 from backend.data_ingestion.candle_healer import (
     CandleGapHealer,
     TIMEFRAMES,
-    resolve_binance_symbol,
 )
+from backend.data_ingestion.twelve_data_client import resolve_twelve_data_symbol
 from backend.core.models import MarketCandle
 
 
-def test_resolve_binance_symbol():
-    assert resolve_binance_symbol("XAUUSD") == "PAXGUSDT"
-    assert resolve_binance_symbol("xau") == "PAXGUSDT"
-    assert resolve_binance_symbol("gold") == "PAXGUSDT"
-    assert resolve_binance_symbol("BTCUSD") == "BTCUSDT"
-    assert resolve_binance_symbol("ETHUSD") == "ETHUSDT"
-    assert resolve_binance_symbol("SOLUSDT") == "SOLUSDT"
+def test_resolve_twelve_data_symbol():
+    assert resolve_twelve_data_symbol("XAUUSD") == "XAU/USD"
+    assert resolve_twelve_data_symbol("xau") == "XAU/USD"
+    assert resolve_twelve_data_symbol("gold") == "XAU/USD"
+    assert resolve_twelve_data_symbol("BTCUSD") == "BTC/USD"
+    assert resolve_twelve_data_symbol("EURUSD") == "EUR/USD"
 
 
 @pytest.mark.anyio
@@ -68,3 +67,34 @@ async def test_detect_internal_gaps():
     gaps = await healer.detect_gaps(session, "XAUUSD", "M1", lookback_hours=24)
     internal_found = any(gap[0] == datetime.fromtimestamp(c2.timestamp() + 60, timezone.utc) for gap in gaps)
     assert internal_found is True
+
+
+@pytest.mark.anyio
+async def test_detect_gaps_skips_weekend_break():
+    healer = CandleGapHealer()
+    session = AsyncMock()
+
+    # Thứ Sáu 2026-10-09 20:59:00 UTC (nến cuối cùng trước khi đóng cửa 21:00 UTC)
+    fri_close = datetime(2026, 10, 9, 20, 59, 0, tzinfo=timezone.utc)
+    # Chủ Nhật 2026-10-11 22:00:00 UTC (nến đầu tiên khi mở cửa tuần mới)
+    sun_open = datetime(2026, 10, 11, 22, 0, 0, tzinfo=timezone.utc)
+
+    # Giả lập > 300 nến trước đó
+    candles = [datetime.fromtimestamp(fri_close.timestamp() - 60 * i, timezone.utc) for i in range(350, 0, -1)]
+    candles.append(fri_close)
+    candles.append(sun_open)
+    # Thêm nến sau đó
+    candles.append(datetime.fromtimestamp(sun_open.timestamp() + 60, timezone.utc))
+
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = candles
+    session.scalars.return_value = mock_scalars
+
+    gaps = await healer.detect_gaps(session, "XAUUSD", "M1", lookback_hours=72)
+    # Khoảng cách giữa fri_close và sun_open là nghỉ cuối tuần, KHÔNG ĐƯỢC coi là gap
+    weekend_gap_detected = any(
+        gap[0] > fri_close and gap[1] <= sun_open
+        for gap in gaps
+    )
+    assert weekend_gap_detected is False
+

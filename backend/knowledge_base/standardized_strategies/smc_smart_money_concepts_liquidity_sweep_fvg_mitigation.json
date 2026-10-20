@@ -1,0 +1,70 @@
+{
+  "slug": "smc_smart_money_concepts_liquidity_sweep_fvg_mitigation",
+  "name": "Chiến lược SMC Smart Money Concepts - Liquidity Sweep & FVG Mitigation",
+  "school_of_thought": "SMC",
+  "timeframe_focus": "D1 -> H1 -> M15",
+  "target_risk_reward": 2.0,
+  "philosophy": "Phân tích cấu trúc dòng tiền tổ chức (Smart Money Concepts): Xác định xu hướng HTF (D1/H4), vùng cung cầu mất cân bằng POI (Order Block, FVG) tại vùng Discount/Premium và xác nhận tín hiệu kích hoạt M15 CHoCH.",
+  "setup_checklist": [
+    {
+      "id": "s1",
+      "label": "HTF Trend / Bias trên D1 & H4 đồng thuận (D1/H4 Alignment)",
+      "required": true
+    },
+    {
+      "id": "s2",
+      "label": "Xác định POI H1 (OB hoặc FVG) nằm đúng vùng Discount (BUY) hoặc Premium (SELL)",
+      "required": true
+    },
+    {
+      "id": "s3",
+      "label": "Thời điểm giao dịch nằm trong Kill Zone London hoặc New York AM",
+      "required": true
+    },
+    {
+      "id": "s4",
+      "label": "Giá nhúng vào vùng POI H1 (Tap POI)",
+      "required": true
+    },
+    {
+      "id": "s5",
+      "label": "Xuất hiện tín hiệu đảo chiều cấu trúc M15 CHoCH kèm displacement",
+      "required": true
+    },
+    {
+      "id": "s6",
+      "label": "Tỷ lệ R:R tiềm năng ≥ 1:2.0",
+      "required": true
+    },
+    {
+      "id": "s7",
+      "label": "Không có tin tức vĩ mô 3 sao trong vòng 30 phút",
+      "required": true
+    }
+  ],
+  "entry_rules": "Mở lệnh khi giá hồi quy nhẹ về OB nội phiên M15 sau khi đã hình thành CHoCH rõ rệt.",
+  "stop_loss_rules": "Đặt Stop Loss cách đáy POI M15 1.5x ATR.",
+  "take_profit_rules": "TP1 tại 1:2.0R (chốt 50%, dời SL hòa vốn); TP2 tại đỉnh Swing High H1 (1:3.0R).",
+  "invalidation_conditions": "Giá nến M15 đóng cửa xuyên thủng hoàn toàn vùng POI H1.",
+  "risk_guardrails": {
+    "max_risk_per_trade_pct": 1.0,
+    "min_risk_per_trade_pct": 0.25,
+    "recommended_risk_pct": 0.5,
+    "min_risk_reward": 1.5,
+    "target_risk_reward": 2.0,
+    "max_daily_drawdown_limit_pct": 3.0,
+    "circuit_breaker_buffer_mins": 30
+  },
+  "source_documents": [
+    {
+      "source_type": "SYSTEM_CORE",
+      "source_name": "smc_trading_rules.md",
+      "ingested_at": "2026-10-16T04:35:58.738341+00:00"
+    }
+  ],
+  "system_file_path": null,
+  "json_content": null,
+  "markdown_content": null,
+  "created_at": null,
+  "updated_at": null
+}

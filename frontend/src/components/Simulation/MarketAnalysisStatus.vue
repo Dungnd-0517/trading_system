@@ -121,23 +121,27 @@ async function handleExecuteSetup() {
   executing.value = true
   actionMessage.value = ''
   try {
-    const side = setup.direction === 'BUY' ? 'BUY' : 'SELL'
+    const isBuy = String(setup.direction || '').toUpperCase().includes('BUY')
+    const side = isBuy ? 'BUY' : 'SELL'
+    const entryPrice = Number(setup.entry_price) || (activePrice.value ? Number(activePrice.value) : undefined)
     await orderStore.submitOrder({
       symbol: props.symbol,
-      side,
-      order_type: 'MARKET',
-      volume: calculatedLots.value,
+      order_type: side,
+      side: side,
+      lot_size: calculatedLots.value,
+      entry_price: entryPrice,
       stop_loss: Number(setup.stop_loss),
       take_profit: Number(setup.take_profit),
-      comment: `SMC_SETUP_${props.symbol}`,
+      strategy_trigger: `SMC_SETUP_${props.symbol}`,
     })
     actionMessageType.value = 'success'
-    actionMessage.value = `Đã kích hoạt lệnh ${side} ${calculatedLots.value} lot tại $${activePrice.value.toFixed(2)}!`
+    const displayPrice = entryPrice || activePrice.value || 0
+    actionMessage.value = `Đã kích hoạt lệnh ${side} ${calculatedLots.value} lot tại $${displayPrice.toFixed(2)}!`
     await loadAnalysis()
     setTimeout(() => { actionMessage.value = '' }, 6000)
   } catch (err) {
     actionMessageType.value = 'error'
-    actionMessage.value = err.message || 'Lỗi gửi lệnh theo Setup'
+    actionMessage.value = err.response?.data?.detail || err.message || 'Lỗi gửi lệnh theo Setup'
   } finally {
     executing.value = false
   }
