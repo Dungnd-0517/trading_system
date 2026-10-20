@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
-from core.models import SimulatedOrder, SimulationAccount
+from core.models import MarketCandle, SimulatedOrder, SimulationAccount
 from simulation.paper_worker import paper_worker
 
 router = APIRouter()
@@ -15,12 +15,15 @@ router = APIRouter()
 
 class OrderRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=16)
-    order_type: Literal["BUY", "SELL"]
-    lot_size: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+    order_type: Literal["BUY", "SELL", "MARKET"] = "BUY"
+    side: Literal["BUY", "SELL"] | None = None
+    lot_size: Decimal | None = Field(default=None, gt=0, max_digits=8, decimal_places=2)
+    volume: Decimal | None = Field(default=None, gt=0, max_digits=8, decimal_places=2)
     entry_price: Decimal | None = Field(default=None, max_digits=12, decimal_places=4)
     stop_loss: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     take_profit: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     strategy_trigger: str | None = Field(default=None, max_length=64)
+    comment: str | None = Field(default=None, max_length=64)
     is_test: bool = Field(default=False)
 
 
@@ -80,9 +83,25 @@ async def list_orders(
 
 
 @router.post("", status_code=201)
-async def create_order(request: OrderRequest) -> dict[str, object]:
+async def create_order(
+    request: OrderRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
     symbol = request.symbol.upper()
-    is_buy = request.order_type == "BUY"
+
+    # Resolve order side
+    resolved_side = "BUY"
+    if request.side in ("BUY", "SELL"):
+        resolved_side = request.side
+    elif request.order_type in ("BUY", "SELL"):
+        resolved_side = request.order_type
+
+    is_buy = resolved_side == "BUY"
+
+    # Resolve lot size
+    resolved_lots = request.lot_size or request.volume
+    if resolved_lots is None or resolved_lots <= 0:
+        raise HTTPException(status_code=422, detail="lot_size or volume must be greater than 0")
 
     quote: tuple[float, float] | None = None
     if request.entry_price is not None:
@@ -90,23 +109,40 @@ async def create_order(request: OrderRequest) -> dict[str, object]:
         quote = (p, p)
         entry_val = p
     else:
-        q = paper_worker.latest_quotes.get(symbol, {"bid": 2685.0, "ask": 2685.2})
+        q = paper_worker.latest_quotes.get(symbol)
+        if not q or q.get("bid", 0) <= 0:
+            latest_c = (
+                await session.scalars(
+                    select(MarketCandle)
+                    .where(MarketCandle.symbol == symbol)
+                    .order_by(MarketCandle.open_time.desc())
+                    .limit(1)
+                )
+            ).first()
+            if latest_c:
+                c_close = float(latest_c.close)
+                q = {"bid": c_close, "ask": round(c_close + 0.20, 4)}
+            else:
+                q = {"bid": 4130.0, "ask": 4130.2}
         entry_val = q["ask"] if is_buy else q["bid"]
 
     if (is_buy and not float(request.stop_loss) < entry_val < float(request.take_profit)) or (
         not is_buy and not float(request.take_profit) < entry_val < float(request.stop_loss)
     ):
-        raise HTTPException(status_code=422, detail="Prices must be ordered entry/SL/TP for the side")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Prices must be ordered for {resolved_side}: entry ({entry_val:.2f}), SL ({float(request.stop_loss):.2f}), TP ({float(request.take_profit):.2f})",
+        )
 
     try:
         result = await paper_worker.open_order(
             symbol=symbol,
-            side=request.order_type,
-            lots=float(request.lot_size),
+            side=resolved_side,
+            lots=float(resolved_lots),
             stop_loss=float(request.stop_loss),
             take_profit=float(request.take_profit),
-            strategy_trigger=request.strategy_trigger,
-            quote=quote,
+            strategy_trigger=request.strategy_trigger or request.comment,
+            quote=quote or (q["bid"], q["ask"]),
             is_test=request.is_test,
         )
         return result

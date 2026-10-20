@@ -1,9 +1,28 @@
 const baseUrl = '/api/v1'
 
+async function handleResponse(response) {
+  if (!response.ok) {
+    let message = `API ${response.status}`
+    try {
+      const err = await response.json()
+      if (err?.detail) {
+        message = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail)
+      } else if (err?.message) {
+        message = err.message
+      }
+    } catch {
+      // ignore json parse error
+    }
+    const error = new Error(message)
+    error.status = response.status
+    throw error
+  }
+  return response.json()
+}
+
 async function get(path) {
   const response = await fetch(`${baseUrl}${path}`)
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  return response.json()
+  return handleResponse(response)
 }
 
 async function post(path, body = {}) {
@@ -12,8 +31,7 @@ async function post(path, body = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  return response.json()
+  return handleResponse(response)
 }
 
 async function put(path, body = {}) {
@@ -22,8 +40,7 @@ async function put(path, body = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  return response.json()
+  return handleResponse(response)
 }
 
 async function patch(path, body = {}) {
@@ -32,16 +49,14 @@ async function patch(path, body = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  return response.json()
+  return handleResponse(response)
 }
 
 async function del(path) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'DELETE',
   })
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  return response.json()
+  return handleResponse(response)
 }
 
 export const fetchHealth = () => fetch('/health').then((response) => response.json())

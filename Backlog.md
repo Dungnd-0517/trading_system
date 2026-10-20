@@ -1,5 +1,48 @@
 # Backlog cập nhật
 
+## 2026-10-20 16:50 +07:00
+
+### [Bug Fix]: Sửa Lỗi API 422 Khi Bấm Nút "Kích Hoạt Theo Setup" Trong Khối Phân Tích Kỹ Thuật SMC
+
+- **Bối cảnh & Nguyên nhân lỗi (Root Cause):**
+  - Khi người dùng bấm nút **"Kích hoạt theo Setup"** tại Mục "4. Dự đoán Điểm vào lệnh khi đủ điều kiện" trên giao diện Trading Cockpit, hệ thống trả về thông báo lỗi màu đỏ `API 422` và không thể tạo lệnh.
+  - Sau khi rà soát toàn bộ luồng frontend và backend, phát hiện 3 nguyên nhân cốt lõi:
+    1. **Frontend (`MarketAnalysisStatus.vue`):**
+       - Trường `direction` trả về từ API `/api/v1/market/analysis` mang giá trị `"BUY ON TRIGGER"` hoặc `"SELL ON TRIGGER"`.
+       - Logic kiểm tra cũ `setup.direction === 'BUY'` bị sai lệch (trả về `false`), dẫn đến biến `side` mặc định thành `'SELL'` dù kịch bản là BUY.
+       - Payload gửi lên backend sử dụng thuộc tính `order_type: 'MARKET'` và `volume: calculatedLots.value`, đồng thời thiếu `entry_price`.
+    2. **Backend Validation Schema (`backend/api/v1/orders.py`):**
+       - Pydantic schema `OrderRequest` trước đây ràng buộc khắt khe `order_type: Literal["BUY", "SELL"]` và bắt buộc `lot_size: Decimal` (không chấp nhận `volume` hay `order_type: 'MARKET'`). Do đó, FastAPI lập tức chặn lại và ném lỗi HTTP `422 Unprocessable Entity`.
+       - Trong trường hợp không truyền `entry_price`, backend dùng giá quote fallback cố định lỗi thời `(bid: 2685.0, ask: 2685.2)`. Khi kiểm tra logic giá `stop_loss < entry < take_profit` so với mức giá thực tế của Vàng hiện tại (~$4130), điều kiện bị vi phạm và trả về `422: Prices must be ordered entry/SL/TP for the side`.
+    3. **Frontend API Error Formatting (`frontend/src/services/api.js`):**
+       - Các hàm `get`, `post`, `put`, `del` chỉ bắt `!response.ok` và ném `new Error('API ' + response.status)` mà không trích xuất `detail` từ JSON response của backend, khiến người dùng chỉ thấy mã `API 422` mà không rõ nguyên nhân chi tiết.
+
+- **Các Hạng Mục Đã Sửa Đổi & Tối Ưu:**
+  1. **Nâng Cấp Schema & Xử Lý API Orders Backend (`backend/api/v1/orders.py`):**
+     - Mở rộng Pydantic schema `OrderRequest`:
+       - Hỗ trợ `order_type: Literal["BUY", "SELL", "MARKET"] = "BUY"`.
+       - Bổ sung `side: Literal["BUY", "SELL"] | None = None`.
+       - Hỗ trợ linh hoạt cả hai tên trường khối lượng `lot_size: Decimal | None = None` và `volume: Decimal | None = None`.
+       - Bổ sung trường `comment: str | None = None`.
+     - Tự động chuẩn hóa `resolved_side`: Bóc tách thông minh từ `order_type` hoặc `side` (hỗ trợ cả các chuỗi `"BUY ON TRIGGER"` / `"SELL ON TRIGGER"`).
+     - Tự động fallback lấy giá thị trường thực tế mới nhất từ bảng CSDL `MarketCandle` nếu thiếu `entry_price` hoặc streamer quotes chưa sẵn sàng (thay vì dùng giá tĩnh 2685.0).
+  2. **Cập Nhật Fallback Quote Paper Engine (`backend/simulation/paper_worker.py`):**
+     - Cập nhật giá quote dự phòng sang mức giá vàng thực tế hiện tại (~4130.0).
+  3. **Tối Ưu Frontend Execution Handler (`frontend/src/components/Simulation/MarketAnalysisStatus.vue`):**
+     - Cập nhật `handleExecuteSetup()`:
+       - Chuẩn hóa hướng lệnh bằng `String(setup.direction || '').toUpperCase().includes('BUY')`.
+       - Truyền đầy đủ cả `order_type`, `side`, `lot_size`, `entry_price` (ưu tiên `setup.entry_price` hoặc `activePrice.value`), `stop_loss`, `take_profit`, và `strategy_trigger`.
+  4. **Tăng Cường Error Handling Trong Frontend API Service (`frontend/src/services/api.js`):**
+     - Xây dựng hàm `handleResponse(response)` trích xuất chi tiết trường `detail` hoặc `message` từ response JSON để hiển thị thông báo lỗi rõ ràng, trực quan cho người dùng.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Kiểm thử gửi lệnh trực tiếp:** Gửi request tạo lệnh mua theo đúng thông số trên giao diện (`XAUUSD`, `BUY`, lot `0.05`, entry `4131.40`, SL `4112.07`, TP `4196.87`), backend phản hồi thành công **HTTP 201 Created** (`status: FILLED`).
+  - **Kiểm thử tương thích ngược:** Gửi request với định dạng cũ (`order_type: 'MARKET'`, `volume: 0.05`), backend tự động chuẩn hóa và tạo lệnh thành công **HTTP 201 Created**.
+  - **Toàn bộ Backend Test Suite:** Chạy `docker exec trading_backend pytest` đạt **134/134 tests PASSED 100%**.
+  - **Biên dịch Frontend:** `npm run build` hoàn thành thành công trong **5.48s**.
+
+---
+
 ## 2026-10-20 16:15 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Sửa Lỗi Tạo Nến Doji Giả Trong Khung Giờ Gap (Thị Trường Đóng Cửa), Định Nghĩa Khung Giờ Chuẩn XAUUSD & Full Resync Dữ Liệu Nến Database

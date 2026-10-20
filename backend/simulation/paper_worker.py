@@ -152,7 +152,7 @@ class PaperEngineWorker(BaseOrderExecutor):
         if quote is not None:
             bid, ask = quote
         else:
-            q = self.latest_quotes.get(symbol, {"bid": 2685.0, "ask": 2685.2})
+            q = self.latest_quotes.get(symbol, {"bid": 4130.0, "ask": 4130.2})
             bid, ask = q["bid"], q["ask"]
 
         # 1. Khớp lệnh in-memory qua PaperEngine
