@@ -24,6 +24,12 @@ TIMEFRAMES = {
     "D1": 86400,
 }
 
+from data_ingestion.market_hours import (
+    filter_valid_xauusd_candles,
+    is_natural_market_break,
+    is_xauusd_market_closed,
+    is_xauusd_trading_hour,
+)
 from data_ingestion.twelve_data_client import (
     TIMEFRAME_TO_TWELVE_DATA,
     resolve_twelve_data_symbol,
@@ -86,9 +92,12 @@ class CandleGapHealer:
         trailing_diff = (now_utc - latest_time).total_seconds()
         # Cho phép dung sai 1.5 chu kỳ nến
         if trailing_diff >= interval_secs * 1.5:
-            # Gap bắt đầu từ chu kỳ kế tiếp của latest_time
             gap_start = datetime.fromtimestamp(latest_time.timestamp() + interval_secs, timezone.utc)
-            gaps.append((gap_start, now_utc))
+            # Nếu thị trường XAUUSD đang đóng cửa hoặc khoảng cách hoàn toàn là giờ nghỉ phiên -> không coi là gap
+            if symbol.upper() == "XAUUSD" and (is_xauusd_market_closed(now_utc) or is_natural_market_break(latest_time, now_utc)):
+                pass
+            else:
+                gaps.append((gap_start, now_utc))
 
         # 2. Kiểm tra Internal Gaps (đứt gãy giữa các nến)
         for i in range(len(rows) - 1):
@@ -96,6 +105,9 @@ class CandleGapHealer:
             next_time = rows[i + 1]
             diff = (next_time - curr_time).total_seconds()
             if diff >= interval_secs * 1.5:
+                # Kiểm tra xem khoảng đứt gãy có phải là nghỉ phiên tự nhiên (Weekend / Daily Break) không
+                if symbol.upper() == "XAUUSD" and is_natural_market_break(curr_time, next_time):
+                    continue
                 # Có nến bị thiếu ở giữa
                 gap_start = datetime.fromtimestamp(curr_time.timestamp() + interval_secs, timezone.utc)
                 gap_end = datetime.fromtimestamp(next_time.timestamp() - interval_secs, timezone.utc)
@@ -148,6 +160,8 @@ class CandleGapHealer:
                         total = 0
                         for candle in candles:
                             ot = datetime.fromtimestamp(int(candle["time"]), timezone.utc)
+                            if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(ot):
+                                continue
                             values = {
                                 "symbol": symbol,
                                 "timeframe": timeframe,
@@ -202,20 +216,14 @@ class CandleGapHealer:
             candles = await twelve_data_client.fetch_time_series(
                 symbol=symbol,
                 timeframe=timeframe,
-                outputsize=needed_bars,
-                start_date=start_str,
-                end_date=end_str,
+                outputsize=max(needed_bars, 100),
             )
-            if not candles:
-                candles = await twelve_data_client.fetch_time_series(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    outputsize=min(needed_bars, 500),
-                )
 
             total_upserted = 0
             for item in candles:
                 c_time = int(item["time"])
+                if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(c_time):
+                    continue
                 if start_time.timestamp() - tf_secs <= c_time <= end_time.timestamp() + tf_secs:
                     open_time = datetime.fromtimestamp(c_time, timezone.utc)
                     values = {
@@ -422,7 +430,10 @@ class CandleGapHealer:
                 if newest
                 else None
             )
-            is_synced = bool(newest and (now_utc - newest).total_seconds() < secs * 2.0)
+            if symbol.upper() == "XAUUSD" and is_xauusd_market_closed(now_utc) and newest:
+                is_synced = is_natural_market_break(newest, now_utc)
+            else:
+                is_synced = bool(newest and (now_utc - newest).total_seconds() < secs * 2.0)
 
             summary[tf] = {
                 "count": count,

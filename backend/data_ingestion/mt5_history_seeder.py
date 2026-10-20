@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import session_factory
 from core.models import MarketCandle
+from data_ingestion.market_hours import is_xauusd_trading_hour
 from data_ingestion.mt5_feed import MT5Feed
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,8 @@ async def upsert_candles_batch(
     upserted = 0
     for candle in candles:
         open_time = datetime.fromtimestamp(int(candle["time"]), timezone.utc)
+        if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(open_time):
+            continue
         values = {
             "symbol": symbol,
             "timeframe": timeframe,

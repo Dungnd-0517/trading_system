@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from core.database import session_factory
 from core.models import MarketCandle
 from core.redis_client import client as redis_client
+from data_ingestion.market_hours import is_xauusd_trading_hour
 from data_ingestion.mt5_feed import MT5Feed
 from data_ingestion.mt5_history_seeder import (
     MT5_DATA_START,
@@ -85,6 +86,11 @@ class CandleAggregator:
             seen.discard(order.popleft())
         self._last_timestamp_ms[symbol] = max(timestamp_ms, self._last_timestamp_ms.get(symbol, -1))
         timestamp_seconds = timestamp_ms // 1000
+
+        # Kiểm tra giờ giao dịch chuẩn của XAUUSD
+        if symbol == "XAUUSD" and not is_xauusd_trading_hour(timestamp_seconds):
+            return []
+
         events: list[dict[str, object]] = []
 
         for timeframe, seconds in self.timeframes.items():
@@ -135,6 +141,11 @@ class CandleAggregator:
             ask = None
 
         time_seconds = timestamp_ms // 1000
+
+        # Kiểm tra giờ giao dịch chuẩn của XAUUSD
+        if symbol == "XAUUSD" and not is_xauusd_trading_hour(time_seconds):
+            return None
+
         open_val = float(item["open"])
         high_val = float(item["high"])
         low_val = float(item["low"])
@@ -285,6 +296,8 @@ async def seed_history_for_timeframe(
                         b["volume"] += row.volume
 
                 for b in buckets.values():
+                    if target_symbol == "XAUUSD" and not is_xauusd_trading_hour(b["open_time"]):
+                        continue
                     values = {
                         "symbol": target_symbol,
                         "timeframe": timeframe,
@@ -498,10 +511,13 @@ class ChartStreamer:
                     volume = event["volume"]
                     assert isinstance(candle, dict)
                     assert isinstance(volume, dict)
+                    candle_time = int(candle["time"])
+                    if str(event["symbol"]) == "XAUUSD" and not is_xauusd_trading_hour(candle_time):
+                        continue
                     values = {
                         "symbol": str(event["symbol"]),
                         "timeframe": str(event["timeframe"]),
-                        "open_time": datetime.fromtimestamp(int(candle["time"]), timezone.utc),
+                        "open_time": datetime.fromtimestamp(candle_time, timezone.utc),
                         "open": candle["open"],
                         "high": candle["high"],
                         "low": candle["low"],

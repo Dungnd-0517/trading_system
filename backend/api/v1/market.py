@@ -11,11 +11,21 @@ from data_ingestion.chart_streamer import (
     TIMEFRAME_TO_TWELVE_DATA,
     seed_history_for_timeframe,
 )
+from data_ingestion.market_hours import (
+    is_natural_market_break,
+    is_xauusd_market_closed,
+    is_xauusd_trading_hour,
+)
 from data_ingestion.mt5_feed import MT5Feed
 from data_ingestion.mt5_history_seeder import (
     MT5_DATA_START,
     seed_all_mt5_history,
     check_needs_mt5_reseed,
+)
+from data_ingestion.resync_service import (
+    clear_candle_cache,
+    resync_candles_full,
+    trigger_client_chart_refresh,
 )
 
 router = APIRouter()
@@ -48,7 +58,10 @@ async def history(
     if not rows:
         needs_sync = True
     elif (now_ts - rows[0].open_time.timestamp()) > interval_secs * 2.5:
-        needs_sync = True
+        if symbol.upper() == "XAUUSD" and (is_xauusd_market_closed(now_ts) or is_natural_market_break(rows[0].open_time, datetime.now(timezone.utc))):
+            needs_sync = False
+        else:
+            needs_sync = True
 
     if needs_sync:
         # Ưu tiên thử MT5 trước
@@ -64,7 +77,10 @@ async def history(
                     from sqlalchemy.dialects.postgresql import insert as pg_insert
                     async with session.begin():
                         for c in candles:
-                            open_time = datetime.fromtimestamp(int(c["time"]), timezone.utc)
+                            c_time = int(c["time"])
+                            if symbol.upper() == "XAUUSD" and not is_xauusd_trading_hour(c_time):
+                                continue
+                            open_time = datetime.fromtimestamp(c_time, timezone.utc)
                             values = {
                                 "symbol": symbol,
                                 "timeframe": timeframe,
@@ -171,6 +187,31 @@ async def reconnect_mt5() -> dict[str, object]:
         return result
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+@router.post("/resync")
+async def resync_market_data(
+    symbol: str = "XAUUSD",
+    outputsize: int = Query(default=500, ge=50, le=5000),
+    force_purge: bool = Query(default=True, description="Xóa sạch dữ liệu nến cũ trước khi nạp lại"),
+) -> dict[str, object]:
+    """
+    [Admin/System] Kích hoạt quy trình Full Resync dữ liệu nến:
+    1. Clear toàn bộ cache nến trên Redis.
+    2. Purge sạch toàn bộ dữ liệu nến rác của cặp XAUUSD.
+    3. Lấy lại mảng nến lịch sử chuẩn từ Broker (MT5 hoặc Twelve Data), chỉ lấy nến thực tế trong giờ mở cửa.
+    4. Phát tín hiệu WebSocket REFRESH_CHART xuống Client để re-render Canvas Lightweight Charts.
+    """
+    result = await resync_candles_full(symbol=symbol, outputsize_per_tf=outputsize, force_purge=force_purge)
+    return result
+
+
+@router.post("/clear-cache")
+async def clear_cache_endpoint() -> dict[str, object]:
+    """[Admin] Xóa sạch toàn bộ cache nến trên Redis."""
+    count = await clear_candle_cache()
+    return {"status": "success", "cleared_keys": count}
+
 
 
 @router.get("/analysis")

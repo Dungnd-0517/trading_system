@@ -1,5 +1,60 @@
 # Backlog cập nhật
 
+## 2026-10-20 16:15 +07:00
+
+### [Update Phase 03 - Sprint 03]: Sửa Lỗi Tạo Nến Doji Giả Trong Khung Giờ Gap (Thị Trường Đóng Cửa), Định Nghĩa Khung Giờ Chuẩn XAUUSD & Full Resync Dữ Liệu Nến Database
+
+- **Bối cảnh & Vấn đề giải quyết:**
+  - Trước đây, khi thị trường Vàng đóng cửa vào cuối tuần hoặc nghỉ phiên ngày (Daily Break), hệ thống hoặc dữ liệu cũ (từ Binance PAXG 24/7) tự động sinh hàng trăm nến doji phẳng nằm ngang (open = high = low = close) trong database để bù đắp "khoảng trống".
+  - Hậu quả:
+    - Trên biểu đồ M15 và M5, xuất hiện dãy nến phẳng nằm ngang nhân tạo trong suốt thứ 7 và chủ nhật.
+    - Đường chỉ báo EMA 200 bị kéo bẹp và uốn cong lệch lạc do dính hàng trăm nến doji giả thay vì phản ánh đúng biến động giá thị trường thật.
+    - Bộ quét ngầm `CandleIntegrityWorker` liên tục báo mất đồng bộ (out of sync) và kích hoạt vá lỗ hổng trong giờ nghỉ phiên.
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Định Nghĩa Khung Giờ Hoạt Động Chuẩn Của XAUUSD (`backend/data_ingestion/market_hours.py`):**
+     - **Cuối tuần (Weekend Break):** Tạm dừng ghi nến từ **21:00 UTC Thứ Sáu (04:00 AM T7 VN)** đến **22:00 UTC Chủ Nhật (05:00 AM T2 VN)**.
+     - **Nghỉ phiên ngày (Daily Break):** Không tạo nến trong khoảng **21:00 UTC - 22:00 UTC hàng ngày**.
+     - Triển khai các hàm tiện ích: `is_xauusd_trading_hour()`, `is_xauusd_market_closed()`, `is_natural_market_break()`, `filter_valid_xauusd_candles()`.
+  2. **Bỏ Hoàn Toàn Cơ Chế Auto-Fill/Interpolate Nến Rỗng:**
+     - **Candle Healer (`backend/data_ingestion/candle_healer.py`):**
+       - Cập nhật `detect_gaps()`: Loại bỏ nhận diện gap đối với các khoảng nghỉ phiên tự nhiên (Weekend break và Daily break) cho cặp XAUUSD.
+       - Cập nhật `_update_status_summary()`: Nhận diện trạng thái đóng cửa của thị trường để không đánh dấu lệch đồng bộ ngoài giờ giao dịch.
+       - Trong `heal_range()` và `_heal_range_twelve_data()`: Chỉ lưu các nến thực tế từ Broker (MT5 / Twelve Data), nghiêm cấm tự sinh nến giả.
+     - **Chart Streamer (`backend/data_ingestion/chart_streamer.py`):**
+       - Bỏ qua toàn bộ tick và kline phát sinh ngoài giờ giao dịch của XAUUSD trong `ingest_tick()` và `ingest_kline()`.
+       - Lọc nến giờ đóng cửa trong `_emit()` và luồng tổng hợp timeframe.
+     - **Twelve Data Client & MT5 Seeder:**
+       - Tự động lọc sạch các nến rơi vào khung giờ đóng cửa trước khi lưu vào CSDL.
+  3. **Quy Trình Full Resync Tạo Lại Dữ Liệu Nến Lịch Sử Chuẩn (`backend/data_ingestion/resync_service.py`):**
+     - **Purge Data cũ:** Xóa toàn bộ **140,009 nến rác cũ** của cặp XAUUSD trên tất cả các timeframe (M1, M5, M15, H1, H4, D1).
+     - **Clear Cache Redis:** Xóa toàn bộ key cache `twelve_data:cache:*` và `market:candles:*`.
+     - **Re-fetch chuẩn Broker:** Nạp lại toàn bộ dữ liệu nến thực tế từ Broker (Twelve Data / MT5) cho 6 khung thời gian (M1: 557 nến, M5: 411 nến, M15: 303 nến, H1: 342 nến, H4: 308 nến, D1: 367 nến) — bảo đảm 100% nến sạch, 0 nến doji phẳng.
+     - **Trigger REFRESH_CHART:** Phát tín hiệu WebSocket `{"type": "REFRESH_CHART", "symbol": "XAUUSD"}` qua Redis Pub/Sub channel `market:ticks`.
+  4. **Frontend & Đường Chỉ Báo EMA (200) Tối Ưu:**
+     - [`frontend/src/App.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/App.vue): Bổ sung bộ bắt sự kiện `REFRESH_CHART` và `chart.refresh` từ WebSocket, tự động kích hoạt `marketStore.refresh()`.
+     - [`frontend/src/components/Chart/TradingViewChart.vue`](file:///c:/Users/nguye/OneDrive/Desktop/xau/frontend/src/components/Chart/TradingViewChart.vue): Đường chỉ báo EMA (200) tính toán trực tiếp trên chuỗi nến thực tế ngắt đoạn (có khoảng trống timeline/Gap). Tại điểm Gap mở phiên (từ nến đóng cửa Thứ 6 sang nến mở cửa Thứ 2), đường EMA nối liền mượt mà theo đúng giá thật và gãy khúc tự nhiên, không còn bị uốn cong méo mó bởi các nến giả.
+  5. **Endpoints REST API Mới (`backend/api/v1/market.py`):**
+     - `POST /api/v1/market/resync`: Kích hoạt pipeline Purge cũ -> Clear Cache -> Re-fetch Broker -> Broadcast REFRESH_CHART.
+     - `POST /api/v1/market/clear-cache`: Xóa cache Redis nhanh.
+     - Cập nhật `GET /api/v1/market/history`: Không kích hoạt sync sai lệch khi thị trường đang đóng cửa.
+  6. **CLI Script Quản Trị:**
+     - [`backend/scripts/resync_candles.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/scripts/resync_candles.py): Cho phép quản trị viên trigger Full Resync trực tiếp qua terminal.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Unit Tests Mới:**
+    - [`backend/tests/test_market_hours.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_market_hours.py): 5/5 tests PASSED (kiểm tra chuẩn xác từng mốc giờ Thứ 6 21:00 UTC, T7 cả ngày, CN trước 22:00 UTC, và Daily Break 21:00-22:00 UTC).
+    - [`backend/tests/test_resync_service.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_resync_service.py): 3/3 tests PASSED (kiểm tra Purge, Clear Cache, Filter và Broadcast REFRESH_CHART).
+    - [`backend/tests/test_candle_healer.py`](file:///c:/Users/nguye/OneDrive/Desktop/xau/backend/tests/test_candle_healer.py): 4/4 tests PASSED (bổ sung test kiểm tra bỏ qua weekend gap).
+  - **Backend Test Suite Toàn Diện:** Toàn bộ **134/134 tests PASSED 100%** trong Docker container.
+  - **Frontend Compilation:** Lệnh `npm run build` biên dịch thành công xuất sắc (4.71s), tạo bundle tối ưu trong `frontend/dist`.
+  - **Kiểm Định Dữ Liệu DB Thực Tế:**
+    - CSDL cặp XAUUSD: `doji_flat_count = 0` trên toàn bộ M1, M5, M15, H1, H4.
+    - Giữa Thứ 6 (2026-10-16 20:45 UTC) và Chủ Nhật (2026-10-18 22:00 UTC) là một khoảng trống Gap hoàn hảo, không còn bất kỳ nến phẳng nhân tạo nào.
+- **Trạng thái:** Hoàn thành xuất sắc toàn bộ yêu cầu của Task.
+
+---
+
 ## 2026-10-17 17:15 +07:00
 
 ### [Update Phase 03 - Sprint 03]: Thay Thế Hoàn Toàn Hệ Thống Fallback Dữ Liệu Dự Phòng Từ Binance API Sang Twelve Data API (Spot Gold XAU/USD)

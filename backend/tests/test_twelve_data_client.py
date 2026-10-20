@@ -76,7 +76,7 @@ async def test_fetch_time_series_chronological_ordering():
         "status": "ok",
         "values": [
             {
-                "datetime": "2026-10-17 10:02:00",
+                "datetime": "2026-10-16 10:02:00",
                 "open": "2730.0",
                 "high": "2732.0",
                 "low": "2729.0",
@@ -84,7 +84,7 @@ async def test_fetch_time_series_chronological_ordering():
                 "volume": "150",
             },
             {
-                "datetime": "2026-10-17 10:01:00",
+                "datetime": "2026-10-16 10:01:00",
                 "open": "2728.0",
                 "high": "2730.5",
                 "low": "2727.5",
@@ -92,7 +92,7 @@ async def test_fetch_time_series_chronological_ordering():
                 "volume": "120",
             },
             {
-                "datetime": "2026-10-17 10:00:00",
+                "datetime": "2026-10-16 10:00:00",
                 "open": "2725.0",
                 "high": "2728.5",
                 "low": "2725.0",

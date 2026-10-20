@@ -14,6 +14,7 @@ from core.config import settings
 from core.database import session_factory
 from core.models import MarketCandle
 from core.redis_client import client as redis_client
+from data_ingestion.market_hours import is_xauusd_trading_hour
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +340,9 @@ class TwelveDataClient:
                     try:
                         dt = parse_twelve_data_datetime(item["datetime"])
                         ts_seconds = int(dt.timestamp())
+                        # Lọc bỏ các nến rơi vào khung giờ đóng cửa của XAUUSD
+                        if symbol.upper() in {"XAUUSD", "XAU/USD", "XAU", "GOLD"} and not is_xauusd_trading_hour(ts_seconds):
+                            continue
                         parsed_candles.append({
                             "time": ts_seconds,
                             "open_time": dt.isoformat(),
