@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -188,6 +189,23 @@ def parse_candles_json(rates):
 
 # Attempt initialization at module load
 init_mt5()
+
+
+def _background_reconnect_worker() -> None:
+    """Luồng nền tự động kết nối lại MT5 nếu bị ngắt kết nối hoặc mt5-wine-server khởi động trễ."""
+    while True:
+        try:
+            time.sleep(5)
+            with mt5_lock:
+                connected = terminal is not None and not connection_error
+            if not connected:
+                logger.info("MT5 disconnected or not initialized. Auto-reconnecting in background...")
+                init_mt5()
+        except Exception as exc:
+            logger.debug("Background auto-reconnect error: %s", exc)
+
+
+threading.Thread(target=_background_reconnect_worker, daemon=True, name="mt5_auto_reconnect").start()
 
 
 @app.get("/health")
