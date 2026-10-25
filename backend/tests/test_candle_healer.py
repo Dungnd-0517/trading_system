@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import backend.data_ingestion.candle_healer as ch_module
 from backend.data_ingestion.candle_healer import (
     CandleGapHealer,
     TIMEFRAMES,
@@ -36,7 +37,9 @@ async def test_detect_trailing_gap():
     mock_scalars.all.return_value = mock_candles
     session.scalars.return_value = mock_scalars
 
-    gaps = await healer.detect_gaps(session, "XAUUSD", "M1", lookback_hours=24)
+    with patch.object(ch_module, "is_xauusd_market_closed", return_value=False), \
+         patch.object(ch_module, "is_natural_market_break", return_value=False):
+        gaps = await healer.detect_gaps(session, "XAUUSD", "M1", lookback_hours=24)
     # Phải có ít nhất 1 gap là trailing gap từ old_time + 60s tới now
     assert len(gaps) >= 1
     trailing_gap = gaps[-1]

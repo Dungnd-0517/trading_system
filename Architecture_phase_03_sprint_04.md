@@ -467,16 +467,15 @@ Kế hoạch thực hiện Phase 03 - Sprint 04 được phân rã thành 6 Task
 ### 9.1. Rào Chắn An Toàn & Chuẩn Phân Lập D18
 - **100% D18 Compliant:** Mọi kiểm thử tự động phát sinh bản ghi trong `agent_decision_logs`, `episodic_trade_memory` hoặc `simulated_orders` phải gắn cờ `is_test = TRUE`. Fixture tự động quét dọn sạch dữ liệu test sau khi hoàn tất test suite.
 - **Bảo Vệ Vốn Bất Biến:** Hard Guardrails ($3\%$ Max Daily Drawdown) luôn có quyền phủ quyết tuyệt đối. Nút Emergency Halt trên giao diện chỉ là cơ chế chủ động bổ sung cho Trader.
-
 ### 9.2. Tiêu Chí Nghiệm Thu Tổng Thể (Definition of Done - DoD)
-- [ ] Endpoint `GET /api/v1/agents/council/state` hoạt động ổn định và trả về đúng schema JSON của 4 Agent.
-- [ ] Kênh WebSocket `/api/v1/ws/market` phát sóng sự kiện `AGENT_STATE_UPDATE` thông suốt qua channel Redis `agent:state`.
-- [ ] Component `AgentCouncilDeck.vue` hiển thị đầy đủ 4 Agent tại cột phải Cockpit dưới dạng Card Deck / Accordion thu gọn mượt mà.
-- [ ] Giao diện tuân thủ 100% hệ thống design tokens trong `style.css`, sắc nét, chuyên nghiệp, không vỡ layout từ độ phân giải $1366\text{x}768$ trở lên.
-- [ ] Hydration khởi tạo thành công khi tải trang: Không có khoảnh khắc hiển thị trắng/rỗng hoặc lỗi font số.
-- [ ] Thanh đo Sentiment Gauge (Sentinel) và Progress Bar Confidence/RAG (Vector) hiển thị đúng tỉ lệ giá trị thực tế.
-- [ ] Khi có lệnh Paper Trading vừa đóng, Scribe Panel hiển thị ngay thẻ Post-Mortem kèm taxonomy lỗi và quy tắc mới.
-- [ ] Bấm nút Emergency Halt trên Arbiter Panel khóa ngay lập tức quyền mở lệnh mới và hiển thị badge `BLOCKED`.
-- [ ] Toàn bộ Backend Test Suite đạt kết quả **Passed 100%** trong Docker container.
-- [ ] Frontend biên dịch thành công xuất sắc qua lệnh `npm run build` không có cảnh báo nghiêm trọng hay lỗi cú pháp.
-- [ ] Tiến độ và kết quả bàn giao được cập nhật minh bạch vào [Backlog.md](Backlog.md).
+- [x] Endpoint `GET /api/v1/agents/council/state` hoạt động ổn định và trả về đúng schema JSON của 4 Agent.
+- [x] Kênh WebSocket `/api/v1/ws/market` phát sóng sự kiện `AGENT_STATE_UPDATE` thông suốt qua channel Redis `agent:state`.
+- [x] Component `AgentCouncilDeck.vue` hiển thị đầy đủ 4 Agent tại cột phải Cockpit dưới dạng Card Deck / Accordion thu gọn mượt mà.
+- [x] Giao diện tuân thủ 100% hệ thống design tokens trong `style.css`, sắc nét, chuyên nghiệp, không vỡ layout từ độ phân giải $1366\text{x}768$ trở lên.
+- [x] Hydration khởi tạo thành công khi tải trang: Không có khoảnh khắc hiển thị trắng/rỗng hoặc lỗi font số.
+- [x] Thanh đo Sentiment Gauge (Sentinel) và Progress Bar Confidence/RAG (Vector) hiển thị đúng tỉ lệ giá trị thực tế.
+- [x] Khi có lệnh Paper Trading vừa đóng, Scribe Panel hiển thị ngay thẻ Post-Mortem kèm taxonomy lỗi và quy tắc mới.
+- [x] Bấm nút Emergency Halt trên Arbiter Panel khóa ngay lập tức quyền mở lệnh mới và hiển thị badge `BLOCKED`.
+- [x] Toàn bộ Backend Test Suite đạt kết quả **Passed 100%** trong Docker container.
+- [x] Frontend biên dịch thành công xuất sắc qua lệnh `npm run build` không có cảnh báo nghiêm trọng hay lỗi cú pháp.
+- [x] Tiến độ và kết quả bàn giao được cập nhật minh bạch vào [Backlog.md](Backlog.md).

@@ -154,6 +154,23 @@ class ReflexionService:
             outcome,
             mistake_category,
         )
+
+        # Tự động phát sóng trạng thái 4 Agent mới (Scribe cập nhật thẻ Post-Mortem thời gian thực)
+        try:
+            from ai_engine.council_aggregator import council_aggregator
+
+            async def _safe_broadcast():
+                try:
+                    await council_aggregator.trigger_and_broadcast_council_state(
+                        include_test=is_test, is_test=is_test
+                    )
+                except (asyncio.CancelledError, GeneratorExit, Exception):
+                    pass
+
+            asyncio.create_task(_safe_broadcast())
+        except Exception as b_err:
+            logger.debug("Broadcast council state after reflexion skipped: %s", b_err)
+
         return memory
 
     async def _fetch_news_context(

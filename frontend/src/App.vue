@@ -31,6 +31,7 @@ import BacktestLabView from './components/Strategy/BacktestLabView.vue'
 import SettingsView from './components/Settings/SettingsView.vue'
 import GovernorConsensusPanel from './components/AIAnalysis/GovernorConsensusPanel.vue'
 import ReflexionStreamPanel from './components/AIAnalysis/ReflexionStreamPanel.vue'
+import AgentCouncilDeck from './components/AIAnalysis/AgentCouncilDeck.vue'
 import KnowledgeAssistantModal from './components/AIAnalysis/KnowledgeAssistantModal.vue'
 import GovernorDialogueConsole from './components/AIAnalysis/GovernorDialogueConsole.vue'
 import GlobalChatWidget from './components/AIAnalysis/GlobalChatWidget.vue'
@@ -41,7 +42,7 @@ import { chatStore } from './stores/chatStore'
 import { connectMarketStream } from './services/websocket'
 
 const activeTab = ref('cockpit')
-const rightPanelTab = ref('agents')
+const rightPanelTab = ref('council')
 const showKnowledgeModal = ref(false)
 const calendarInitialSubTab = ref('calendar')
 const strategyInitialSection = ref(null)
@@ -113,6 +114,11 @@ onMounted(() => {
       if (event.type === 'order.update') {
         orderStore.applyOrderUpdate(event)
         agentStore.refreshMemories()
+        // Sprint 04: Cập nhật Scribe Council State tức thì khi trạng thái lệnh thay đổi / đóng lệnh
+        agentStore.hydrateCouncilState()
+      }
+      if (event.type === 'AGENT_STATE_UPDATE') {
+        agentStore.updateAgentDashboardState(event.payload)
       }
       if (event.type === 'news.upsert') orderStore.applyNewsUpdate(event)
       if (event.type === 'signal.new') orderStore.applySignalUpdate(event)
@@ -139,6 +145,9 @@ onMounted(() => {
       streamConnected.value = value
     }
   )
+  // Sprint 04: Khởi tạo snapshot Council State ban đầu
+  agentStore.hydrateCouncilState()
+
   clockTimer = window.setInterval(() => {
     now.value = new Date()
   }, 1000)
@@ -147,6 +156,7 @@ onMounted(() => {
   }, 60_000)
   agentTimer = window.setInterval(() => {
     agentStore.refreshConsensus()
+    agentStore.hydrateCouncilState()
   }, 30_000)
 })
 
@@ -411,11 +421,12 @@ onUnmounted(() => {
         <div class="column-switcher" role="tablist" aria-label="Right column sub navigation">
           <button
             class="switch-btn"
-            :class="{ active: rightPanelTab === 'agents' }"
-            @click="rightPanelTab = 'agents'"
+            :class="{ active: rightPanelTab === 'council' || rightPanelTab === 'agents' }"
+            @click="rightPanelTab = 'council'"
+            title="Bàn điều hành 4 Agent thời gian thực"
           >
             <BrainCircuit :size="12" />
-            <span>Consensus</span>
+            <span>Council Deck</span>
           </button>
           <button
             class="switch-btn"
@@ -435,14 +446,13 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- TAB 1: AI BRAIN & REFLEXION (Panel 1: Consensus, Panel 2: Reflexion) -->
-        <template v-if="rightPanelTab === 'agents'">
-          <GovernorConsensusPanel
+        <!-- TAB 1: BÀN ĐIỀU HÀNH 4 AGENT (COUNCIL DECK) -->
+        <template v-if="rightPanelTab === 'council' || rightPanelTab === 'agents'">
+          <AgentCouncilDeck
             @open-knowledge="showKnowledgeModal = true"
             @open-strategy="activeTab = 'strategy'"
             @open-dialogue="rightPanelTab = 'dialogue'"
           />
-          <ReflexionStreamPanel />
         </template>
 
         <!-- TAB 2: GOVERNOR DIALOGUE & HITL CONSOLE -->
