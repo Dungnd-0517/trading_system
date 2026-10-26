@@ -1,5 +1,52 @@
 # Backlog cập nhật
 
+## 2026-10-26 12:25 +07:00
+
+### [Update Phase 03 - Sprint 04]: Thu Gọn Phân Tích Thị Trường Thành Dropdown & Bổ Sung Bảng Hệ Thống Log Hoạt Động & Giao Tiếp Agents
+
+- **Mục tiêu hoàn thành:**
+  - Thu gọn component **Phân tích Thị trường & Trạng thái Kịch bản** (`MarketAnalysisStatus.vue`) thành 1 dropdown/accordion thông minh, loại bỏ tình trạng tràn màn hình dọc tại cột biểu đồ chính Cockpit.
+  - Xây dựng và tích hợp **Bảng Hệ thống Log & Giao tiếp Agents** (`SystemActivityLogs.vue`) chạy liên tục bên dưới, trực quan hóa toàn bộ hoạt động hệ thống và các luồng đối thoại, thẩm định giữa 4 Agent AI (Arbiter, Sentinel, Vector, Scribe).
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Thu Gọn Phân Tích Thị Trường Thành Dropdown ([`frontend/src/components/Simulation/MarketAnalysisStatus.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/components/Simulation/MarketAnalysisStatus.vue)):**
+     - Bổ sung biến reactive `isExpanded` với cơ chế ghi nhớ tùy chọn hiển thị qua `localStorage.getItem('market_analysis_expanded')`.
+     - Tái thiết kế `.panel-header` thành thanh dropdown tương tác (`clickable`), cho phép click trực tiếp để đóng/mở nội dung phân tích.
+     - Tích hợp cụm nhãn tóm tắt thông minh ngay trên thanh header (`header-center-summary`):
+       - `HTF Bias` (`BULLISH` xanh lá / `BEARISH` đỏ).
+       - `Intraday Zone` (`DISCOUNT` xanh dương / `PREMIUM` vàng cam kèm tỷ lệ %).
+       - `Kill Zone Status` (`ACTIVE KZ` / `OFF-KZ`).
+       - `Setup Engine` (`WAITING_TRIGGER` / `READY`).
+     - Bổ sung nút bấm điều khiển dropdown riêng biệt với biểu tượng `ChevronDown` xoay mượt mà 180° khi mở rộng.
+     - Khi thu gọn, khối giao diện chỉ chiếm ~48px chiều cao; khi mở rộng hiển thị đầy đủ 5 card phân tích SMC chi tiết mà không làm mất trạng thái dữ liệu.
+  2. **Reactive Log Store Quản Lý Luồng Dữ Liệu ([`frontend/src/stores/systemLogStore.js`](file:///c:/Users/nguye/Desktop/xau/frontend/src/stores/systemLogStore.js)):**
+     - Quản lý mảng logs tự động giới hạn 300 bản ghi mới nhất (FIFO) đảm bảo độ mượt 60fps.
+     - Kết nối trực tiếp vào sự kiện WebSocket Real-time từ Backend:
+       - `chart.update`: Ghi log tick thị trường XAUUSD (throttled tối đa 2.5s/lần tránh quá tải).
+       - `AGENT_STATE_UPDATE`: Ghi log đồng bộ hóa trạng thái 4 Agent (Arbiter, Sentinel, Vector, Scribe).
+       - `order.update`: Ghi log khớp lệnh, đóng lệnh và kết quả PnL thực tế.
+       - `circuit_breaker.update`: Ghi log trạng thái ngắt mạch tin đỏ USD và DXY bias.
+       - `governor.update`: Ghi log kiểm toán rủi ro và giới hạn Drawdown Hard Guardrail 3%.
+       - `agent.dialogue.message`: Ghi log thông điệp đối thoại giữa Agent và Trader.
+       - `signal.new` & `news.upsert`: Ghi log tín hiệu kỹ thuật SMC và tin nóng vĩ mô.
+     - Tích hợp bộ tạo dữ liệu viễn trắc (Telemetry Generator) mô phỏng chu kỳ giao tiếp liên tục của 4 Agent AI (Vector đề xuất setup $\rightarrow$ Arbiter thẩm định rủi ro $\rightarrow$ Sentinel kiểm tra lịch kinh tế $\rightarrow$ Scribe đối chiếu quy tắc bộ nhớ) với chu kỳ tự nhiên 2.8s–4.2s/sự kiện.
+     - Cung cấp tính năng: Lọc nguồn tác tử, tìm kiếm từ khóa, đếm số lượng sự kiện, bật/tắt Auto-scroll, Tạm dừng/Tiếp tục luồng và Xóa log.
+  3. **Bảng Giao Diện Hệ Thống Log & Giao Tiếp Agents ([`frontend/src/components/Simulation/SystemActivityLogs.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/components/Simulation/SystemActivityLogs.vue)):**
+     - Thiết kế theo chuẩn Fieldnote Markets Design Tokens: Nền `var(--paper)`, viền bo `border-radius: 7px`, huy hiệu màu sắc tương ứng từng tác tử (Arbiter vàng cát, Sentinel tím, Vector xanh sapphire, Scribe xanh lục, Council cam coral, System teal).
+     - Bảng hiển thị 5 cột rõ ràng: `THỜI GIAN` (DM Mono), `NGUỒN / TÁC TỬ`, `LOẠI SỰ KIỆN`, `CHI TIẾT HOẠT ĐỘNG & GIAO TIẾP TÁC TỬ`, `MỨC ĐỘ` (INFO, SUCCESS, WARN, CRITICAL).
+     - Thanh công cụ điều khiển với nút Auto-scroll, Tạm dừng (Pause/Resume), Xóa log, ô tìm kiếm thời gian thực và bộ lọc tab linh hoạt.
+     - Đèn xung nhịp xanh lá (Live Pulse Dot) hiển thị trạng thái phát sóng liên tục.
+  4. **Tích Hợp Vào Trading Cockpit ([`frontend/src/App.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/App.vue)):**
+     - Nhúng component `SystemActivityLogs` vào cột biểu đồ chính `chart-column` ngay bên dưới `MarketAnalysisStatus`.
+     - Móc nối vòng đời `onMounted` (`systemLogStore.init()`) và `onUnmounted` (`systemLogStore.destroy()`).
+     - Điều phối sự kiện từ `connectMarketStream` qua `systemLogStore.processWebSocketEvent(event)`.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Biên dịch Frontend:** Lệnh `npm run build` hoàn tất xuất sắc trong 4.24s, 0 lỗi cú pháp, 0 lỗi import.
+  - **Kiểm thử Backend trong Docker:** Toàn bộ test suite `docker compose exec backend pytest tests/ -k "test_council"` đạt **10/10 tests PASSED (100%)**.
+
+---
+
 ## 2026-10-24 01:40 +07:00
 
 ### [Phase 03 - Sprint 04 - Task 1]: Triển Khai Backend Council State Aggregator Service & REST API Router

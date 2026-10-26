@@ -445,6 +445,17 @@ Toàn bộ giao diện của `AgentCouncilDeck.vue` và các sub-panels sử d�
   - Ngắt mạch / Báo động: Đỏ `#c65345`.
 - **Khả Năng Thu Gọn (Collapsible Accordion):** Cho phép mở đồng thời nhiều card hoặc chỉ một card (tùy trader cấu hình), hỗ trợ phím tắt thu gọn toàn bộ để quan sát tổng thể.
 
+### 7.3. Cải Tiến Cột Biểu Đồ Cockpit: Thu Gọn Phân Tích Kịch Bản & Bảng Hệ Thống Log Trực Thời
+Nhằm tối ưu hóa không gian hiển thị và tăng cường tính minh bạch của toàn bộ hệ thống:
+1. **Thu gọn Phân tích Thị trường & Trạng thái Kịch bản (`MarketAnalysisStatus.vue`):**
+   - Chuyển đổi khối phân tích SMC chi tiết thành dropdown collapsible có khả năng đóng/mở linh hoạt.
+   - Khi thu gọn, chiếm chỉ ~48px chiều cao, hiển thị các nhãn trạng thái then chốt ngay trên thanh header: `HTF Bias`, `Intraday Zone`, `Kill Zone Window`, `Setup Engine`, cùng giá thị trường và nút xoay `ChevronDown`.
+   - Ghi nhớ trạng thái hiển thị qua `localStorage.getItem('market_analysis_expanded')`.
+2. **Bảng Hoạt Động Hệ Thống & Giao Tiếp Agents (`SystemActivityLogs.vue` & `systemLogStore.js`):**
+   - Đặt trực tiếp bên dưới phân tích thị trường trong `chart-column`.
+   - Kết nối hai nguồn dữ liệu: WebSocket trực tiếp (`chart.update`, `order.update`, `AGENT_STATE_UPDATE`, `circuit_breaker.update`, `governor.update`, `agent.dialogue.message`, `signal.new`, `news.upsert`) và luồng viễn trắc (Telemetry) mô phỏng chu kỳ giao tiếp liên tục giữa 4 Agent AI (2.8s-4.2s/sự kiện).
+   - Hỗ trợ đầy đủ các tính năng giám sát: Bộ lọc nguồn tác tử (All, Agents ⇄, Arbiter 🛡️, Sentinel 📰, Vector 📐, Scribe 🧠, System ⚙️), tìm kiếm từ khóa, đếm số lượng sự kiện, bật/tắt Auto-scroll, Tạm dừng/Tiếp tục luồng và Xóa log.
+
 ---
 
 ## 8. KẾ HOẠCH TRIỂN KHAI THEO TASK (TASK BREAKDOWN T1–T6)

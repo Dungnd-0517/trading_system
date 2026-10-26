@@ -23,6 +23,7 @@ import SentimentGauge from './components/News/SentimentGauge.vue'
 import OrderBookTable from './components/Simulation/OrderBookTable.vue'
 import MetricsCards from './components/Simulation/MetricsCards.vue'
 import MarketAnalysisStatus from './components/Simulation/MarketAnalysisStatus.vue'
+import SystemActivityLogs from './components/Simulation/SystemActivityLogs.vue'
 import InsightsPanel from './components/AIAnalysis/InsightsPanel.vue'
 import OrdersHistory from './components/Orders/OrdersHistory.vue'
 import NewsEventsView from './components/News/NewsEventsView.vue'
@@ -39,6 +40,7 @@ import { marketStore } from './stores/marketStore'
 import { orderStore } from './stores/orderStore'
 import { agentStore } from './stores/agentStore'
 import { chatStore } from './stores/chatStore'
+import { systemLogStore } from './stores/systemLogStore'
 import { connectMarketStream } from './services/websocket'
 
 const activeTab = ref('cockpit')
@@ -101,8 +103,10 @@ onMounted(() => {
   orderStore.refresh()
   agentStore.refreshAll()
   chatStore.init()
+  systemLogStore.init()
   socket = connectMarketStream(
     (event) => {
+      systemLogStore.processWebSocketEvent(event)
       if (event.type === 'chart.update') {
         const prev = marketStore.lastPrice
         marketStore.applyChartUpdate(event)
@@ -165,6 +169,7 @@ onUnmounted(() => {
   window.clearInterval(clockTimer)
   window.clearInterval(sourceTimer)
   window.clearInterval(agentTimer)
+  systemLogStore.destroy()
   socket?.close()
 })
 </script>
@@ -412,6 +417,10 @@ onUnmounted(() => {
           :symbol="marketStore.symbol"
           :last-price="marketStore.lastPrice"
           :account="orderStore.account"
+        />
+        <SystemActivityLogs
+          :symbol="marketStore.symbol"
+          :last-price="marketStore.lastPrice"
         />
       </div>
 
