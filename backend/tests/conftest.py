@@ -26,9 +26,10 @@ logger = logging.getLogger(__name__)
 
 async def _clean_test_data_async():
     """Dọn dẹp sạch toàn bộ dữ liệu test trong DB và bộ nhớ, khôi phục tài khoản về $10,000.00"""
-    # 0. Giải phóng các kết nối cũ từ loop trước (tránh asyncpg loop mismatch)
+    # 0. Giải phóng các kết nối cũ từ loop trước (tránh asyncpg & redis loop mismatch)
     try:
         await engine.dispose()
+        redis_client.connection_pool.reset()
     except Exception:
         pass
 
@@ -90,7 +91,10 @@ async def _clean_test_data_async():
 
     # 6. Dọn dẹp Redis cache runtime params
     try:
-        await redis_client.delete("runtime:params:XAUUSD")
+        clean_redis = Redis.from_url(settings.redis_url, decode_responses=True)
+        await clean_redis.delete("runtime:params:XAUUSD", "runtime:agent_council_state")
+        await clean_redis.aclose()
+        redis_client.connection_pool.reset()
     except Exception:
         pass
 

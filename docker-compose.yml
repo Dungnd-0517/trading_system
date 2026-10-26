@@ -90,7 +90,13 @@ services:
     image: lprett/mt5linux:latest
     container_name: trading_mt5_wine
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "-c", "rm -f /opt/wineprefix/drive_c/server 2>/dev/null; exec /app/src/main.sh"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sed -i 's|mkfifo -m 666.*|rm -f /opt/wineprefix/drive_c/server 2>/dev/null; mkfifo -m 666 /opt/wineprefix/drive_c/server|' /app/src/automation.sh 2>/dev/null
+        rm -f /opt/wineprefix/drive_c/server 2>/dev/null
+        exec /app/src/main.sh
     environment:
       MT5_HOST: "0.0.0.0"
       SYSTEMROOT: "C:\\windows"
@@ -109,14 +115,14 @@ services:
     networks: [trading-net]
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 18812 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
 
   # ============================================================
   # MT5 Bridge — FastAPI HTTP Gateway (connects via mt5linux RPyC)
-  # Depends on mt5-wine-server being healthy on port 18812
+  # Background auto-reconnect thread connects automatically once Wine starts
   # ============================================================
   mt5-bridge:
     build:
@@ -135,8 +141,7 @@ services:
     ports:
       - "5001:5001"
     depends_on:
-      mt5-wine-server:
-        condition: service_started
+      - mt5-wine-server
     networks: [trading-net]
 
 networks:

@@ -26,9 +26,47 @@ import {
   fetchStandardizedStrategyDetail as fetchStandardizedStrategyDetailApi,
   fetchKnowledgeDocuments as fetchKnowledgeDocumentsApi,
   seedStandardizedStrategies as seedStandardizedStrategiesApi,
+  fetchAgentCouncilStateApi,
 } from '../services/api'
 
 export const agentStore = reactive({
+  // Council Deck (Bàn điều hành 4 Agent - Phase 03 Sprint 04)
+  dashboard: {
+    arbiter: {
+      permission: 'ALLOWED',
+      current_risk_percent: 1.0,
+      sl_multiplier: 1.5,
+      daily_drawdown_pct: 0.0,
+      regime_tag: 'COMPRESSION_CHOP',
+      reason_summary: 'Chờ phân tích hội đồng',
+      hard_breaker_active: false,
+    },
+    sentinel: {
+      sentiment_score: 0.0,
+      circuit_breaker_active: false,
+      circuit_breaker_status: 'NORMAL',
+      dxy_bias: 'NEUTRAL',
+      next_event: null,
+      recent_news: [],
+    },
+    vector: {
+      bias: 'NEUTRAL',
+      regime: 'COMPRESSION_CHOP',
+      confidence: 50,
+      rag_similarity: 0,
+      pattern_match: '',
+      primary_school: 'GENERAL',
+      suggested_trade_setup: null,
+      action_recommendation: '',
+    },
+    scribe: {
+      last_trade: null,
+      active_memory_rules: [],
+    },
+    lastUpdated: null,
+    loading: false,
+  },
+
   // Governor State
   consensus: null,
   runtimeParams: null,
@@ -406,17 +444,63 @@ export const agentStore = reactive({
     }
   },
 
+  // Actions: Council Deck (Bàn điều hành 4 Agent - Sprint 04)
+  async hydrateCouncilState(includeTest = false) {
+    this.dashboard.loading = true
+    try {
+      const data = await fetchAgentCouncilStateApi(includeTest)
+      if (data?.payload) {
+        this.updateAgentDashboardState(data.payload)
+      }
+      return data
+    } catch (err) {
+      console.warn('Lỗi khi nạp Council State ban đầu:', err)
+      return null
+    } finally {
+      this.dashboard.loading = false
+    }
+  },
+
+  updateAgentDashboardState(payload) {
+    if (!payload) return
+    if (payload.arbiter) Object.assign(this.dashboard.arbiter, payload.arbiter)
+    if (payload.sentinel) Object.assign(this.dashboard.sentinel, payload.sentinel)
+    if (payload.vector) Object.assign(this.dashboard.vector, payload.vector)
+    if (payload.scribe) Object.assign(this.dashboard.scribe, payload.scribe)
+    this.dashboard.lastUpdated = new Date()
+  },
+
+  async toggleEmergencyHalt(reason = 'Khóa khẩn cấp từ Bàn điều hành Trader') {
+    const isCurrentlyAllowed = this.dashboard.arbiter.permission === 'ALLOWED'
+    const newAllowedState = !isCurrentlyAllowed
+    this.dashboard.arbiter.permission = newAllowedState ? 'ALLOWED' : 'BLOCKED'
+    return await this.overrideParams({
+      trading_allowed: newAllowedState,
+      halt_reason: newAllowedState ? null : reason,
+    })
+  },
+
   applyGovernorUpdate(event) {
     if (event.data) {
       this.runtimeParams = event.data
       if (this.consensus) {
         this.consensus.active_params = event.data
       }
+      if (event.data.trading_allowed !== undefined) {
+        this.dashboard.arbiter.permission = event.data.trading_allowed ? 'ALLOWED' : 'BLOCKED'
+      }
+      if (event.data.risk_per_trade_percent !== undefined) {
+        this.dashboard.arbiter.current_risk_percent = event.data.risk_per_trade_percent
+      }
+      if (event.data.atr_sl_multiplier !== undefined) {
+        this.dashboard.arbiter.sl_multiplier = event.data.atr_sl_multiplier
+      }
     }
   },
 
   async refreshAll() {
     await Promise.all([
+      this.hydrateCouncilState(),
       this.refreshConsensus(),
       this.refreshDialogueHistory(),
       this.refreshMemories(),

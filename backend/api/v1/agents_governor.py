@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_engine.council_aggregator import AgentCouncilState, council_aggregator
 from ai_engine.strategy_governor import (
     AgentParamAdjustment,
     ConsensusReport,
@@ -164,6 +165,12 @@ async def evaluate_now(
         report = await strategy_governor.synthesize_consensus(
             session, include_test=include_test, is_test=include_test
         )
+        try:
+            await council_aggregator.trigger_and_broadcast_council_state(
+                session, include_test=include_test, is_test=include_test
+            )
+        except Exception:
+            pass
         return report
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to evaluate governor: {exc}")
@@ -200,6 +207,12 @@ async def manual_override_params(
 
         await strategy_governor._persist_and_sync_cache(session, validated)
 
+        # Phát sóng trạng thái mới của 4 Agent tức thời qua kênh Redis 'agent:state'
+        try:
+            await council_aggregator.trigger_and_broadcast_council_state(session)
+        except Exception:
+            pass
+
         msg = (
             "Ghi đè tham số thành công"
             if not was_hard_breached
@@ -213,3 +226,21 @@ async def manual_override_params(
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to override params: {exc}")
+
+
+@router.get("/council/state", response_model=AgentCouncilState)
+async def get_council_state(
+    include_test: bool = Query(False, description="Bao gồm dữ liệu test"),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Truy vấn snapshot trạng thái tổng hợp của 4 Agent AI (Arbiter, Sentinel, Vector, Scribe)
+    phục vụ Bàn điều hành AgentCouncilDeck.vue (Dual-Channel Hydration).
+    """
+    try:
+        return await council_aggregator.aggregate_council_state(
+            session=session, include_test=include_test, is_test=include_test
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to aggregate council state: {exc}")
+

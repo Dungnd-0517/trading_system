@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Compass,
   Crosshair,
@@ -37,7 +38,15 @@ const scanning = ref(false)
 const executing = ref(false)
 const actionMessage = ref('')
 const actionMessageType = ref('info')
+const isExpanded = ref(localStorage.getItem('market_analysis_expanded') === 'true')
 let timer = null
+
+function toggleExpanded() {
+  isExpanded.value = !isExpanded.value
+  try {
+    localStorage.setItem('market_analysis_expanded', String(isExpanded.value))
+  } catch {}
+}
 
 const activePrice = computed(() => {
   return props.lastPrice || analysis.value?.current_price || 0
@@ -161,9 +170,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="analysis-panel" aria-label="Phân tích thị trường & Kịch bản giao dịch">
-    <!-- PANEL HEADER -->
-    <header class="panel-header">
+  <section class="analysis-panel" :class="{ 'is-collapsed': !isExpanded }" aria-label="Phân tích thị trường & Kịch bản giao dịch">
+    <!-- PANEL HEADER / DROPDOWN BAR -->
+    <header
+      class="panel-header clickable"
+      @click="toggleExpanded"
+      :title="isExpanded ? 'Bấm để thu gọn phân tích thị trường' : 'Bấm để mở rộng chi tiết phân tích thị trường'"
+    >
       <div class="header-left">
         <Compass :size="16" class="header-icon" />
         <div>
@@ -171,6 +184,38 @@ onUnmounted(() => {
           <span class="subtitle">SMC Framework · Multi-timeframe Bias · Setup &amp; Invalidation Rules</span>
         </div>
       </div>
+
+      <!-- QUICK SUMMARY CHIPS (Hiển thị tóm tắt ngay trên thanh dropdown) -->
+      <div v-if="analysis" class="header-center-summary">
+        <span
+          class="header-chip"
+          :class="analysis.htf_trend?.bias === 'BULLISH' ? 'chip-bull' : 'chip-bear'"
+          title="Xu hướng đa khung D1/H4"
+        >
+          HTF: {{ analysis.htf_trend?.bias || 'BULLISH' }}
+        </span>
+        <span
+          class="header-chip"
+          :class="analysis.intraday_trend?.current_zone === 'DISCOUNT' ? 'chip-discount' : 'chip-premium'"
+          title="Vùng định giá trong ngày"
+        >
+          {{ analysis.intraday_trend?.current_zone || 'DISCOUNT' }} ({{ rangePercent }}%)
+        </span>
+        <span
+          class="header-chip"
+          :class="analysis.intraday_trend?.is_kill_zone ? 'chip-kz-active' : 'chip-kz-off'"
+          title="Trạng thái phiên giao dịch Kill Zone"
+        >
+          {{ analysis.intraday_trend?.is_kill_zone ? 'ACTIVE KZ' : 'OFF-KZ' }}
+        </span>
+        <span
+          class="header-chip chip-setup"
+          title="Trạng thái bộ máy kịch bản"
+        >
+          {{ analysis.predicted_setup?.status || 'WAITING_TRIGGER' }}
+        </span>
+      </div>
+
       <div class="header-right">
         <span class="price-badge" title="Giá thị trường hiện tại">
           <small>{{ props.symbol }}</small>
@@ -180,15 +225,30 @@ onUnmounted(() => {
           class="refresh-btn"
           :class="{ rotating: loading }"
           title="Làm mới phân tích"
-          @click="loadAnalysis"
+          @click.stop="loadAnalysis"
         >
           <RotateCw :size="12" />
           <span>{{ loading ? 'Đang tải...' : (lastUpdated || 'Cập nhật') }}</span>
         </button>
+
+        <!-- DROPDOWN TOGGLE BUTTON -->
+        <button
+          type="button"
+          class="dropdown-toggle-btn"
+          :class="{ 'expanded': isExpanded }"
+          @click.stop="toggleExpanded"
+          :title="isExpanded ? 'Thu gọn phân tích' : 'Mở rộng chi tiết kịch bản'"
+          :aria-expanded="isExpanded"
+        >
+          <span>{{ isExpanded ? 'Thu gọn' : 'Chi tiết' }}</span>
+          <ChevronDown :size="14" class="toggle-icon" :class="{ 'icon-rotated': isExpanded }" />
+        </button>
       </div>
     </header>
 
-    <div v-if="error" class="error-banner">
+    <!-- COLLAPSIBLE CONTENT CONTAINER -->
+    <div v-show="isExpanded" class="panel-collapsible-wrapper">
+      <div v-if="error" class="error-banner">
       <AlertTriangle :size="14" />
       <span>{{ error }}</span>
     </div>
@@ -542,6 +602,7 @@ onUnmounted(() => {
         </div>
       </article>
     </div>
+    </div>
   </section>
 </template>
 
@@ -565,6 +626,20 @@ onUnmounted(() => {
   padding: 8px 14px;
   border-bottom: 1px solid #e4e9e3;
   background: #f4f7f2;
+  transition: background-color 0.15s ease;
+}
+
+.panel-header.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-header.clickable:hover {
+  background: #edf3eb;
+}
+
+.analysis-panel.is-collapsed .panel-header {
+  border-bottom: none;
 }
 
 .header-left {
@@ -593,10 +668,114 @@ onUnmounted(() => {
   margin-top: 1px;
 }
 
+/* HEADER SUMMARY CHIPS */
+.header-center-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.header-chip {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  letter-spacing: 0.2px;
+}
+
+.chip-bull {
+  background: #e2f4e8;
+  color: #15803d;
+  border-color: #bbf0cb;
+}
+
+.chip-bear {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.chip-discount {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+
+.chip-premium {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.chip-kz-active {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+.chip-kz-off {
+  background: #f1f5f1;
+  color: #64746b;
+  border-color: #dbe4da;
+}
+
+.chip-setup {
+  background: #fef9c3;
+  color: #854d0e;
+  border-color: #fef08a;
+}
+
 .header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+/* DROPDOWN TOGGLE BUTTON */
+.dropdown-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid #c8d7c6;
+  background: #ffffff;
+  color: #225c43;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dropdown-toggle-btn:hover {
+  background: #225c43;
+  color: #c9f06b;
+  border-color: #225c43;
+}
+
+.dropdown-toggle-btn.expanded {
+  background: #e8f0e6;
+  border-color: #b8ccb5;
+}
+
+.toggle-icon {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toggle-icon.icon-rotated {
+  transform: rotate(180deg);
+}
+
+.panel-collapsible-wrapper {
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .price-badge {

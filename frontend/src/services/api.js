@@ -174,4 +174,10 @@ export const seedStandardizedStrategies = () => post('/knowledge/seed-strategies
 export const fetchMt5Status = () => get('/market/mt5/status')
 export const reconnectMt5 = () => post('/market/mt5/reconnect')
 export const seedMt5History = (symbol = 'XAUUSD', fromDate = '2026-01-01', deleteOld = true) =>
-  post(`/market/mt5/seed?symbol=${encodeURIComponent(symbol)}&from_date=${encodeURIComponent(fromDate)}&delete_old=${deleteOld}`)
+  post(`/market/mt5/seed?symbol=${encodeURIComponent(symbol)}&from_date=${encodeURIComponent(fromDate)}&delete_old=${deleteOld}`)
+
+// Phase 03 Sprint 04: Council State Aggregator (Agent Council Deck)
+export const fetchAgentCouncilState = (includeTest = false) =>
+  get(`/agents/council/state${includeTest ? '?include_test=true' : ''}`)
+export const fetchAgentCouncilStateApi = fetchAgentCouncilState
+

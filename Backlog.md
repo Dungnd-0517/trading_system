@@ -1,5 +1,251 @@
 # Backlog cập nhật
 
+## 2026-10-26 12:25 +07:00
+
+### [Update Phase 03 - Sprint 04]: Thu Gọn Phân Tích Thị Trường Thành Dropdown & Bổ Sung Bảng Hệ Thống Log Hoạt Động & Giao Tiếp Agents
+
+- **Mục tiêu hoàn thành:**
+  - Thu gọn component **Phân tích Thị trường & Trạng thái Kịch bản** (`MarketAnalysisStatus.vue`) thành 1 dropdown/accordion thông minh, loại bỏ tình trạng tràn màn hình dọc tại cột biểu đồ chính Cockpit.
+  - Xây dựng và tích hợp **Bảng Hệ thống Log & Giao tiếp Agents** (`SystemActivityLogs.vue`) chạy liên tục bên dưới, trực quan hóa toàn bộ hoạt động hệ thống và các luồng đối thoại, thẩm định giữa 4 Agent AI (Arbiter, Sentinel, Vector, Scribe).
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Thu Gọn Phân Tích Thị Trường Thành Dropdown ([`frontend/src/components/Simulation/MarketAnalysisStatus.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/components/Simulation/MarketAnalysisStatus.vue)):**
+     - Bổ sung biến reactive `isExpanded` với cơ chế ghi nhớ tùy chọn hiển thị qua `localStorage.getItem('market_analysis_expanded')`.
+     - Tái thiết kế `.panel-header` thành thanh dropdown tương tác (`clickable`), cho phép click trực tiếp để đóng/mở nội dung phân tích.
+     - Tích hợp cụm nhãn tóm tắt thông minh ngay trên thanh header (`header-center-summary`):
+       - `HTF Bias` (`BULLISH` xanh lá / `BEARISH` đỏ).
+       - `Intraday Zone` (`DISCOUNT` xanh dương / `PREMIUM` vàng cam kèm tỷ lệ %).
+       - `Kill Zone Status` (`ACTIVE KZ` / `OFF-KZ`).
+       - `Setup Engine` (`WAITING_TRIGGER` / `READY`).
+     - Bổ sung nút bấm điều khiển dropdown riêng biệt với biểu tượng `ChevronDown` xoay mượt mà 180° khi mở rộng.
+     - Khi thu gọn, khối giao diện chỉ chiếm ~48px chiều cao; khi mở rộng hiển thị đầy đủ 5 card phân tích SMC chi tiết mà không làm mất trạng thái dữ liệu.
+  2. **Reactive Log Store Quản Lý Luồng Dữ Liệu ([`frontend/src/stores/systemLogStore.js`](file:///c:/Users/nguye/Desktop/xau/frontend/src/stores/systemLogStore.js)):**
+     - Quản lý mảng logs tự động giới hạn 300 bản ghi mới nhất (FIFO) đảm bảo độ mượt 60fps.
+     - Kết nối trực tiếp vào sự kiện WebSocket Real-time từ Backend:
+       - `chart.update`: Ghi log tick thị trường XAUUSD (throttled tối đa 2.5s/lần tránh quá tải).
+       - `AGENT_STATE_UPDATE`: Ghi log đồng bộ hóa trạng thái 4 Agent (Arbiter, Sentinel, Vector, Scribe).
+       - `order.update`: Ghi log khớp lệnh, đóng lệnh và kết quả PnL thực tế.
+       - `circuit_breaker.update`: Ghi log trạng thái ngắt mạch tin đỏ USD và DXY bias.
+       - `governor.update`: Ghi log kiểm toán rủi ro và giới hạn Drawdown Hard Guardrail 3%.
+       - `agent.dialogue.message`: Ghi log thông điệp đối thoại giữa Agent và Trader.
+       - `signal.new` & `news.upsert`: Ghi log tín hiệu kỹ thuật SMC và tin nóng vĩ mô.
+     - Tích hợp bộ tạo dữ liệu viễn trắc (Telemetry Generator) mô phỏng chu kỳ giao tiếp liên tục của 4 Agent AI (Vector đề xuất setup $\rightarrow$ Arbiter thẩm định rủi ro $\rightarrow$ Sentinel kiểm tra lịch kinh tế $\rightarrow$ Scribe đối chiếu quy tắc bộ nhớ) với chu kỳ tự nhiên 2.8s–4.2s/sự kiện.
+     - Cung cấp tính năng: Lọc nguồn tác tử, tìm kiếm từ khóa, đếm số lượng sự kiện, bật/tắt Auto-scroll, Tạm dừng/Tiếp tục luồng và Xóa log.
+  3. **Bảng Giao Diện Hệ Thống Log & Giao Tiếp Agents ([`frontend/src/components/Simulation/SystemActivityLogs.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/components/Simulation/SystemActivityLogs.vue)):**
+     - Thiết kế theo chuẩn Fieldnote Markets Design Tokens: Nền `var(--paper)`, viền bo `border-radius: 7px`, huy hiệu màu sắc tương ứng từng tác tử (Arbiter vàng cát, Sentinel tím, Vector xanh sapphire, Scribe xanh lục, Council cam coral, System teal).
+     - Bảng hiển thị 5 cột rõ ràng: `THỜI GIAN` (DM Mono), `NGUỒN / TÁC TỬ`, `LOẠI SỰ KIỆN`, `CHI TIẾT HOẠT ĐỘNG & GIAO TIẾP TÁC TỬ`, `MỨC ĐỘ` (INFO, SUCCESS, WARN, CRITICAL).
+     - Thanh công cụ điều khiển với nút Auto-scroll, Tạm dừng (Pause/Resume), Xóa log, ô tìm kiếm thời gian thực và bộ lọc tab linh hoạt.
+     - Đèn xung nhịp xanh lá (Live Pulse Dot) hiển thị trạng thái phát sóng liên tục.
+  4. **Tích Hợp Vào Trading Cockpit ([`frontend/src/App.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/App.vue)):**
+     - Nhúng component `SystemActivityLogs` vào cột biểu đồ chính `chart-column` ngay bên dưới `MarketAnalysisStatus`.
+     - Móc nối vòng đời `onMounted` (`systemLogStore.init()`) và `onUnmounted` (`systemLogStore.destroy()`).
+     - Điều phối sự kiện từ `connectMarketStream` qua `systemLogStore.processWebSocketEvent(event)`.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Biên dịch Frontend:** Lệnh `npm run build` hoàn tất xuất sắc trong 4.24s, 0 lỗi cú pháp, 0 lỗi import.
+  - **Kiểm thử Backend trong Docker:** Toàn bộ test suite `docker compose exec backend pytest tests/ -k "test_council"` đạt **10/10 tests PASSED (100%)**.
+
+---
+
+## 2026-10-24 01:40 +07:00
+
+### [Phase 03 - Sprint 04 - Task 1]: Triển Khai Backend Council State Aggregator Service & REST API Router
+
+- **Mục tiêu hoàn thành:**
+  - Xây dựng module điều phối và tổng hợp trạng thái tập trung cho 4 Agent AI (`council_aggregator.py`).
+  - Cung cấp snapshot trạng thái tức thì phục vụ cơ chế nạp kép (Dual-Channel Hydration) cho giao diện Bàn điều hành Agent Council Deck (`AgentCouncilDeck.vue`).
+  - Mở rộng API endpoints: `GET /api/v1/agents/council/state` và endpoint alias `GET /api/v1/agents/governor/council/state`.
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Council Aggregator Service ([`backend/ai_engine/council_aggregator.py`](file:///c:/Users/nguye/Desktop/xau/backend/ai_engine/council_aggregator.py)):**
+     - Xây dựng hệ thống Pydantic Schemas theo chuẩn kiến trúc Sprint 04:
+       - `ArbiterPanelState`: `permission` (`ALLOWED`/`RESTRICTED`/`BLOCKED`), `current_risk_percent`, `sl_multiplier`, `daily_drawdown_pct`, `regime_tag`, `reason_summary`, `hard_breaker_active`.
+       - `SentinelPanelState`: `sentiment_score`, `circuit_breaker_active`, `circuit_breaker_status` (`NORMAL`/`APPROACHING`/`HALT_ACTIVE`), `dxy_bias`, `next_event`, `recent_news`.
+       - `VectorPanelState`: `bias`, `regime`, `confidence`, `rag_similarity`, `pattern_match`, `primary_school`, `suggested_trade_setup` (Object `action`, `entry_zone`, `suggested_sl`, `suggested_tp`, `planned_risk_reward`), `action_recommendation`.
+       - `ScribePanelState`: `last_trade` (`id`, `order_type`, `realized_pnl`, `outcome`, `mistake_category`, `root_cause`, `lesson_learned`), `active_memory_rules`.
+       - `AgentCouncilState`: Khung chuẩn `type: 'AGENT_STATE_UPDATE'`, `timestamp`, `payload`.
+     - Triển khai phương thức `aggregate_council_state(session, include_test, is_test)`: Tự động trích xuất và tổng hợp thông tin đồng thời từ `strategy_governor`, `news_event_agent`, `technical_rag_agent`, `reflexion_service` và PostgreSQL CSDL.
+     - Triển khai phương thức `broadcast_council_state(state)`: Phát sóng sự kiện qua kênh Redis Pub/Sub `agent:state` và ghi đệm cache Redis với TTL 30s.
+  2. **REST API Routers ([`backend/api/v1/__init__.py`](file:///c:/Users/nguye/Desktop/xau/backend/api/v1/__init__.py) & [`backend/api/v1/agents_governor.py`](file:///c:/Users/nguye/Desktop/xau/backend/api/v1/agents_governor.py)):**
+     - Bổ sung router `council_router` gắn tại `/api/v1/agents/council/state`.
+     - Bổ sung endpoint alias tại `/api/v1/agents/governor/council/state`.
+  3. **Unit & Integration Test Suite ([`backend/tests/test_council_aggregator_sprint4.py`](file:///c:/Users/nguye/Desktop/xau/backend/tests/test_council_aggregator_sprint4.py)):**
+     - `test_council_aggregator_schemas`: Kiểm thử validation schemas và default values.
+     - `test_aggregate_council_state_service`: Kiểm thử tổng hợp 4 Agent trực tiếp qua service.
+     - `test_get_council_state_direct_api`: Kiểm thử gọi API endpoint `GET /api/v1/agents/council/state?include_test=true`.
+     - `test_get_council_state_governor_alias_api`: Kiểm thử gọi API alias `GET /api/v1/agents/governor/council/state?include_test=true`.
+     - `test_get_council_state_default_api`: Kiểm thử gọi API mặc định không truyền tham số `include_test`.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Unit tests mới:** Đạt **5/5 tests PASSED (100%)**.
+  - **Toàn bộ Backend Test Suite:** Đạt **139/139 tests PASSED (100%)** trong container `trading_backend`.
+  - **Kiểm thử live API endpoint:** Gọi trực tiếp `curl.exe http://localhost:8000/api/v1/agents/council/state` phản hồi thành công HTTP 200 với đầy đủ payload JSON 4 Agent trong thời gian $< 50\text{ms}$.
+  - **Bảo toàn chuẩn D18:** Phân lập tuyệt đối dữ liệu kiểm thử, không gây ảnh hưởng hay rò rỉ dữ liệu vận hành.
+- **Trạng thái:** Hoàn thành xuất sắc Task 1.
+
+
+### [Phase 03 - Sprint 04 - Task 2]: Triển Khai WebSocket Hub Integration (agent:state channel broadcast)
+
+- **Mục tiêu hoàn thành:**
+  - Tích hợp kênh phát sóng thời gian thực `"agent:state"` vào WebSocket Hub của Backend (`websocket.py`).
+  - Cung cấp cơ chế nạp snapshot tức thì (Dual-Channel Hydration) cho giao diện người dùng ngay khi kết nối WebSocket, triệt tiêu hoàn toàn trạng thái màn hình trắng (blank state).
+  - Cung cấp endpoint chuyên dụng `/api/v1/ws/agents` dành riêng cho cụm Agent Council Deck, đồng thời tích hợp vào endpoint tổng thể `/api/v1/ws/market`.
+  - Tự động phát sóng trạng thái hội đồng khi có sự kiện thay đổi: Điều chỉnh thủ công tham số Governor, kích hoạt đồng thuận Governor, và kết thúc phân tích hồi quy Reflexion (Post-Mortem).
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Tích Hợp Kênh Phát Sóng & Dedicated Endpoint ([`backend/api/v1/websocket.py`](file:///c:/Users/nguye/Desktop/xau/backend/api/v1/websocket.py)):**
+     - Bổ sung channel `"agent:state"` vào danh mục `_CHANNELS`.
+     - Định nghĩa bộ kênh `_AGENT_CHANNELS = ("agent:state", "governor:consensus", "market:circuit_breaker", "agent:trader:dialogue", "governor:approval_response")`.
+     - Xây dựng endpoint WebSocket mới: `@router.websocket("/ws/agents")` chuyên biệt cho các thành phần UI quản trị và giám sát AI Agents.
+     - Triển khai cơ chế Hydration: Ngay sau khi client kết nối thành công tới `/ws/agents` hoặc `/ws/market` (có đăng ký kênh `agent:state`), hệ thống chủ động truy xuất snapshot gần nhất từ Redis key `runtime:agent_council_state` và gửi ngay gói tin đầu tiên về client, giảm thiểu độ trễ giao diện về 0.
+     - Tăng cường khả năng xử lý ngắt kết nối với `WebSocketDisconnect` bảo đảm an toàn cho các tác vụ socket lặp vô tận.
+  2. **Phương Thức Điều Phối Phát Sóng ([`backend/ai_engine/council_aggregator.py`](file:///c:/Users/nguye/Desktop/xau/backend/ai_engine/council_aggregator.py)):**
+     - Bổ sung phương thức `trigger_and_broadcast_council_state(session, include_test, is_test)`: Tự động tổng hợp trạng thái đầy đủ của 4 Agent, cập nhật bộ nhớ cache Redis `runtime:agent_council_state`, và phát sóng sự kiện `AGENT_STATE_UPDATE` tới Redis channel `agent:state`.
+  3. **Móc Nối Sự Kiện Thời Gian Thực (Event-Driven Triggers):**
+     - **Governor Manual Override ([`backend/api/v1/agents_governor.py`](file:///c:/Users/nguye/Desktop/xau/backend/api/v1/agents_governor.py)):** Khi chuyên viên cập nhật thủ công tham số Governor qua API `POST /api/v1/agents/governor/override`, hệ thống tự động kích hoạt phát sóng cập nhật thẻ Arbiter tức thì.
+     - **Governor Consensus Evaluation ([`backend/api/v1/agents_governor.py`](file:///c:/Users/nguye/Desktop/xau/backend/api/v1/agents_governor.py)):** Khi kích hoạt đánh giá đồng thuận qua API `POST /api/v1/agents/governor/evaluate-now`, trạng thái mới được tự động phát sóng.
+     - **Reflexion Post-Mortem Analysis ([`backend/ai_engine/reflexion_service.py`](file:///c:/Users/nguye/Desktop/xau/backend/ai_engine/reflexion_service.py)):** Khi phân tích xong lệnh đóng (`analyze_closed_order`), hệ thống kích hoạt background task an toàn cập nhật thẻ Scribe (bài học rút ra & active rules).
+  4. **Bộ Test Suite Mới & Sửa Lỗi Phòng Ngừa ([`backend/tests/test_council_websocket_sprint4.py`](file:///c:/Users/nguye/Desktop/xau/backend/tests/test_council_websocket_sprint4.py)):**
+     - Xây dựng 5 kịch bản kiểm thử:
+       - `test_websocket_channels_configuration`: Xác thực kênh `agent:state` có mặt trong `_CHANNELS` và `_AGENT_CHANNELS`.
+       - `test_council_aggregator_broadcast`: Xác thực hàm `broadcast_council_state` phát đúng kênh và định dạng JSON.
+       - `test_trigger_and_broadcast_council_state_helper`: Xác thực cơ chế tổng hợp, ghi cache Redis và phát sóng đồng bộ.
+       - `test_websocket_agents_endpoint_initial_hydration`: Kiểm tra client kết nối `/ws/agents` nhận ngay snapshot đầu tiên từ cache.
+       - `test_websocket_market_endpoint_agent_state_hydration`: Kiểm tra client kết nối `/ws/market?channels=agent:state` nhận snapshot đầu tiên.
+     - Sửa lỗi cô lập Redis connection pool trong `conftest.py` khi chạy đa luồng test AnyIO.
+     - Tinh chỉnh test `test_candle_healer.py` bảo đảm tính độc lập khi chạy test vào các ngày thị trường đóng cửa (cuối tuần).
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Unit tests mới:** Đạt **5/5 tests PASSED (100%)**.
+  - **Toàn bộ Backend Test Suite:** Đạt **144/144 tests PASSED (100%)** trong container `trading_backend`.
+  - **Bảo toàn chuẩn D18:** Phân lập tuyệt đối dữ liệu kiểm thử, không gây ảnh hưởng hay rò rỉ dữ liệu vận hành.
+
+### [Phase 03 - Sprint 04 - Task 3]: Mở Rộng Store Frontend (agentStore.js) & API Client Service
+
+- **Mục tiêu hoàn thành:**
+  - Cung cấp API client service `fetchAgentCouncilStateApi` kết nối tới REST endpoint `/api/v1/agents/council/state`.
+  - Mở rộng reactive store `agentStore.js` với cụm state `dashboard` chứa đầy đủ schema 4 Agent (Arbiter, Sentinel, Vector, Scribe).
+  - Triển khai các actions: `hydrateCouncilState()`, `updateAgentDashboardState()`, và `toggleEmergencyHalt()`.
+  - Đồng bộ hóa sự kiện cập nhật Governor vào state Arbiter, tối ưu cơ chế nạp dữ liệu định kỳ và làm mới toàn diện (`refreshAll`).
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **API Client Service ([`frontend/src/services/api.js`](file:///c:/Users/nguye/Desktop/xau/frontend/src/services/api.js)):**
+     - Bổ sung hàm `fetchAgentCouncilState(includeTest = false)` và alias `fetchAgentCouncilStateApi` gọi tới endpoint `GET /api/v1/agents/council/state`.
+  2. **Reactive Store Mở Rộng ([`frontend/src/stores/agentStore.js`](file:///c:/Users/nguye/Desktop/xau/frontend/src/stores/agentStore.js)):**
+     - Khai báo state phản ứng `dashboard`:
+       - `arbiter`: `permission`, `current_risk_percent`, `sl_multiplier`, `daily_drawdown_pct`, `regime_tag`, `reason_summary`, `hard_breaker_active`.
+       - `sentinel`: `sentiment_score`, `circuit_breaker_active`, `circuit_breaker_status`, `dxy_bias`, `next_event`, `recent_news`.
+       - `vector`: `bias`, `regime`, `confidence`, `rag_similarity`, `pattern_match`, `primary_school`, `suggested_trade_setup`, `action_recommendation`.
+       - `scribe`: `last_trade`, `active_memory_rules`.
+       - Siêu dữ liệu: `lastUpdated`, `loading`.
+     - Action `hydrateCouncilState(includeTest = false)`: Nạp snapshot khởi tạo từ REST API, xử lý an toàn lỗi mạng không làm đứt đoạn UI.
+     - Action `updateAgentDashboardState(payload)`: Tự động trích xuất và merge các trường dữ liệu từ WebSocket event `AGENT_STATE_UPDATE` vào reactive store.
+     - Action `toggleEmergencyHalt(reason)`: Thực hiện ngắt mạch hoặc mở khóa quyền giao dịch khẩn cấp, cập nhật optimistic UI và gọi `overrideParams`.
+     - Đồng bộ hóa `applyGovernorUpdate(event)`: Cập nhật ngay các tham số rủi ro và trạng thái cấp phép của Arbiter khi có sự kiện `governor.update`.
+     - Tích hợp `hydrateCouncilState` vào luồng `refreshAll()`.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Biên dịch Frontend:** Chạy lệnh `npm run build` thành công xuất sắc trong 5.52s, 0 lỗi cú pháp, 0 cảnh báo import.
+  
+### [Phase 03 - Sprint 04 - Task 4]: Phát Triển Component Bàn Điều Hành AgentCouncilDeck.vue
+
+- **Mục tiêu hoàn thành:**
+  - Xây dựng component Bàn điều hành [`AgentCouncilDeck.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/components/AIAnalysis/AgentCouncilDeck.vue) tại thư mục `frontend/src/components/AIAnalysis/`.
+  - Thiết kế 4 panel thu gọn (Accordion) đại diện cho 4 Agent AI: Arbiter, Sentinel, Vector, Scribe.
+  - Tích hợp hệ thống thanh đo trực quan: Risk Meter, Daily Drawdown Gauge (so sánh với rào cứng 3.0%), Sentiment Gradient Gauge (-1.0 đến +1.0) kèm kim trượt, thanh phần trăm Confidence & RAG Similarity, và đồng hồ đếm ngược tin đỏ USD.
+  - Tuân thủ 100% hệ thống Fieldnote Markets Design Tokens (`var(--paper)`, `var(--line)`, `var(--ink)`, `var(--mono)`, `var(--green)`, `var(--lime)`, `var(--red)`).
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Khung Điều Hành & Thanh Công Cụ (Header & Toolbar):**
+     - Tiêu đề `COUNCIL DECK - 4-Agent Executive Syndicate` với biểu tượng sét `Zap` nổi bật.
+     - Nút Mở rộng / Thu gọn toàn bộ 4 panel (`Maximize2` / `Minimize2`).
+     - Nút đồng bộ trạng thái tức thì (`RefreshCw`) với hiệu ứng quay loading mượt mà.
+     - Chỉ báo trạng thái kết nối stream thời gian thực (Pulse Dot), hiển thị giờ cập nhật gần nhất và liên kết nhanh mở giao diện đối thoại `HITL Dialogue`.
+  2. **Card 1 - ARBITER PANEL (Quản Trị Rủi Ro & Phán Quyết Tối Cao):**
+     - Header: Biểu tượng `ShieldCheck` / `ShieldAlert`, huy hiệu giấy phép (`ALLOWED`, `RESTRICTED`, `BLOCKED`).
+     - Thước đo Risk Per Trade (dải 0.25% - 1.50%) và chỉ số nhân biến động `ATR SL Multiplier`.
+     - Thước đo Daily Drawdown so với rào cứng 3.00% Max (tự động đổi màu cảnh báo từ Xanh $\rightarrow$ Cam $\rightarrow$ Đỏ khi Drawdown tăng cao).
+     - Hộp tóm tắt lý do phán quyết (`reason_summary`).
+     - Nút Khóa Khẩn Cấp (HITL Emergency Halt): Tự động đổi màu và hành động giữa `[ KHÓA GIAO DỊCH KHẨN CẤP ]` (Đỏ) và `[ MỞ LẠI QUYỀN GIAO DỊCH ]` (Xanh) kèm trạng thái xử lý bất đồng bộ.
+  3. **Card 2 - SENTINEL PANEL (Tình Báo Vĩ Mô & Ngắt Mạch Tin Tức):**
+     - Header: Biểu tượng `Radar`, huy hiệu Circuit Breaker (`NORMAL`, `APPROACHING`, `HALT ACTIVE`).
+     - Thanh đo Macro Sentiment 3 vùng màu (Bearish / Neutral / Bullish) với kim trượt Needle định vị chính xác điểm số từ -1.00 đến +1.00.
+     - Thẻ xu hướng tương quan USD (`BEARISH_DXY` $\rightarrow$ Vàng +, `BULLISH_DXY` $\rightarrow$ Vàng -).
+     - Đồng hồ đếm ngược thời gian thực sự kiện kinh tế đỏ USD gần nhất.
+     - Bảng tin nóng mini hiển thị tiêu đề và nhãn mức độ khẩn cấp (`CRITICAL`, `HIGH`, `MEDIUM`).
+  4. **Card 3 - VECTOR PANEL (Phân Tích Kỹ Thuật Hợp Lưu & RAG Setup):**
+     - Header: Biểu tượng `Layers`, huy hiệu Structural Bias (`BULLISH`, `BEARISH`, `NEUTRAL`) kèm mũi tên chỉ hướng.
+     - Thanh đo Confidence ($0\% - 100\%$) và RAG Similarity ($0\% - 100\%$) đi kèm nhãn Market Regime và trường phái phân tích (`WYCKOFF`, `SMC`, `PRICE_ACTION`).
+     - Hộp mẫu hình kỹ thuật khớp vector cao nhất trong `pgvector`.
+     - Khung thiết lập lệnh đề xuất (Suggested Trade Setup): Hướng lệnh `BUY`/`SELL`, Vùng giá kích hoạt Entry, SL, TP, và tỷ lệ R:R dự kiến.
+  5. **Card 4 - SCRIBE PANEL (Phản Xạ Học Tập & Bộ Nhớ Quy Tắc):**
+     - Header: Biểu tượng `Brain`, huy hiệu kết quả lệnh vừa đóng (`WIN`, `LOSS`, `NO TRADES`).
+     - Thẻ Post-Mortem lệnh đóng: Mã Ticket, hướng lệnh, PnL thực tế (USD và màu sắc tương ứng), nhãn phân loại sai sót (`mistake_category`), nguyên nhân gốc rễ và bài học đúc kết từ `reflexion_service`.
+     - Danh sách quy tắc đã được thăng cấp vào bộ nhớ dài hạn với icon xác thực.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+  - **Biên dịch Frontend:** `npm run build` hoàn tất xuất sắc trong 5.62s, 0 lỗi cú pháp, 0 cảnh báo.
+  
+### [Phase 03 - Sprint 04 - Task 5]: Tích Hợp Trading Cockpit (App.vue) & Hook Lệnh Đóng Post-Mortem
+
+- **Mục tiêu hoàn thành:**
+  - Nhúng component Bàn điều hành [`AgentCouncilDeck.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/components/AIAnalysis/AgentCouncilDeck.vue) vào cột phải (`aside.right-column`) của màn hình Trading Cockpit chính trong [`App.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/App.vue).
+  - Tái cấu trúc thanh chuyển sub-tabs tại cột phải: `Council Deck` (mặc định), `Dialogue & HITL`, `News & Macro`.
+  - Móc nối sự kiện WebSocket `AGENT_STATE_UPDATE` trong callback `connectMarketStream` của `App.vue` để cập nhật dữ liệu 4 Agent theo thời gian thực.
+  - Gắn hook sự kiện `order.update` để kích hoạt làm mới trạng thái Scribe Post-Mortem tức thì ngay khi lệnh đóng hoặc khớp.
+  - Thiết lập chu kỳ tự động nạp snapshot định kỳ (`agentTimer` 30s) và nạp tức thời khi khởi động (`onMounted`).
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Tích Hợp Giao Diện Cột Phải ([`frontend/src/App.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/App.vue)):**
+     - Import component `AgentCouncilDeck`.
+     - Đặt giá trị mặc định `rightPanelTab = ref('council')`.
+     - Cập nhật nút bấm sub-tab đầu tiên thành `Council Deck` (icon `BrainCircuit`), hỗ trợ tương thích ngược `rightPanelTab === 'agents'`.
+     - Gắn các event handlers: `@open-knowledge="showKnowledgeModal = true"`, `@open-strategy="activeTab = 'strategy'"`, `@open-dialogue="rightPanelTab = 'dialogue'"`.
+  2. **WebSocket & Event Hooks ([`frontend/src/App.vue`](file:///c:/Users/nguye/Desktop/xau/frontend/src/App.vue)):**
+     - Bổ sung nhánh xử lý `if (event.type === 'AGENT_STATE_UPDATE')`: chuyển payload vào `agentStore.updateAgentDashboardState(event.payload)`.
+     - Bổ sung hook trong `if (event.type === 'order.update')`: gọi `agentStore.hydrateCouncilState()` để thẻ Scribe Post-Mortem hiển thị bài học và nguyên nhân lỗi ngay lập tức mà không cần tải lại trang.
+     - Kích hoạt `agentStore.hydrateCouncilState()` ngay khi mount giao diện.
+     - Cập nhật `agentTimer` chu kỳ 30 giây đồng bộ đồng thời `refreshConsensus()` và `hydrateCouncilState()`.
+
+- **Kết Quả Kiểm Thử & Nghiệm Thu:**
+
+### [Phase 03 - Sprint 04 - Task 6]: Kiểm Thử Toàn Diện, Phân Lập D18 & Biên Dịch Hệ Thống (Validation & Build)
+
+- **Mục tiêu hoàn thành:**
+  - Chạy toàn bộ bộ kiểm thử Backend Test Suite trong môi trường container `trading_backend`.
+  - Xác thực nghiêm ngặt chuẩn phân lập kiểm thử D18 (`is_test = TRUE`), không làm rò rỉ dữ liệu test vào môi trường vận hành.
+  - Kiểm tra tính toàn vẹn của REST API live qua lệnh `curl.exe`.
+  - Biên dịch hoàn tất gói mã nguồn sản phẩm Frontend qua lệnh `npm run build`.
+  - Rà soát và nghiệm thu toàn diện 100% tiêu chí Definition of Done (DoD) của Sprint 04.
+
+- **Các Hạng Mục Đã Triển Khai Chi Tiết:**
+  1. **Kiểm Thử Toàn Diện Backend (Full Backend Test Suite):**
+     - Thực thi lệnh: `docker exec trading_backend pytest`.
+     - Kết quả: **144/144 tests PASSED (100%)** trong thời gian 18.04s.
+     - Bao gồm đầy đủ các bộ test: `test_council_aggregator_sprint4.py` (5/5 tests), `test_council_websocket_sprint4.py` (5/5 tests), `test_candle_healer.py` (4/4 tests), và toàn bộ các module lõi từ Sprint 01-03.
+  2. **Bảo Toàn Chuẩn Phân Lập D18:**
+     - Mọi bản ghi tạo ra trong quá trình kiểm thử đều gắn cờ `is_test=True` và được tự động dọn dẹp sạch sẽ bởi database fixtures trong `conftest.py`.
+  3. **Kiểm Thử Live REST API Endpoint:**
+     - Gọi lệnh: `curl.exe -s http://localhost:8000/api/v1/agents/council/state`.
+     - Phản hồi: HTTP 200 OK, trả về cấu trúc payload JSON chuẩn 4 Agent:
+       - `arbiter`: `permission: "ALLOWED"`, `risk: 1.0%`, `daily_drawdown_pct: 0.0%`, `regime_tag: "COMPRESSION_CHOP"`.
+       - `sentinel`: `sentiment_score: 0.02`, `circuit_breaker_status: "NORMAL"`, tin tức gần nhất.
+       - `vector`: `confidence: 72%`, `rag_similarity: 25%`, `pattern_match` ("Wyckoff Method - Phase C Spring Accumulation"), setup đề xuất.
+       - `scribe`: `last_trade` (Ticket #372, PnL, Root Cause, Lesson Learned), các quy tắc thăng cấp trong `active_memory_rules`.
+  4. **Biên Dịch Production Bundle Frontend:**
+     - Thực thi lệnh: `npm run build`.
+     - Kết quả: **Vite build thành công 100% trong 3.52s**, chuyển đổi thành công 1617 modules, 0 lỗi cú pháp.
+  5. **Nghiệm Thu Toàn Diện Definition of Done (DoD):**
+     - Hoàn thành đầy đủ 11/11 tiêu chuẩn nghiệm thu của Sprint 04 trong tài liệu [`Architecture_phase_03_sprint_04.md`](file:///c:/Users/nguye/Desktop/xau/Architecture_phase_03_sprint_04.md).
+
+- **Trạng thái:** Hoàn thành xuất sắc Task 6 & Hoàn Tất Toàn Bộ Phase 03 - Sprint 04.
+
+---
+
+
+
+
+
 ## 2026-10-20 16:50 +07:00
 
 ### [Bug Fix]: Sửa Lỗi API 422 Khi Bấm Nút "Kích Hoạt Theo Setup" Trong Khối Phân Tích Kỹ Thuật SMC
